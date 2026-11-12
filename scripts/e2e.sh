@@ -908,6 +908,7 @@ check  "E42 the tool makes a link"               "$link" '^/__veritell/known/p01
 hdr=$(curl -sk --http2 -D - -o "$WORK/known.html" "$U3$link" | tr -d '\r')
 check  "E42 the link sets the mark"              "$hdr" '^set-cookie: __Host-veritell-known=p01-test\.[0-9a-f]\{32\}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=7776000$'
 check  "E42 and says what it did"                "$(cat "$WORK/known.html")" 'marked <b>p01-test</b>'
+check  "E42 then goes on to the site"            "$(cat "$WORK/known.html")" 'http-equiv=refresh content="3; url=/"'
 check  "E42 the enrolment is logged"             "$(cat "$WORK/known.log")" '"kind":"known_enrolled","known":"p01-test"'
 mark=$(printf '%s\n' "$hdr" | sed -n 's/^set-cookie: \([^;]*\);.*/\1/p')
 refute "E42 a forged link sets nothing"          "$(curl -sk --http2 -D - -o /dev/null "$U3/__veritell/known/p01-test/00000000000000000000000000000000" | tr -d '\r')" 'set-cookie: __Host-veritell-known'

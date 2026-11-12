@@ -1687,9 +1687,15 @@ impl ProxyHttp for Gateway {
             if f.method == "GET" {
                 if let Some(label) = key.label_from_path(&f.path) {
                     println!("{}", serde_json::json!({ "ts": now, "kind": "known_enrolled", "known": label }));
+                    // The page goes on to the site's home page after a few
+                    // seconds, so the person can start browsing straight away.
+                    // The label is [a-z0-9-] only (label_from_path), so it is
+                    // safe in the page as it is.
                     let body = format!(
-                        "<!doctype html><meta charset=utf-8><title>Marked</title><p>This browser is now marked <b>{label}</b> \
-                         for measuring this site's bot detection. Nothing else changes. To undo it, clear this site's cookies.</p>"
+                        "<!doctype html><meta charset=utf-8><meta http-equiv=refresh content=\"3; url=/\"><title>Marked</title>\
+                         <p>This browser is now marked <b>{label}</b> \
+                         for measuring this site's bot detection. Nothing else changes. To undo it, clear this site's cookies.</p>\
+                         <p><a href=\"/\">Continue to the site</a></p>"
                     );
                     let cookie = key.set_cookie(label);
                     self.respond(session, 200, "text/html; charset=utf-8", body.into_bytes(), &[("set-cookie", cookie)])
