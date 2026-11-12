@@ -156,6 +156,22 @@ fn ends_with_ci(s: &str, suffix: &str) -> bool {
 /// A known crawler's name, or that name with a suffix after a hyphen
 /// (`Googlebot-Image`, `Googlebot-News`, `Baiduspider-image`): the same
 /// crawler family, and the same claim to verify.
+/// iOS's own HTTP client for site icons:
+/// `NetworkingExtension/<v> Network/<v> iOS/<v>`, those three products and
+/// nothing else.
+fn is_ios_system_fetcher(ua: &str) -> bool {
+    let parts: Vec<&str> = ua.split(' ').collect();
+    let product = |p: &str, name: &str| {
+        p.strip_prefix(name)
+            .and_then(|v| v.strip_prefix('/'))
+            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit() || b == b'.'))
+    };
+    parts.len() == 3
+        && product(parts[0], "NetworkingExtension")
+        && product(parts[1], "Network")
+        && product(parts[2], "iOS")
+}
+
 fn is_known_bot(name: &str) -> bool {
     KNOWN_BOTS.iter().any(|k| {
         name.eq_ignore_ascii_case(k)
@@ -450,6 +466,21 @@ impl TruthTable {
         })
     }
 
+    /// Whether the TLS cipher hash, HTTP/2 settings and pseudo-header order
+    /// are all present and all among WebKit's known values.
+    fn is_webkit_stack(&self, obs: &Observed<'_>) -> bool {
+        let truth = &self.engines.webkit;
+        let known = |dim: &Dimension, v: &str| !dim.values.is_empty() && dim.values.iter().any(|x| x == v);
+        let (Some(hash), Some((settings, order))) =
+            (obs.ja4.and_then(ja4_cipher_hash), obs.h2_akamai.and_then(h2_parts))
+        else {
+            return false;
+        };
+        known(&truth.ja4_cipher_hash, hash)
+            && known(&truth.h2_settings, settings)
+            && known(&truth.h2_pseudo_order, order)
+    }
+
     fn engine(&self, engine: Engine) -> &EngineTruth {
         match engine {
             Engine::Chromium => &self.engines.chromium,
@@ -509,6 +540,13 @@ impl TruthTable {
                 return out;
             }
             UaKind::Unknown => {
+                // iOS fetches a site's icons itself (tabs, bookmarks, the
+                // share sheet) as "NetworkingExtension/… iOS/…", over the
+                // same network stack as Safari. It passes only when TLS and
+                // HTTP/2 are both WebKit's: the User-Agent alone earns nothing.
+                if obs.user_agent.is_some_and(is_ios_system_fetcher) && self.is_webkit_stack(obs) {
+                    return Vec::new();
+                }
                 return vec![Detection::new(
                     "ua_unknown",
                     net,
