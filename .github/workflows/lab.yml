@@ -7,10 +7,9 @@ on:
   push:
   # Run it by hand from the Actions tab or with `gh workflow run lab`.
   workflow_dispatch:
-  # The nightly run is paused while the repository is private (Actions
-  # minutes). Restore it when the repository goes public:
-  # schedule:
-  #   - cron: "17 3 * * *"
+  # Nightly, so a change in Chrome or a lab tool shows the next morning.
+  schedule:
+    - cron: "17 3 * * *"
 permissions:
   contents: read
 # A newer push replaces a run still in progress (saves Actions minutes).
