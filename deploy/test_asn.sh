@@ -73,7 +73,7 @@ eq "  no restart"                           "$(ups)" 0
 
 # ---- the same file again, the gateway running ----
 eq "the same file again"                    "$(STUB_PS=$GW run_asn good.tsv.gz)" 0
-eq "  is said to be unchanged"              "$(grep -c 'unchanged (6 ranges)' "$T/out")" 1
+eq "  is said to be unchanged"              "$(grep -c 'unchanged (5 ranges)' "$T/out")" 1
 eq "  and does not restart the gateway"     "$(ups)" 0
 
 # ---- refused files keep the one in place ----

@@ -215,8 +215,9 @@ asn_check() {
     }' "$1"
 }
 
-# asn_rows FILE: the number of non-empty rows.
-asn_rows() { grep -c . "$1" 2>/dev/null || echo 0; }
+# asn_rows FILE: the number of routed ranges, the number the gateway loads and
+# logs: rows with AS 0 (not routed) are skipped, as the gateway skips them.
+asn_rows() { awk -F'\t' '$3 ~ /[0-9]/ && $3 + 0 != 0 { n++ } END { print n + 0 }' "$1" 2>/dev/null || echo 0; }
 
 # asn_fetch: download ASN_DB_URL (gzipped when it ends in .gz) into
 # asn/ip2asn.tsv.new and check it. 0 when that file is good; 1, with the

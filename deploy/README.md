@@ -221,8 +221,9 @@ penalty 20). Without a database every event has `asn` 0 and `net_class`
 `unknown`, and `net_hosting` never fires.
 
 `asn.sh` downloads [iptoasn.com](https://iptoasn.com)'s `ip2asn-combined.tsv.gz`
-(public domain, PDDL 1.0; about 11 MB, about 720 000 ranges, some 55 MB
-unpacked) into `asn/ip2asn.tsv`, which the compose files mount read-only;
+(public domain, PDDL 1.0; about 11 MB, some 55 MB unpacked; about 720 000
+rows, 580 000 of them routed ranges, the count `status.sh` and the gateway
+show) into `asn/ip2asn.tsv`, which the compose files mount read-only;
 `kit.env`'s `VERITELL_ASN_DB` holds its path in the container, or is empty
 for none. It refuses a file that is not a gzip, has a row the gateway would
 not read, or has fewer than 100 000 rows, and keeps the one in place.
