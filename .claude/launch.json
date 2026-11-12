@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "behaviour-recorder",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "lab/record.mjs",
+        "--port",
+        "8765"
+      ],
+      "port": 8765
+    }
+  ]
+}

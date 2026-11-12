@@ -1,0 +1,9 @@
+[package]
+name = "veritell-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true

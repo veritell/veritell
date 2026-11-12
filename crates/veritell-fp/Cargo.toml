@@ -1,0 +1,13 @@
+[package]
+name = "veritell-fp"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sha2.workspace = true
+loona-hpack = "0.4"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }

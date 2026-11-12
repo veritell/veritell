@@ -1,0 +1,13 @@
+{
+  "name": "veritell-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lab": "node run.mjs"
+  },
+  "optionalDependencies": {
+    "patchright": "^1.64.3",
+    "playwright-core": "^1.50.0",
+    "puppeteer-core": "^25.17.0"
+  }
+}

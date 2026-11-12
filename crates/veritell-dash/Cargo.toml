@@ -1,0 +1,14 @@
+[package]
+name = "veritell-dash"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+veritell-events.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+veritell-core.workspace = true

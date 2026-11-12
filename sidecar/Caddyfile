@@ -1,0 +1,52 @@
+# Example Caddy v2 configuration for Veritell sidecar mode (see sidecar/README.md).
+# It is an example to adapt. It listens on plain HTTP 127.0.0.1:8000, asks the
+# sidecar endpoint for each request with forward_auth, and proxies to the
+# upstream on 127.0.0.1:8080.
+#
+# Start the gateway with:
+#   --sidecar-listen 127.0.0.1:9191 --trusted-proxy 127.0.0.1
+# Run this file with:
+#   caddy run --config sidecar/Caddyfile --adapter caddyfile
+
+{
+	auto_https off
+}
+
+http://127.0.0.1:8000 {
+	# Gateway pages (probe, behaviour script, challenge): no sidecar check.
+	handle /__veritell/* {
+		reverse_proxy https://127.0.0.1:8443 {
+			transport http {
+				# Local example only: the gateway's certificate is not verified.
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	handle {
+		# request_header is meant to replace any client-supplied X-Forwarded-For
+		# with the socket peer before forward_auth runs. sidecar/check.sh does not
+		# test this (it checks pass, refuse, the probe path and the score): check
+		# it with `caddy adapt` before relying on it.
+		request_header X-Forwarded-For {remote_host}
+
+		# forward_auth sets X-Forwarded-* and passes the client's other
+		# headers on, so a client could add its own X-Original-* (the endpoint
+		# refuses a call where they disagree with X-Forwarded-*) or X-Veritell-*
+		# (which would reach the upstream when the answer lacks that header).
+		request_header -X-Original-URI
+		request_header -X-Original-Method
+		request_header -X-Original-Host
+		request_header -X-Veritell-*
+
+		# forward_auth sends X-Forwarded-Method and X-Forwarded-Uri itself.
+		forward_auth 127.0.0.1:9191 {
+			uri /__veritell/authz
+			# X-Veritell-Receipt is "unverified" when the request claims a
+			# payment receipt; the upstream checks the receipt itself.
+			copy_headers X-Veritell-Score X-Veritell-Class X-Veritell-Detections X-Veritell-Action X-Veritell-Receipt
+		}
+
+		reverse_proxy 127.0.0.1:8080
+	}
+}

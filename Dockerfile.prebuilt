@@ -1,0 +1,22 @@
+# Runtime image around a gateway binary built elsewhere, for a host that
+# should not compile it (a small VPS). Cross-compile on a workstation:
+#   rustup target add --toolchain stable x86_64-unknown-linux-gnu
+#   cargo +stable zigbuild --release --target x86_64-unknown-linux-gnu.2.36 -p veritell-proxy
+# then copy target/x86_64-unknown-linux-gnu/release/veritell next to this
+# file on the host and build there:
+#   docker build -f Dockerfile.prebuilt -t veritell .
+# glibc 2.36 is what bookworm ships, so the binary runs in this image and on
+# any newer distribution.
+FROM debian:bookworm-slim
+# A fixed id, so the host can own the state and certificate folders for it.
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin veritell
+# The roots for --upstream-tls, when the upstream has a public certificate.
+# libcap2-bin for setcap: in the kit's port mode the gateway, a user without
+# root on the host's network, takes port 443 itself.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libcap2-bin \
+    && rm -rf /var/lib/apt/lists/*
+COPY veritell /usr/local/bin/veritell
+RUN setcap cap_net_bind_service=+ep /usr/local/bin/veritell
+USER veritell
+EXPOSE 8443
+ENTRYPOINT ["veritell", "--listen", "0.0.0.0:8443", "--cert", "/certs/cert.pem", "--key", "/certs/key.pem"]

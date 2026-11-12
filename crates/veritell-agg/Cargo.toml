@@ -1,0 +1,11 @@
+[package]
+name = "veritell-agg"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+veritell-core.workspace = true
+getrandom = "0.4"
+siphasher = "1"

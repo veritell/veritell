@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "note": "Authored by the project lead from reports captured on this project's bench with probe/test/run.mjs (see probe/test/captured-*.json). Observed 2026-11-09 on macOS arm64: Chromium 149 (Chrome for Testing, headless) and Firefox 159 (headless); main world, iframe and worker agreed in both. Only dimensions that differed between the two engines are listed. `math` was identical in both and `error_capture_stack_trace` was true in both, so neither is used. One version of each engine is thin evidence: older releases may word the error differently and would then be flagged. Observed 2026-11-10: Safari 27.2 on macOS 27.2 (by hand, with run.mjs manual); main world, iframe and worker agreed. WebKit alone sets `error_line`, so it is listed for WebKit. Its `math` differs from the other two in the last digit, but it may depend on the CPU and the system library, so it is not used. Verified the same day: Safari 27.2, DuckDuckGo 27.2 and Firefox Focus 155 on an iPhone (iOS 27.2) ran the probe through the gateway with no engine_mismatch. Do not add values from memory.",
+  "profiles": [
+    {
+      "engine": "blink",
+      "verified": true,
+      "err_msg": ["Cannot read properties of null (reading 'x')"],
+      "eval_len": [33],
+      "stack_at": true,
+      "features": { "intl_v8_break_iterator": true, "internal_error": false, "error_line_number": false }
+    },
+    {
+      "engine": "gecko",
+      "verified": true,
+      "err_msg": ["can't access property \"x\", n is null"],
+      "eval_len": [37],
+      "stack_at": false,
+      "features": { "intl_v8_break_iterator": false, "internal_error": true, "error_line_number": true }
+    },
+    {
+      "engine": "webkit",
+      "verified": true,
+      "err_msg": ["null is not an object (evaluating 'n.x')"],
+      "eval_len": [37],
+      "stack_at": false,
+      "features": { "intl_v8_break_iterator": false, "internal_error": false, "error_line_number": false, "error_line": true }
+    }
+  ]
+}

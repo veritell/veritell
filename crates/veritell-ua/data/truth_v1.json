@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "note": "Authored by the project lead. `verified: true` means the values were observed on this project's own test bench. `verified: false` means recalled from public write-ups and not yet confirmed; such dimensions produce weak detections only. Do not add values from memory. Observed 2026-11-09: Chromium 149 (Chrome for Testing) and Chromium 152 (Electron), Firefox 159, all on macOS arm64. Chromium and Firefox currently share the same cipher hash, so this dimension cannot tell them apart; the JA4 extension hash can, but it varies between Chromium builds and is not in the table yet. Observed 2026-11-10: WebKit from Safari 27.2, DuckDuckGo 27.2 and Firefox Focus 155 on an iPhone (iOS 27.2), and Safari 27.2 and DuckDuckGo 27.2 on macOS 27.2; all five sent the same values. Firefox 159 on macOS matched the gecko entry again. The earlier unverified WebKit pseudo-order m,s,p,a was recalled, not observed, and is dropped.",
+  "engines": {
+    "chromium": {
+      "ja4_cipher_hash": { "verified": true, "values": ["8daaf6152771"] },
+      "h2_settings": { "verified": true, "values": ["1:65536;2:0;4:6291456;6:262144"] },
+      "h2_pseudo_order": { "verified": true, "values": ["m,a,s,p"] }
+    },
+    "gecko": {
+      "ja4_cipher_hash": { "verified": true, "values": ["8daaf6152771"] },
+      "h2_settings": { "verified": true, "values": ["1:65536;2:0;4:131072;5:16384"] },
+      "h2_pseudo_order": { "verified": true, "values": ["m,p,a,s"] }
+    },
+    "webkit": {
+      "ja4_cipher_hash": { "verified": true, "values": ["a09f3c656075"] },
+      "h2_settings": { "verified": true, "values": ["2:0;3:100;4:2097152;9:1"] },
+      "h2_pseudo_order": { "verified": true, "values": ["m,s,a,p"] }
+    }
+  },
+  "tools": [
+    { "name": "curl (LibreSSL, macOS system build)", "ja4_cipher_hash": "0d8feac7bc37" }
+  ]
+}

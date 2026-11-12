@@ -1,0 +1,12 @@
+[package]
+name = "veritell-policy"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+veritell-core.workspace = true
+serde.workspace = true
+cel = "0.15.0"
+serde_yaml_ng = "0.10.0"

@@ -1,0 +1,108 @@
+{
+  "v": 1,
+  "nonce": "test-nonce",
+  "main": {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+    "platform": "MacIntel",
+    "languages": [
+      "en-GB"
+    ],
+    "hc": 8,
+    "webdriver": false,
+    "uad": null,
+    "engine": {
+      "err_msg": "null is not an object (evaluating 'n.x')",
+      "eval_len": 37,
+      "stack_at": false,
+      "features": {
+        "error_capture_stack_trace": true,
+        "error_stack_trace_limit": true,
+        "intl_v8_break_iterator": false,
+        "fn_to_source": false,
+        "internal_error": false,
+        "error_line_number": false,
+        "error_line": true
+      },
+      "math": "-1.4214488238747243,1.1752011936438014,1.7182818284590453,11013.232920103323,0.5493061443340549"
+    },
+    "tamper": []
+  },
+  "iframe": {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+    "platform": "MacIntel",
+    "languages": [
+      "en-GB"
+    ],
+    "hc": 8,
+    "webdriver": false,
+    "uad": null,
+    "engine": {
+      "err_msg": "null is not an object (evaluating 'n.x')",
+      "eval_len": 37,
+      "stack_at": false,
+      "features": {
+        "error_capture_stack_trace": true,
+        "error_stack_trace_limit": true,
+        "intl_v8_break_iterator": false,
+        "fn_to_source": false,
+        "internal_error": false,
+        "error_line_number": false,
+        "error_line": true
+      },
+      "math": "-1.4214488238747243,1.1752011936438014,1.7182818284590453,11013.232920103323,0.5493061443340549"
+    },
+    "tamper": []
+  },
+  "worker": {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+    "platform": "MacIntel",
+    "languages": [
+      "en-GB"
+    ],
+    "hc": 8,
+    "webdriver": null,
+    "uad": null,
+    "engine": {
+      "err_msg": "null is not an object (evaluating 'n.x')",
+      "eval_len": 37,
+      "stack_at": false,
+      "features": {
+        "error_capture_stack_trace": true,
+        "error_stack_trace_limit": true,
+        "intl_v8_break_iterator": false,
+        "fn_to_source": false,
+        "internal_error": false,
+        "error_line_number": false,
+        "error_line": true
+      },
+      "math": "-1.4214488238747243,1.1752011936438014,1.7182818284590453,11013.232920103323,0.5493061443340549"
+    },
+    "tamper": []
+  },
+  "page": {
+    "plugins": 5,
+    "screen": [
+      1470,
+      956,
+      1470,
+      923
+    ],
+    "window": [
+      1467,
+      742,
+      1467,
+      832
+    ],
+    "dpr_x100": 200,
+    "touch_points": 0,
+    "chrome_obj": false,
+    "notif_permission": "default",
+    "perm_query_notif": "prompt",
+    "tz": "Europe/Paris",
+    "tz_offset_min": -60,
+    "webgl_vendor": "Apple Inc.",
+    "webgl_renderer": "Apple GPU",
+    "globals": []
+  },
+  "errors": []
+}

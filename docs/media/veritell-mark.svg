@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Veritell">
+  <!-- Mark A: the highlighter swipe (chisel ends), then the ink stroke over it. -->
+  <path d="M44.5 12 L52.5 12 L36.5 52 L28.5 52 Z" fill="#F5CF3A"/>
+  <path d="M14 14 L32 50" stroke="#15202B" stroke-width="7.5" stroke-linecap="round" fill="none"/>
+</svg>

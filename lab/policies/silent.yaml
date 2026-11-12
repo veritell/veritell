@@ -1,0 +1,8 @@
+# Enforce mode: every request without a session token gets the silent challenge
+# (probe plus trivial proof of work, then a cookie and a redirect back).
+mode: enforce
+routes:
+  - name: silent
+    rules:
+      - when: "!has_token"
+        action: challenge(silent)

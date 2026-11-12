@@ -1,0 +1,17 @@
+[package]
+name = "veritell-directory"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+veritell-wba.workspace = true
+serde_json.workspace = true
+ureq = "2"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+webpki-roots = "0.26"
+
+[dev-dependencies]
+base64 = "0.22"

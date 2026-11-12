@@ -1,0 +1,19 @@
+[package]
+name = "veritell-events"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+veritell-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq = "2"
+hmac = "0.12"
+sha2.workspace = true
+getrandom = "0.4"
+
+[dev-dependencies]
+hmac = "0.12"
+sha2.workspace = true

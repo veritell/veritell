@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "layers": ["identity", "network", "client", "behavior", "population"],
+  "ids": [
+    "ua_declared_tool", "ua_declared_bot", "ua_headless", "ua_missing", "ua_unknown",
+    "tls_known_tool", "missing_client_hints", "missing_accept_language", "missing_sec_fetch",
+    "net_hosting", "bot_unverified", "crawler_spoofed",
+    "probe_missing", "webdriver_true", "native_tampered", "realm_mismatch", "uad_mismatch",
+    "http_ua_mismatch", "automation_globals",
+    "behavior_no_input", "behavior_pointer_scripted", "behavior_click_centered",
+    "behavior_cadence_fixed", "behavior_agent_rhythm",
+    "cluster_fp_spread", "cluster_net_fanout", "client_rejections", "route_rate_surge"
+  ]
+}

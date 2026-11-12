@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tampered</title>
+<script>
+// Two typical stealth modifications, applied before the probe loads.
+Object.defineProperty(Navigator.prototype, "webdriver", {
+  get: function () { return false; },
+  configurable: true
+});
+Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
+</script>
+<p>tampered test page</p>
+<script src="/probe.js"></script>

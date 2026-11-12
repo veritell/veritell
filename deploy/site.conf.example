@@ -1,0 +1,87 @@
+# Copy to site.conf on the host and fill in. Read by install.sh, cutover.sh,
+# rollback.sh and the other scripts. Never committed: it names the site.
+#
+# FRONT says how the gateway gets in front of the site (README.md, "Modes"):
+#   redirect   a firewall rule sends port 443 to the gateway; the site is untouched
+#   port       the site moves to another port with your two commands; the gateway takes 443
+#   compose    a Docker Compose site whose nginx container moves off 443
+# A missing FRONT means compose. Fill in the common part and one section.
+FRONT=redirect
+
+# ---- Common to all modes ----------------------------------------------------
+# A name on the certificate, used for the checks.
+SITE_HOST=example.com
+# The public HTTPS port.
+PUBLIC_PORT=443
+
+# ---- redirect and port ------------------------------------------------------
+# The certificate and key the gateway presents. The kit copies them (for the
+# gateway's user) and copies them again when their checksums change. The
+# certificate must cover every name this host serves on port 443.
+CERT_FULLCHAIN=/etc/letsencrypt/live/example.com/fullchain.pem
+CERT_KEY=/etc/letsencrypt/live/example.com/privkey.pem
+# Where the real site answers, as the gateway reaches it, and how: TLS (on) or
+# plain HTTP (off). In redirect mode the site keeps 443. In port mode it is a
+# local port the site answers on all the time, beside 443: install.sh checks
+# the gateway reaches it before anything public changes.
+UPSTREAM=127.0.0.1:443
+UPSTREAM_TLS=on
+# The CA that signed the site's certificate, if it is not a public one (a file
+# on this host; the kit copies it). Leave out for the system roots.
+#UPSTREAM_CA=/etc/ssl/my-ca.pem
+# The host's own address as visitors reach it; used for the checks. Left out,
+# it is the source address of the route to the internet.
+#PUBLIC_ADDR=203.0.113.10
+# IPv6 firewall rules (redirect): auto (when the host has IPv6 and ip6tables),
+# on or off.
+#IPV6=auto
+
+# ---- redirect only ----------------------------------------------------------
+# The gateway listens here; the firewall sends PUBLIC_PORT to it. Port 8443
+# opened directly stays closed.
+GATEWAY_PORT=8443
+
+# ---- port only --------------------------------------------------------------
+# Your commands. The site answers on UPSTREAM (e.g. 127.0.0.1:8444) all the
+# time; SITE_RELEASE_CMD makes it stop listening on PUBLIC_PORT, and
+# SITE_RESTORE_CMD makes it listen there again. They are eval'ed as root.
+# Example for nginx: the HTTPS server block has `listen 127.0.0.1:8444 ssl;`
+# and `include /etc/nginx/veritell-listen.conf;`, a symlink to a file with the
+# public listen lines or to an empty one (see client-address.md):
+#SITE_RELEASE_CMD="ln -sfn /etc/nginx/veritell-listen-none.conf /etc/nginx/veritell-listen.conf && nginx -t && systemctl reload nginx"
+#SITE_RESTORE_CMD="ln -sfn /etc/nginx/veritell-listen-public.conf /etc/nginx/veritell-listen.conf && nginx -t && systemctl reload nginx"
+
+# ---- compose only -----------------------------------------------------------
+# (For FRONT=compose, leave out CERT_FULLCHAIN, CERT_KEY, UPSTREAM and the
+# redirect and port sections.)
+# The site's Compose project: its folder, how it is run, the env file that
+# Compose reads WEB_HTTPS_PUBLISH from, and its web service.
+#SITE_DIR=/home/me/mysite
+#SITE_COMPOSE="docker compose --env-file .env.production -f docker-compose.prod.yml"
+# How the kit runs Compose (it runs as root). If the Compose plugin is
+# installed for one user only (~/.docker/cli-plugins), root does not have
+# `docker compose`: point both at the plugin's binary, which also runs on its
+# own, e.g.
+#   DOCKER_COMPOSE=/home/me/.docker/cli-plugins/docker-compose
+#   SITE_COMPOSE="$DOCKER_COMPOSE --env-file .env.production -f docker-compose.prod.yml"
+#DOCKER_COMPOSE="docker compose"
+#SITE_ENV_FILE=.env.production
+#SITE_WEB_SERVICE=web
+# The site's network and where its web container takes plain HTTP from the
+# gateway (the server block on 8081).
+#SITE_NETWORK=mysite_default
+#SITE_UPSTREAM=web:8081
+# /etc/letsencrypt/live/<CERT_NAME>/
+#CERT_NAME=example.com
+#LETSENCRYPT_LIVE=/etc/letsencrypt/live
+# Where nginx's own HTTPS goes while the gateway holds the public port (host only).
+#NGINX_LOCAL_HTTPS=127.0.0.1:8444
+
+# ---- Other sites on this host (optional, all modes) -------------------------
+# The gateway serves more than one site: each name below gets its own
+# certificate by SNI (copied from LETSENCRYPT_LIVE/<name>/, default
+# /etc/letsencrypt/live), and HOST_UPSTREAMS sends its requests to its own
+# plain-HTTP upstream. Names not listed keep the certificate and the upstream
+# above. Run install.sh again after changing these.
+#EXTRA_CERT_NAMES="example.org"
+#HOST_UPSTREAMS="example.org=other-site:80,www.example.org=other-site:80"

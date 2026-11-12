@@ -1,0 +1,11 @@
+[package]
+name = "veritell-token"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sha2.workspace = true
+hmac = "0.12"
+getrandom = "0.4.3"

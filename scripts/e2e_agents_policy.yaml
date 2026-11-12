@@ -1,0 +1,41 @@
+mode: enforce
+quotas:
+  identities:
+    rfc-test-agent: 7
+offers:
+  crawl:
+    price: "0.002"
+    currency: USD
+    unit: request
+    terms: https://shop.example/agents/terms
+  bulk:
+    price: "15"
+    currency: EUR
+    unit: day-pass
+    terms: https://shop.example/agents/bulk
+    receipt_header: payment-receipt
+routes:
+  - name: rate
+    match: path.startsWith("/rate")
+    rules:
+      - when: identity != ""
+        action: throttle(2/min)
+  - name: quota
+    match: path.startsWith("/quota")
+    rules:
+      - when: quota_left == 0
+        action: block
+  - name: paid
+    match: path.startsWith("/paid")
+    rules:
+      - when: 'true'
+        action: charge(crawl)
+      - when: 'true'
+        action: block
+  - name: receipt
+    match: path.startsWith("/receipt")
+    rules:
+      - when: 'true'
+        action: charge(bulk)
+  - name: open
+    rules: []

@@ -1,0 +1,11 @@
+mode: enforce
+routes:
+  - name: open
+    match: path.startsWith("/open")
+    rules: []
+  - name: everything-else
+    rules:
+      - when: class == "malicious"
+        action: block
+      - when: score < 60
+        action: challenge(pow)

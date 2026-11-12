@@ -1,0 +1,16 @@
+{"ts":"2026-11-02 10:00:00.100","kind":"request","ip":"k:aa","ja4":"J1","user_agent":"Mozilla/5.0 Chrome/149","detection_ids":[],"action":"pass","path":"/","known":"p1-laptop","class":"human","score":99}
+{"ts":"2026-11-02 10:00:05.000","kind":"request","ip":"k:aa","ja4":"J1","user_agent":"Mozilla/5.0 Chrome/149","detection_ids":["missing_accept_language"],"action":"challenge(pow)","path":"/shop","known":"p1-laptop","class":"human","score":55}
+{"ts":"2026-11-02 10:00:06.000","kind":"probe","ip":"k:aa","ja4":"J1","user_agent":"Mozilla/5.0 Chrome/149","detection_ids":[],"action":"","path":"/__veritell/probe","known":"p1-laptop"}
+{"ts":"2026-11-02 11:00:00.000","kind":"request","ip":"k:bb","ja4":"J2","user_agent":"python-requests/2.32","detection_ids":["ua_declared_tool","tls_known_tool"],"action":"block","path":"/wp-login.php","class":"automated","score":10}
+{"ts":"2026-11-02 11:00:01.000","kind":"request","ip":"k:bb","ja4":"J2","user_agent":"python-requests/2.32","detection_ids":["ua_declared_tool"],"action":"block","path":"/.env","class":"automated","score":20}
+
+{"ts":"2026-11-02 11:00:02.000","kind":"request","ip":"k:bb","ja4":"J2","user_agent":"python-requests/2.32","detection_ids":["ua_declared_tool"],"action":"block","path":"/.env","class":"automated","score":20}
+{"ts":"2026-11-02 12:00:00.000","kind":"request","ip":"k:gg","ja4":"J3","user_agent":"Googlebot/2.1","detection_ids":[],"action":"pass","path":"/","class":"verified_bot","score":95,"identity":"googlebot"}
+{"ts":"2026-11-02 13:00:00.000","kind":"request","ip":"k:dd","ja4":"J1","user_agent":"Mozilla/5.0 Firefox/150","detection_ids":[],"action":"pass","path":"/","class":"human","score":97}
+{"ts":"2026-11-02 13:00:00.500","kind":"request","ip":"k:dd","ja4":"J1","user_agent":"Mozilla/5.0 Firefox/150","detection_ids":[],"action":"pass","path":"/app.js","class":"human","score":97}
+{"ts":"2026-11-02 13:00:01.000","kind":"probe","ip":"k:dd","ja4":"J1","user_agent":"Mozilla/5.0 Firefox/150","detection_ids":[],"action":"","path":"/__veritell/probe"}
+{"ts":"2026-11-02 14:00:00.000","kind":"request","ip":"k:ee","ja4":"J1","user_agent":"Mozilla/5.0 Safari/27","detection_ids":["h2_settings_mismatch"],"action":"challenge(pow)","path":"/login","class":"human","score":55}
+{"ts":"2026-11-02 14:00:00.500","kind":"request","ip":"k:ee","ja4":"J1","user_agent":"Mozilla/5.0 Safari/27","detection_ids":[],"action":"pass","path":"/app.css","class":"human","score":97}
+{"ts_ms":1793700000000,"kind":"request","ip":"k:bb","ja4":"J2","user_agent":"python-requests/2.32","detections":[{"id":"ua_declared_tool","layer":"http"}],"action":"block","path":"/.env","class":"automated","score":20}
+{"ts":"2026-11-03 10:00:00.000","kind":"request","ip":"k:ff","ja4":"J4","user_agent":"curl/8.7","detection_ids":["ua_declared_tool"],"action":"challenge(pow)","path":"/","class":"automated","score":45}
+{"ts":"2026-11-03 11:00:00.000","kind":"request","ip":"k:hh","ja4":"J5","user_agent":"evil\u001b[31m<script>alert(1)</script>\\","detection_ids":["tls_known_tool"],"action":"block","path":"/<img src=x>","class":"malicious","score":0}

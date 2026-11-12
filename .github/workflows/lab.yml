@@ -1,0 +1,58 @@
+# Runs the bot lab (lab/run.mjs) against a release build of the gateway. Known
+# detection gaps (knownGap in lab/scenarios.mjs) are reported, not failed; any
+# other failure fails the run. Optional tools (Patchright, nodriver, Selenium,
+# curl_cffi) are not installed here, so their scenarios show as not run.
+name: lab
+on:
+  push:
+  # Run it by hand from the Actions tab or with `gh workflow run lab`.
+  workflow_dispatch:
+  # The nightly run is paused while the repository is private (Actions
+  # minutes). Restore it when the repository goes public:
+  # schedule:
+  #   - cron: "17 3 * * *"
+permissions:
+  contents: read
+# A newer push replaces a run still in progress (saves Actions minutes).
+concurrency:
+  group: lab-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      # Keep the build cache even when the lab fails, so the next run starts warm.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1.7.3
+        id: chrome
+        with:
+          chrome-version: stable
+      - uses: browser-actions/setup-firefox@0bc507ddf224827e3b1af68e014d5e42ab93e795 # v1.7.2
+        id: firefox
+      # Ubuntu's runner images block the unprivileged user namespaces Chrome's
+      # sandbox needs, and Chrome then exits at once. Allow them, so Chrome
+      # runs as it does on a desktop rather than with --no-sandbox.
+      - name: Let Chrome use its sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build gateway
+        run: cargo build --release -p veritell-proxy
+      - name: Run lab
+        run: |
+          export CHROME_BIN="${{ steps.chrome.outputs.chrome-path }}"
+          export FIREFOX_BIN="${{ steps.firefox.outputs.firefox-path }}"
+          # No GPU here: a human browser reports software rendering, which is true.
+          export LAB_SOFTWARE_GPU=1
+          xvfb-run -a node lab/run.mjs --json lab-results.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: lab-results
+          path: lab-results.json

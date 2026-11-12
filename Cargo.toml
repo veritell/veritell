@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+# 1.99: AtomicU64::try_update and the as_chunks lints.
+rust-version = "1.99"
+license = "AGPL-3.0-only"
+version = "0.1.0"
+
+[workspace.dependencies]
+veritell-core = { path = "crates/veritell-core" }
+veritell-fp = { path = "crates/veritell-fp" }
+veritell-ua = { path = "crates/veritell-ua" }
+veritell-identity = { path = "crates/veritell-identity" }
+veritell-policy = { path = "crates/veritell-policy" }
+veritell-token = { path = "crates/veritell-token" }
+veritell-wba = { path = "crates/veritell-wba" }
+veritell-probe = { path = "crates/veritell-probe" }
+veritell-events = { path = "crates/veritell-events" }
+veritell-dash = { path = "crates/veritell-dash" }
+veritell-feed = { path = "crates/veritell-feed" }
+veritell-probe-build = { path = "crates/veritell-probe-build" }
+veritell-behavior = { path = "crates/veritell-behavior" }
+veritell-agg = { path = "crates/veritell-agg" }
+veritell-model = { path = "crates/veritell-model" }
+veritell-quota = { path = "crates/veritell-quota" }
+veritell-directory = { path = "crates/veritell-directory" }
+veritell-privacypass = { path = "crates/veritell-privacypass" }
+veritell-share = { path = "crates/veritell-share" }
+veritell-persist = { path = "crates/veritell-persist" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+async-trait = "0.1"
+tokio = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4

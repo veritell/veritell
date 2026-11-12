@@ -1,0 +1,12 @@
+[package]
+name = "veritell-privacypass"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sha2.workspace = true
+hmac = "0.12"
+base64 = "0.22"
+ring = "0.17"

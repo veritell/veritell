@@ -1,0 +1,14 @@
+# Shadow: every request is scored and what this policy would do is logged
+# (`action`, `enforced: false`); nothing is challenged or blocked. Thresholds
+# are the gateway's defaults until a threshold review of your own
+# traffic says otherwise.
+mode: shadow
+routes:
+  - name: everything
+    rules:
+      - when: class == "malicious"
+        action: block
+      - when: score < 30
+        action: block
+      - when: score < 60
+        action: challenge(pow)

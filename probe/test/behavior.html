@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>behaviour test</title>
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  #wrap { padding: 20px; }
+  #btn, #sub { width: 120px; height: 40px; display: block; margin: 10px 0; padding: 0; box-sizing: border-box; }
+  #cb { width: 12px; height: 12px; margin: 10px 0; display: block; padding: 0; }
+  #t { display: block; width: 200px; margin: 10px 0; }
+  #tall { height: 2400px; }
+</style>
+<div id="wrap">
+  <form id="f" action="/done" method="get">
+    <input id="t" name="q" type="text" autocomplete="off">
+    <button id="btn" type="button">Plain</button>
+    <input id="cb" type="checkbox">
+    <button id="sub" type="submit">Submit</button>
+  </form>
+</div>
+<div id="tall"></div>
+<script src="/behavior.js"></script>

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Updates the gateway on the host from a new kit, as root:
+#   rsync -a dist/veritell-kit/ host:veritell-kit/      (on the workstation)
+#   sudo /opt/veritell/update.sh /home/me/veritell-kit  (on the host)
+# Files are compared by checksum, not size and time.
+# Copies the kit's files but never the secrets, site.conf, the certificate, the
+# reports and exports or the state, and never changes who owns them. Keeps the running kit (binary,
+# scripts, compose.yml) in previous/ and the running image as
+# veritell:previous, builds the new one, restarts the gateway and checks that
+# HTTPS answers through it. If it does not within 20 s, the previous kit and
+# image are put back and the gateway restarted on them.
+#
+# Two stages. The script that is started is the one already on the host, from
+# the previous kit; it only checks, keeps and copies (stage 1), then runs the
+# new kit's own update.sh for the rest (stage 2), so that whatever the new kit
+# needs before its gateway starts is done by the script that knows about it.
+SCRIPT=update
+. "$(dirname "$0")/lib.sh"
+SRC=${1:?usage: update.sh <folder with the new kit>}
+[ -f "$SRC/veritell" ] && [ -f "$SRC/veritell.sha256" ] || { log "no kit in $SRC"; exit 2; }
+sum_check() { if command -v sha256sum >/dev/null; then sha256sum -c --quiet "$@"; else shasum -a 256 -c --quiet "$@"; fi; }
+(cd "$SRC" && sum_check veritell.sha256) || { log "the binary in $SRC does not match its checksum"; exit 2; }
+
+# What belongs to this host and is never copied, kept or put back.
+local_files=(--exclude gateway.env --exclude kit.env --exclude site.conf --exclude certs/ --exclude state/
+  --exclude watch.state --exclude reports/ --exclude exports/ --exclude upstream-ca.pem --exclude '*.before-*' --exclude previous/
+  --exclude veritell.previous --exclude veritell.sha256.previous)
+# Our certificate for exports stays unless the new kit brings its own (that is
+# how we change our key with an update); then it is copied like any kit file.
+[ -f "$SRC/recipient.pem" ] || local_files+=(--exclude recipient.pem)
+owner=(--no-owner --no-group --chown=root:root); [ "$REHEARSAL" = 1 ] && owner=()
+
+if [ "${VERITELL_UPDATE_STAGE:-1}" != 2 ]; then
+  # The running kit, as it is, put back if the new one fails.
+  rsync -a --checksum --delete "${local_files[@]}" "$KIT"/ "$KIT/previous"/
+  rsync -a --checksum ${owner[@]+"${owner[@]}"} "${local_files[@]}" "$SRC"/ "$KIT"/
+  log "kit copied; the previous one is in $KIT/previous"
+  VERITELL_UPDATE_STAGE=2 RUN_ID=$RUN_ID exec "$KIT/update.sh" "$SRC"
+fi
+
+# Compose: the published port; redirect: GATEWAY_PORT; port: the end of VERITELL_LISTEN.
+port=$(gateway_port)
+answers() { # 200 from the gateway's own script within 20 s
+  for _ in $(seq 1 20); do
+    [ "$(curl -sk --max-time 3 -o /dev/null -w '%{http_code}' --resolve "$SITE_HOST:$port:127.0.0.1" "https://$SITE_HOST:$port/__veritell/probe.js" || true)" = 200 ] && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# Kits from before the dashboard have no token, and the gateway would not start.
+ensure_admin_token
+# The table first: a column the new gateway writes must exist before it starts.
+# Columns are only ever added, so the previous gateway still writes to it.
+"$KIT/migrate.sh"
+docker tag veritell:latest veritell:previous 2>/dev/null || true
+docker build -q -f "$KIT/Dockerfile.prebuilt" -t veritell:latest "$KIT" >/dev/null
+# A compose.yml that Compose refuses fails here, before any restart: that
+# goes back too, rather than leave the new kit beside the old container.
+if gateway_compose up -d gateway >/dev/null 2>&1 && answers; then
+  log "updated: the gateway answers on $port ($(cut -c1-16 "$KIT/veritell.sha256"))"
+  # The new kit's timers and units (a kit can add one, as the weekly report
+  # did). install-watch.sh only rewrites unit files and enables timers; it
+  # touches neither the gateway nor the front. A failure here leaves the
+  # update in place and says what to run.
+  "$KIT/install-watch.sh" || log "the update is in place, but its timers were not installed: run $KIT/install-watch.sh"
+  exit 0
+fi
+log "the new gateway does not answer on $port: going back to the previous kit and image"
+docker logs --tail 5 veritell-gateway 2>&1 | sed 's/^/  /'
+docker tag veritell:previous veritell:latest
+# The whole previous kit, compose.yml and scripts included, not only the
+# binary: a new compose.yml can be what failed.
+rsync -a --checksum --delete "${local_files[@]}" "$KIT/previous"/ "$KIT"/
+gateway_compose up -d --force-recreate gateway >/dev/null 2>&1
+if answers; then log "back on the previous kit; it answers on $port"; else log "the previous kit does not answer either: look at docker logs veritell-gateway"; fi
+exit 1

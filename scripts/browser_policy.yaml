@@ -1,0 +1,6 @@
+# Used for manual real-browser checks: challenge every request without a token.
+mode: enforce
+routes:
+  - rules:
+      - when: "!has_token"
+        action: challenge(pow)

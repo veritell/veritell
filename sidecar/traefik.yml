@@ -1,0 +1,82 @@
+# Example Traefik v3 dynamic configuration for Veritell sidecar mode (see sidecar/README.md).
+# It is an example to adapt. A forwardAuth middleware asks the sidecar endpoint
+# for each request, and the upstream on 127.0.0.1:8080 is routed behind it.
+#
+# Static configuration needed alongside this file (it is not in this file):
+#   entryPoints:
+#     web:
+#       address: "127.0.0.1:8000"   # the :8000 entry point used below
+#   providers:
+#     file:
+#       filename: /path/to/sidecar/traefik.yml
+#
+# Start the gateway with:
+#   --sidecar-listen 127.0.0.1:9191 --trusted-proxy 127.0.0.1
+
+http:
+  middlewares:
+    # forwardAuth sets X-Forwarded-* and passes the client's other headers
+    # on, so a client could add its own X-Original-* (the endpoint refuses a
+    # call where they disagree with X-Forwarded-*) or X-Veritell-* (which
+    # would reach the upstream when the answer lacks that header). An empty
+    # value removes the header; Traefik cannot remove by prefix, so every
+    # X-Veritell-* name the gateway uses is listed.
+    veritell-strip:
+      headers:
+        customRequestHeaders:
+          X-Original-Uri: ""
+          X-Original-Method: ""
+          X-Original-Host: ""
+          X-Veritell-Score: ""
+          X-Veritell-Class: ""
+          X-Veritell-Detections: ""
+          X-Veritell-Action: ""
+          X-Veritell-Receipt: ""
+          X-Veritell-Token: ""
+          X-Veritell-Ja4: ""
+          X-Veritell-H2: ""
+
+    veritell-authz:
+      forwardAuth:
+        # Traefik sends X-Forwarded-Method, -Uri, -Host and -For to this address.
+        address: "http://127.0.0.1:9191/__veritell/authz"
+        authResponseHeaders:
+          - X-Veritell-Score
+          - X-Veritell-Class
+          - X-Veritell-Detections
+          - X-Veritell-Action
+          # "unverified" when the request claims a payment receipt; the
+          # upstream checks the receipt itself.
+          - X-Veritell-Receipt
+
+  routers:
+    # Gateway pages (probe, behaviour script, challenge): no sidecar check.
+    veritell-gateway:
+      rule: "PathPrefix(`/__veritell/`)"
+      entryPoints: ["web"]
+      priority: 100
+      service: veritell-gateway
+
+    upstream:
+      rule: "PathPrefix(`/`)"
+      entryPoints: ["web"]
+      service: upstream
+      middlewares: ["veritell-strip", "veritell-authz"]
+
+  services:
+    upstream:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"
+
+    veritell-gateway:
+      loadBalancer:
+        # The gateway's main listener is HTTPS; see serversTransports below.
+        serversTransport: veritell-gateway-tls
+        servers:
+          - url: "https://127.0.0.1:8443"
+
+  serversTransports:
+    veritell-gateway-tls:
+      # Local example only: the gateway's certificate is not verified.
+      insecureSkipVerify: true
