@@ -1,0 +1,6 @@
+1.0.0.0	1.0.0.255	13335	US	EXAMPLE-CDN - a content network
+1.0.1.0	1.0.3.255	0	None	Not routed
+192.0.2.0	192.0.2.255	16509	US	EXAMPLE-CLOUD - a cloud provider
+198.51.100.0	198.51.100.255	64500	FR	EXAMPLE-ISP - a home network
+203.0.113.0	203.0.113.255	64501	DE	EXAMPLE-ISP-TWO
+2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff	64502	NL	EXAMPLE-V6 - a v6 network

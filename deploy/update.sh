@@ -4,7 +4,7 @@
 #   sudo /opt/veritell/update.sh /home/me/veritell-kit  (on the host)
 # Files are compared by checksum, not size and time.
 # Copies the kit's files but never the secrets, site.conf, the certificate, the
-# reports and exports or the state, and never changes who owns them. Keeps the running kit (binary,
+# reports and exports, the ASN database (asn/) or the state, and never changes who owns them. Keeps the running kit (binary,
 # scripts, compose.yml) in previous/ and the running image as
 # veritell:previous, builds the new one, restarts the gateway and checks that
 # HTTPS answers through it. If it does not within 20 s, the previous kit and
@@ -23,7 +23,7 @@ sum_check() { if command -v sha256sum >/dev/null; then sha256sum -c --quiet "$@"
 
 # What belongs to this host and is never copied, kept or put back.
 local_files=(--exclude gateway.env --exclude kit.env --exclude site.conf --exclude certs/ --exclude state/
-  --exclude watch.state --exclude reports/ --exclude exports/ --exclude upstream-ca.pem --exclude '*.before-*' --exclude previous/
+  --exclude watch.state --exclude reports/ --exclude exports/ --exclude asn/ --exclude upstream-ca.pem --exclude '*.before-*' --exclude previous/
   --exclude veritell.previous --exclude veritell.sha256.previous)
 # Our certificate for exports stays unless the new kit brings its own (that is
 # how we change our key with an update); then it is copied like any kit file.
@@ -40,19 +40,20 @@ fi
 
 # Compose: the published port; redirect: GATEWAY_PORT; port: the end of VERITELL_LISTEN.
 port=$(gateway_port)
-answers() { # 200 from the gateway's own script within 20 s
-  for _ in $(seq 1 20); do
-    [ "$(curl -sk --max-time 3 -o /dev/null -w '%{http_code}' --resolve "$SITE_HOST:$port:127.0.0.1" "https://$SITE_HOST:$port/__veritell/probe.js" || true)" = 200 ] && return 0
-    sleep 1
-  done
-  return 1
-}
+answers() { gateway_answers; } # 200 from the gateway's own script within 20 s
 
 # Kits from before the dashboard have no token, and the gateway would not start.
 ensure_admin_token
 # The table first: a column the new gateway writes must exist before it starts.
 # Columns are only ever added, so the previous gateway still writes to it.
 "$KIT/migrate.sh"
+# The ASN database stays in asn/ across updates. A kit from before it has
+# none: download it now (a failure is not a reason to stop the update), and
+# say where it is in kit.env either way.
+if [ "$ASN_DB" = on ] && [ ! -s "$KIT/asn/ip2asn.tsv" ]; then
+  "$KIT/asn.sh" --no-restart || log "the gateway goes on without an ASN database: run $KIT/asn.sh once the download works"
+fi
+asn_wire >/dev/null
 docker tag veritell:latest veritell:previous 2>/dev/null || true
 docker build -q -f "$KIT/Dockerfile.prebuilt" -t veritell:latest "$KIT" >/dev/null
 # A compose.yml that Compose refuses fails here, before any restart: that

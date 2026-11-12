@@ -167,6 +167,95 @@ gateway_port() {
   esac
 }
 
+# gateway_answers: 200 from the gateway's own script, on the port it answers
+# on now, within GATEWAY_WAIT seconds (20: the time a restart takes, ASN
+# database included).
+gateway_answers() {
+  local port; port=$(gateway_port)
+  for _ in $(seq 1 "${GATEWAY_WAIT:-20}"); do
+    [ "$(curl -sk --max-time 3 -o /dev/null -w '%{http_code}' --resolve "$SITE_HOST:$port:127.0.0.1" "https://$SITE_HOST:$port/__veritell/probe.js" || true)" = 200 ] && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# ---- the ASN database (--asn-db) --------------------------------------------
+# Which network (autonomous system) each address belongs to: iptoasn.com's
+# ip2asn-combined, public domain (PDDL 1.0), about 11 MB gzipped. asn.sh
+# downloads it into asn/ip2asn.tsv, weekly (veritell-asn.timer); kit.env's
+# VERITELL_ASN_DB tells the gateway where it is, or is empty for none.
+ASN_DB=${ASN_DB:-on}
+case "$ASN_DB" in on|off) ;; *) echo "site.conf: ASN_DB must be on or off (it is '$ASN_DB')" >&2; exit 2;; esac
+ASN_DB_URL=${ASN_DB_URL:-https://iptoasn.com/data/ip2asn-combined.tsv.gz}
+# A file with fewer rows is a truncated download, not the database (the real
+# one has about 720 000).
+ASN_DB_MIN_ROWS=${ASN_DB_MIN_ROWS:-100000}
+# Where the gateway's container sees asn/ip2asn.tsv (the compose files mount asn/).
+ASN_DB_IN_GATEWAY=/etc/veritell/asn/ip2asn.tsv
+
+# asn_check FILE: does FILE look like an ip2asn TSV the gateway will load:
+# every row start, end, AS number, country, description, tab-separated, the
+# two addresses of one family; at least ASN_DB_MIN_ROWS rows. Prints why not.
+# The gateway refuses the whole file for one bad row, so this runs before a
+# file is put in place (and a gateway that still does not start is put back
+# on the previous file, see asn.sh).
+asn_check() {
+  awk -F'\t' -v min="$ASN_DB_MIN_ROWS" '
+    /^[ \t\r]*$/ { next }
+    { n++
+      sub(/\r$/, "")
+      if (NF < 5) { printf "line %d: %d fields, not 5\n", NR, NF; bad = 1; exit }
+      if ($3 !~ /^ *[0-9]+ *$/) { printf "line %d: AS number %s is not a number\n", NR, $3; bad = 1; exit }
+      four = "^ *[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+ *$"; six = "^ *[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]* *$"
+      if (!(($1 ~ four && $2 ~ four) || ($1 ~ six && $2 ~ six))) { printf "line %d: %s - %s is not an address range\n", NR, $1, $2; bad = 1; exit }
+    }
+    END {
+      if (bad) exit 1
+      if (n < min) { printf "%d rows, fewer than %d\n", n, min; exit 1 }
+    }' "$1"
+}
+
+# asn_rows FILE: the number of non-empty rows.
+asn_rows() { grep -c . "$1" 2>/dev/null || echo 0; }
+
+# asn_fetch: download ASN_DB_URL (gzipped when it ends in .gz) into
+# asn/ip2asn.tsv.new and check it. 0 when that file is good; 1, with the
+# reason logged and nothing left behind, otherwise. Never touches asn/ip2asn.tsv.
+asn_fetch() {
+  local dir="$KIT/asn" new="$KIT/asn/ip2asn.tsv.new" why
+  mkdir -p "$dir"; chmod 0755 "$dir"
+  rm -f "$new" "$new.download"
+  # https only (file: for the tests), redirects included; at most 5 minutes.
+  if ! curl -fsSL --proto '=https,file' --proto-redir '=https' --max-time 300 --retry 2 \
+      -o "$new.download" "$ASN_DB_URL"; then
+    log "ASN database: cannot download $ASN_DB_URL"; rm -f "$new.download"; return 1
+  fi
+  case "$ASN_DB_URL" in
+    *.gz) if ! gzip -dc "$new.download" > "$new" 2>/dev/null; then
+            log "ASN database: $ASN_DB_URL is not a gzip file"; rm -f "$new" "$new.download"; return 1
+          fi; rm -f "$new.download";;
+    *) mv -f "$new.download" "$new";;
+  esac
+  if ! why=$(asn_check "$new"); then
+    log "ASN database from $ASN_DB_URL refused: $why"; rm -f "$new"; return 1
+  fi
+  # Public data; the gateway's user must read it.
+  chmod 0644 "$new"
+}
+
+# asn_wire: kit.env's VERITELL_ASN_DB, from what is there: the path in the
+# gateway when ASN_DB is on and asn/ip2asn.tsv exists, else empty (none).
+# Makes asn/ so the compose files' mount has a folder. Prints the value.
+asn_wire() {
+  local want=""
+  mkdir -p "$KIT/asn"; chmod 0755 "$KIT/asn"
+  [ "$ASN_DB" = on ] && [ -s "$KIT/asn/ip2asn.tsv" ] && want=$ASN_DB_IN_GATEWAY
+  if [ "$(get_kv "$KIT/kit.env" VERITELL_ASN_DB)" != "$want" ] || ! grep -q '^VERITELL_ASN_DB=' "$KIT/kit.env" 2>/dev/null; then
+    set_kv "$KIT/kit.env" VERITELL_ASN_DB "$want"
+  fi
+  echo "$want"
+}
+
 # public_addr: the host's own address as a visitor reaches it: PUBLIC_ADDR in
 # site.conf, else the source address of the route to the internet.
 public_addr() {

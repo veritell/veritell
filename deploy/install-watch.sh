@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Installs the check (watch.sh) as a systemd timer, every 5 minutes, as root,
-# and the weekly report (report.sh) as veritell-report.timer.
+# the weekly report (report.sh) as veritell-report.timer, and the weekly ASN
+# database refresh (asn.sh) as veritell-asn.timer.
 # In redirect mode also veritell-front.service, which runs restore-front.sh at
 # boot (firewall rules do not survive a reboot).
 # Run by install.sh; can be run on its own. Read it with:
@@ -57,6 +58,34 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now veritell-report.timer >/dev/null
 log "veritell-report.timer installed: $KIT/reports/, by hand: $KIT/report.sh"
+# The ASN database (asn.sh), Sundays around 04:00 UTC: a random delay of up to
+# an hour, so that kits do not all download at the same minute; a run missed
+# while the host was off is made at the next boot.
+cat > /etc/systemd/system/veritell-asn.service <<UNIT
+[Unit]
+Description=Refresh the veritell ASN database (asn/ in the kit)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$KIT/asn.sh
+UNIT
+cat > /etc/systemd/system/veritell-asn.timer <<'UNIT'
+[Unit]
+Description=Refresh the veritell ASN database weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00 UTC
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now veritell-asn.timer >/dev/null
+log "veritell-asn.timer installed: journalctl -u veritell-asn, by hand: $KIT/asn.sh"
 if [ "$FRONT" = redirect ]; then
   cat > /etc/systemd/system/veritell-front.service <<UNIT
 [Unit]

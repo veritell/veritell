@@ -19,7 +19,7 @@ newest=$(find crates -name '*.rs' -newer "$BIN" -print -quit)
 [ -z "$newest" ] || { echo "$BIN is older than $newest: stale build; run cargo clean -p veritell-proxy --release --target ${TARGET%.2.*} and build again" >&2; exit 1; }
 cp "$BIN" "$OUT/veritell"
 cp Dockerfile.prebuilt deploy/compose.yml deploy/policy.yaml deploy/lib.sh deploy/site.conf.example \
-   deploy/install.sh deploy/cutover.sh deploy/rollback.sh deploy/renew-hook.sh deploy/watch.sh deploy/install-watch.sh deploy/update.sh deploy/migrate.sh deploy/status.sh \
+   deploy/install.sh deploy/cutover.sh deploy/rollback.sh deploy/renew-hook.sh deploy/watch.sh deploy/install-watch.sh deploy/update.sh deploy/migrate.sh deploy/status.sh deploy/asn.sh \
    deploy/compose.host.yml deploy/restore-front.sh deploy/uninstall.sh deploy/report.py deploy/report.sh deploy/export.sh deploy/README.md "$OUT/"
 if [ -f deploy/recipient.pem ]; then
   cp deploy/recipient.pem "$OUT/"

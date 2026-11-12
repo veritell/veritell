@@ -77,6 +77,15 @@ GATEWAY_PORT=8443
 # Where nginx's own HTTPS goes while the gateway holds the public port (host only).
 #NGINX_LOCAL_HTTPS=127.0.0.1:8444
 
+# ---- ASN database (optional, all modes) -------------------------------------
+# Which network each visitor's address belongs to (asn and net_class in the
+# events, the net_hosting detection). asn.sh downloads iptoasn.com's
+# ip2asn-combined (public domain, about 11 MB) at install, at an update that
+# finds none, and weekly. on (default) or off.
+#ASN_DB=on
+# Another copy of the same file (.tsv or .tsv.gz), over https.
+#ASN_DB_URL=https://iptoasn.com/data/ip2asn-combined.tsv.gz
+
 # ---- Other sites on this host (optional, all modes) -------------------------
 # The gateway serves more than one site: each name below gets its own
 # certificate by SNI (copied from LETSENCRYPT_LIVE/<name>/, default

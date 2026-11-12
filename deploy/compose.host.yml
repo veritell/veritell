@@ -42,6 +42,10 @@ services:
       - replace
       - --policy
       - /etc/veritell/policy.yaml
+      # Which network each address belongs to (asn.sh, weekly); empty, before
+      # the first download or with ASN_DB=off, means none.
+      - --asn-db
+      - ${VERITELL_ASN_DB:-}
       - --ip-mode
       - keyed
       - --state-dir
@@ -71,6 +75,7 @@ services:
       - ./certs:/certs:ro
       - ./state:/state
       - ./policy.yaml:/etc/veritell/policy.yaml:ro
+      - ./asn:/etc/veritell/asn:ro
       # The CA that signs the site's certificate, when UPSTREAM_CA is set
       # (an empty file otherwise, which nothing reads).
       - ./upstream-ca.pem:/etc/veritell/upstream-ca.pem:ro

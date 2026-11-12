@@ -106,6 +106,10 @@ if [ "$REHEARSAL" != 1 ] && { [ "$FRONT" = compose ] || [ -d /etc/letsencrypt ];
   log "certbot deploy hook: $hook"
 fi
 
+# The ASN database, before the gateway starts. Without it (no network, the
+# site's host blocks the download) the gateway starts anyway, and
+# veritell-asn.timer tries again every week; or run asn.sh.
+"$KIT/asn.sh" --no-restart || log "the gateway starts without an ASN database for now: run $KIT/asn.sh once the download works"
 docker build -q -f Dockerfile.prebuilt -t veritell:latest . >/dev/null
 log "image veritell:latest built"
 gateway_compose up -d

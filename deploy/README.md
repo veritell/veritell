@@ -191,8 +191,8 @@ answer, the whole previous kit and image are put back and the gateway is
 restarted on them; the script exits 1. A gateway that refuses to start costs
 those 20 s and the restart.
 
-Secrets, `site.conf`, the certificate, the state and the env-file backups
-are never copied, kept or put back, and their owners never change. Never copy
+Secrets, `site.conf`, the certificate, the state, the ASN database (`asn/`)
+and the env-file backups are never copied, kept or put back, and their owners never change. Never copy
 the kit over `/opt/veritell` by hand and never `chown -R` it: a gateway that
 cannot read its certificate leaves HTTPS down until the file is readable again. `veritell.previous` and `veritell.sha256.previous`, left by
 earlier versions of the script, are no longer used and can be deleted.
@@ -211,6 +211,38 @@ only ever added: one the gateway no longer writes is listed and left, and a
 changed type is not applied; both need a hand-written step. Rows the store
 refuses are dropped by the gateway, which logs it; the 5-minute check
 reports such lines.
+
+## The ASN database
+
+The gateway looks up which network (autonomous system) each visitor's
+address belongs to: `asn` and `net_class` in the events and in the policy's
+expressions, and the `net_hosting` detection (a cloud or hosting provider,
+penalty 20). Without a database every event has `asn` 0 and `net_class`
+`unknown`, and `net_hosting` never fires.
+
+`asn.sh` downloads [iptoasn.com](https://iptoasn.com)'s `ip2asn-combined.tsv.gz`
+(public domain, PDDL 1.0; about 11 MB, about 720 000 ranges, some 55 MB
+unpacked) into `asn/ip2asn.tsv`, which the compose files mount read-only;
+`kit.env`'s `VERITELL_ASN_DB` holds its path in the container, or is empty
+for none. It refuses a file that is not a gzip, has a row the gateway would
+not read, or has fewer than 100 000 rows, and keeps the one in place.
+
+- `install.sh` runs it before the gateway first starts. A failed download
+  does not stop the install: the gateway starts without one.
+- `update.sh` keeps `asn/` and downloads it only when there is none (an
+  update from a kit without it).
+- `veritell-asn.timer` runs it on Sundays around 04:00 UTC. When the file
+  changed and the gateway runs, it restarts the gateway (the same short cut
+  as an update) and checks that it answers within 20 s; if not, the previous
+  file is put back and the gateway restarted on it.
+- `ASN_DB=off` in `site.conf` runs the gateway without one; `ASN_DB_URL`
+  points at another copy of the same file.
+
+```
+sudo /opt/veritell/asn.sh            # now, by hand
+journalctl -u veritell-asn           # the weekly runs
+./status.sh                          # ranges and when it was downloaded
+```
 
 ## Day to day
 
@@ -339,6 +371,9 @@ Older events are in ClickHouse (query them directly).
 `deploy/test_report.py` tests `report.py` against `fixtures/report_events.jsonl`
 (`python3 deploy/test_report.py`); `report.sh` itself is checked in a VM.
 `deploy/test_export.sh` tests `export.sh` and the key tools in `tools/export/` with a stub `docker` and a real `openssl` (3.0 or later).
+`deploy/test_asn.sh` tests `asn.sh` and the ASN functions in `lib.sh`
+(download, refusal, unchanged, restart and going back) with `file:` URLs and
+a stub `docker` and `curl`.
 `deploy/test_lib.sh` tests `set_kv`, `ensure_admin_token` and every case of
 `front_state` with a stub `docker`; it runs anywhere. The scripts as a whole were rehearsed on a
 workstation's Docker with a stand-in site: install, cutover,

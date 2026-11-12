@@ -258,12 +258,16 @@ fn main() {
         }
     };
 
-    let asn = match args.get("asn-db") {
+    // An empty value is the same as none, so that a deployment file can
+    // always pass the flag (the kit does, before its first download).
+    let asn = match args.get("asn-db").filter(|p| !p.is_empty()) {
         None => AsnDb::empty(),
         Some(path) => {
             let text = std::fs::read_to_string(path)
                 .unwrap_or_else(|e| fail(format!("cannot read ASN database {path}: {e}")));
-            AsnDb::from_iptoasn_tsv(&text).unwrap_or_else(|e| fail(format!("{path}: {e}")))
+            let db = AsnDb::from_iptoasn_tsv(&text).unwrap_or_else(|e| fail(format!("{path}: {e}")));
+            eprintln!("veritell: ASN database {path}: {} ranges", db.len());
+            db
         }
     };
 

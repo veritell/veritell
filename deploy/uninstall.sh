@@ -2,7 +2,7 @@
 # Takes the gateway off the host, as root:  uninstall.sh --yes
 # Rolls back first if the gateway is in front (and stops if that fails), removes
 # the firewall rules (redirect mode), stops and removes the containers and the
-# ClickHouse volume (the stored events are gone), the check, report and boot units, the weekly reports (reports/), the exports (exports/), the
+# ClickHouse volume (the stored events are gone), the check, report, ASN and boot units, the weekly reports (reports/), the exports (exports/), the ASN database (asn/), the
 # certbot hook, the secrets, the certificate copy and the state. Prints each
 # thing it removes.
 # It never touches site.conf, the kit's own files (scripts, binary, compose
@@ -26,7 +26,7 @@ if [ -f "$KIT/kit.env" ]; then
     || log "could not run compose down: check docker ps"
 fi
 if [ "$REHEARSAL" != 1 ] && command -v systemctl >/dev/null; then
-  for u in veritell-watch.timer veritell-watch.service veritell-report.timer veritell-report.service veritell-front.service; do
+  for u in veritell-watch.timer veritell-watch.service veritell-report.timer veritell-report.service veritell-asn.timer veritell-asn.service veritell-front.service; do
     if [ -f "/etc/systemd/system/$u" ]; then
       systemctl disable --now "$u" >/dev/null 2>&1 || true
       rm -f "/etc/systemd/system/$u"; log "removed: /etc/systemd/system/$u"
@@ -39,7 +39,7 @@ hook=/etc/letsencrypt/renewal-hooks/deploy/veritell.sh
 for f in gateway.env kit.env watch.state upstream-ca.pem; do
   [ -e "$KIT/$f" ] && { rm -f "$KIT/$f"; log "removed: $KIT/$f"; }
 done
-for d in certs state reports exports; do
+for d in certs state reports exports asn; do
   [ -e "$KIT/$d" ] && { rm -rf "${KIT:?}/$d"; log "removed: $KIT/$d/"; }
 done
 for f in "$KIT"/*.before-*; do
