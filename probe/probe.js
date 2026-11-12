@@ -532,6 +532,16 @@
     // The hard timer may have ended the run while this was being built:
     // then nothing is sent, so that veritell:done's `ok: false` is the truth.
     if ($$finished) return false;
+    // A browser may run a copy of this script it already ran, nonce and all
+    // (Safari does on back navigation). That nonce is spent, and the gateway
+    // would refuse the report as a replay and count it against the client.
+    // So each nonce is sent once per tab; without sessionStorage it is sent.
+    var $$sentKey = "veritell-probe-sent";
+    var $$nid = String($$config.nonce).slice(0, 24);
+    var $$sent = $$tryOr(function () { return JSON.parse(sessionStorage.getItem($$sentKey) || "[]"); }, []);
+    if (!Array.isArray($$sent)) $$sent = [];
+    if ($$sent.indexOf($$nid) !== -1) return false;
+    $$tryOr(function () { sessionStorage.setItem($$sentKey, JSON.stringify($$sent.concat([$$nid]).slice(-32))); }, 0);
     $$ctl = typeof AbortController === "function" ? new AbortController() : null;
     var $$res = await fetch($$config.endpoint, {
       method: "POST",
