@@ -157,8 +157,29 @@
     } catch (_) { /* ignored */ }
   }
 
+  // A browser may run a copy of this script it already ran, nonce and all
+  // (WebKit does on some navigations), so reports from several pages share one
+  // nonce. The gateway accepts 3 per nonce and counts a fourth against the
+  // client, so the count is kept per nonce for the whole tab. Without
+  // sessionStorage it is kept per page, as before.
+  function claimSlot() {
+    var key = "veritell-behavior-sent", id = String(C.nonce).slice(0, 24);
+    try {
+      var all = JSON.parse(sessionStorage.getItem(key) || "{}");
+      if (!all || typeof all !== "object" || Array.isArray(all)) all = {};
+      var n = typeof all[id] === "number" ? all[id] : 0;
+      if (n >= 3) return false;
+      all[id] = n + 1;
+      var ids = Object.keys(all);
+      while (ids.length > 32) delete all[ids.shift()];
+      sessionStorage.setItem(key, JSON.stringify(all));
+    } catch (_) { /* no storage: count per page only */ }
+    return true;
+  }
+
   function send(trigger) {
     if (done || sent >= 3) return;
+    if (!claimSlot()) { stop(); return; }
     endStroke();
     sent++; dirty = false;
     post(body(trigger, performance.now()));
