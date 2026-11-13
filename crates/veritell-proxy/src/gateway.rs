@@ -1938,7 +1938,7 @@ impl ProxyHttp for Gateway {
 
     async fn response_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
@@ -1947,9 +1947,18 @@ impl ProxyHttp for Gateway {
             (upstream_response.status.as_u16(), value("content-type"), value("content-encoding"));
         let etag = value("etag").map(crate::inject::weaken_etag);
         if ctx.injection.on_response(status, content_type, encoding) {
-            // The body changes: its length goes (it is sent chunked, or as
-            // HTTP/2 data), and a strong validator would now be false.
+            // The body changes: its length goes, and a strong validator
+            // would now be false. Over HTTP/1.1 it is sent chunked, said in
+            // the header: without a length or that, the body ends when the
+            // connection closes, and every page costs the client a new
+            // connection. HTTP/2 frames the body itself and drops the
+            // header; HTTP/1.0 has no chunks and keeps the close.
             upstream_response.remove_header("content-length");
+            if session.req_header().version == http::Version::HTTP_11
+                && !upstream_response.headers.contains_key("transfer-encoding")
+            {
+                upstream_response.insert_header("transfer-encoding", "chunked")?;
+            }
             if let Some(etag) = etag {
                 upstream_response.insert_header("etag", etag)?;
             }
