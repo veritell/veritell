@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Run every veritell-fp fuzz target for a fixed time.
+# Run every fuzz target for a fixed time: the veritell-fp parsers
+# (crates/veritell-fp/fuzz) and the request, report, token and directory
+# parsers (fuzz/, see fuzz/README.md).
 # Usage: scripts/fuzz.sh [seconds_per_target]   (default 60)
 # Env:   FUZZ_TOOLCHAIN  rustup toolchain (default: stable, run with RUSTC_BOOTSTRAP=1;
 #                        set to nightly in CI, where no bootstrap is needed)
@@ -8,20 +10,26 @@ set -u
 secs="${1:-60}"
 toolchain="${FUZZ_TOOLCHAIN:-stable}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-crate="$root/crates/veritell-fp"
-fuzz="$crate/fuzz"
-targets=(tls_clienthello h2_parse hpack_decode)
+# <directory cargo fuzz runs from>:<target>
+targets=(
+  crates/veritell-fp:tls_clienthello crates/veritell-fp:h2_parse crates/veritell-fp:hpack_decode
+  .:syn_parse .:wba_request .:reports .:ua_check .:tokens .:directory_keys
+)
 
 if [ "$toolchain" = "stable" ]; then
   export RUSTC_BOOTSTRAP=1
 fi
 
-cd "$crate" || exit 2
-python3 "$fuzz/make_seeds.py" >/dev/null 2>&1 || true
+python3 "$root/crates/veritell-fp/fuzz/make_seeds.py" >/dev/null 2>&1 || true
+python3 -I "$root/fuzz/make_seeds.py" >/dev/null 2>&1 || true
 
 fail=0
 summary=()
-for t in "${targets[@]}"; do
+for entry in "${targets[@]}"; do
+  dir="$root/${entry%%:*}"
+  t="${entry#*:}"
+  fuzz="$dir/fuzz"
+  cd "$dir" || exit 2
   corpus="$fuzz/corpus/$t"
   mkdir -p "$corpus" "$fuzz/artifacts/$t"
   # Copy seeds that are not already in the corpus (never overwrite).
@@ -34,8 +42,10 @@ for t in "${targets[@]}"; do
 
   log="$(mktemp "${TMPDIR:-/tmp}/fuzz_${t}.XXXXXX")"
   echo "== $t: ${secs}s ==" >&2
+  dict=()
+  [ -f "$fuzz/dicts/$t.dict" ] && dict=("-dict=$fuzz/dicts/$t.dict")
   cargo "+$toolchain" fuzz run "$t" "$corpus" -- \
-    "-max_total_time=$secs" -timeout=1 -rss_limit_mb=2048 -malloc_limit_mb=64 \
+    "-max_total_time=$secs" -timeout=1 -rss_limit_mb=2048 -malloc_limit_mb=64 "${dict[@]}" \
     >"$log" 2>&1
   rc=$?
 

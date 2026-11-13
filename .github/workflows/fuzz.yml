@@ -1,15 +1,19 @@
-# NOT YET RUN ON GITHUB: this repository has no remote yet, so this workflow is untested there.
-# Fuzzes the veritell-fp parsers (TLS ClientHello, HTTP/2 preamble, HPACK) with cargo-fuzz.
+# Fuzzes the parsers that read what clients and remote servers send, with
+# cargo-fuzz: the veritell-fp ones (TLS ClientHello, HTTP/2 preamble, HPACK)
+# and those in fuzz/ (SYN, Web Bot Auth, reports, User-Agent, tokens, key
+# directories).
 name: fuzz
 on:
   push:
     paths:
-      - "crates/veritell-fp/**"
+      - "crates/**"
+      - "fuzz/**"
       - "scripts/fuzz.sh"
       - ".github/workflows/fuzz.yml"
   pull_request:
     paths:
-      - "crates/veritell-fp/**"
+      - "crates/**"
+      - "fuzz/**"
       - "scripts/fuzz.sh"
       - ".github/workflows/fuzz.yml"
 permissions:
@@ -25,14 +29,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: crates/veritell-fp/fuzz
+          workspaces: |
+            crates/veritell-fp/fuzz
+            fuzz
       - run: cargo install cargo-fuzz --locked
-      # 3 targets x 120 s.
-      - run: scripts/fuzz.sh 120
+      # 9 targets x 60 s.
+      - run: scripts/fuzz.sh 60
       - name: Upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-artifacts
-          path: crates/veritell-fp/fuzz/artifacts/
+          path: |
+            crates/veritell-fp/fuzz/artifacts/
+            fuzz/artifacts/
           if-no-files-found: ignore

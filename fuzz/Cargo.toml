@@ -1,0 +1,74 @@
+[package]
+name = "veritell-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Fuzz targets for the parsers that read what a client or a remote server
+# sends, beyond the three in crates/veritell-fp/fuzz. Run from the
+# repository root: `cargo +nightly fuzz run <target>`; see fuzz/README.md.
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ed25519-dalek = "2"
+base64 = "0.22"
+sha2 = "0.10"
+serde_json = "1"
+url = "2"
+veritell-core = { path = "../crates/veritell-core" }
+veritell-fp = { path = "../crates/veritell-fp" }
+veritell-wba = { path = "../crates/veritell-wba" }
+veritell-probe = { path = "../crates/veritell-probe" }
+veritell-behavior = { path = "../crates/veritell-behavior" }
+veritell-ua = { path = "../crates/veritell-ua" }
+veritell-token = { path = "../crates/veritell-token" }
+veritell-privacypass = { path = "../crates/veritell-privacypass" }
+veritell-directory = { path = "../crates/veritell-directory" }
+
+# Keep this crate out of the root workspace.
+[workspace]
+
+[[bin]]
+name = "syn_parse"
+path = "fuzz_targets/syn_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wba_request"
+path = "fuzz_targets/wba_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "reports"
+path = "fuzz_targets/reports.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ua_check"
+path = "fuzz_targets/ua_check.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tokens"
+path = "fuzz_targets/tokens.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "directory_keys"
+path = "fuzz_targets/directory_keys.rs"
+test = false
+doc = false
+bench = false

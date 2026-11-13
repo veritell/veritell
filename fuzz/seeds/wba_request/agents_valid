@@ -1,0 +1,1 @@
+{"agents": [{"name": "a", "signature_agent": "https://agent.test", "keys": [{"kty": "OKP", "crv": "Ed25519", "x": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"}]}, {"name": "b", "keys": [{"kty": "OKP", "crv": "Ed25519", "x": "ERERERERERERERERERERERERERERERERERERERERERE", "nbf": 1735690000, "exp": 1735699000}]}]}
