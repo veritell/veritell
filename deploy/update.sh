@@ -60,6 +60,23 @@ docker build -q -f "$KIT/Dockerfile.prebuilt" -t veritell:latest "$KIT" >/dev/nu
 # goes back too, rather than leave the new kit beside the old container.
 if gateway_compose up -d gateway >/dev/null 2>&1 && answers; then
   log "updated: the gateway answers on $port ($(cut -c1-16 "$KIT/veritell.sha256"))"
+  # ClickHouse reads its settings when it starts, and the file is mounted on
+  # its own, so a restart would keep reading the replaced one: a changed file
+  # needs the container made again. The data stays in its volume; the
+  # gateway drops the few events it sends in those seconds. Settings it does
+  # not start on are put back.
+  ch_conf=clickhouse/low-memory.xml
+  if ! cmp -s "$KIT/$ch_conf" "$KIT/previous/$ch_conf"; then
+    if gateway_compose up -d --force-recreate --wait clickhouse >/dev/null 2>&1; then
+      log "ClickHouse restarted on its new settings"
+    else
+      log "ClickHouse does not start on the new $ch_conf: putting back the previous one"
+      docker logs --tail 5 veritell-clickhouse 2>&1 | sed 's/^/  /'
+      [ -f "$KIT/previous/$ch_conf" ] && cp "$KIT/previous/$ch_conf" "$KIT/$ch_conf"
+      gateway_compose up -d --force-recreate --wait clickhouse >/dev/null 2>&1 \
+        || log "ClickHouse does not start on the previous settings either: look at docker logs veritell-clickhouse"
+    fi
+  fi
   # The new kit's timers and units (a kit can add one, as the weekly report
   # did). install-watch.sh only rewrites unit files and enables timers; it
   # touches neither the gateway nor the front. A failure here leaves the

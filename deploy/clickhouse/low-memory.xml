@@ -24,4 +24,28 @@
     <opentelemetry_span_log remove="1"/>
     <backup_log remove="1"/>
     <blob_storage_log remove="1"/>
+
+    <!-- Idle work, sized for one table that takes a batch every few seconds.
+         The defaults suit a large server and cost an idle 2-CPU host about
+         7% of a CPU and 660 threads; these bring it to about 1% and 70.
+         The gateway batches its own inserts and never uses async inserts,
+         whose 16 flush threads otherwise wake every 10 ms. -->
+    <async_insert_threads>1</async_insert_threads>
+    <asynchronous_metrics_update_period_s>60</asynchronous_metrics_update_period_s>
+    <background_pool_size>2</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+    <background_common_pool_size>2</background_common_pool_size>
+    <background_fetches_pool_size>1</background_fetches_pool_size>
+    <background_move_pool_size>1</background_move_pool_size>
+    <background_buffer_flush_schedule_pool_size>1</background_buffer_flush_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>1</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
+    <!-- With 2 merge threads, the defaults (8 and 20 free slots) would
+         stop large merges and every mutation. -->
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>1</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_mutation>1</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>1</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
 </clickhouse>
