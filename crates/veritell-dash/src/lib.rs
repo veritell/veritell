@@ -25,8 +25,10 @@ pub const DEFAULT_LIMIT: usize = 100;
 pub const MAX_QUERY_BYTES: usize = 1024;
 /// `window_secs` when the parameter is absent or not a number.
 pub const DEFAULT_WINDOW_SECS: u64 = 3600;
-/// Largest `window_secs`; larger values are clamped.
-pub const MAX_WINDOW_SECS: u64 = 7 * 24 * 3600;
+/// Largest `window_secs`; larger values are clamped. 30 days: everything the
+/// gateway keeps (it saves and loads no event older than that), so the
+/// page's "All" asks for this.
+pub const MAX_WINDOW_SECS: u64 = 30 * 24 * 3600;
 
 /// Sent with every response.
 pub const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";

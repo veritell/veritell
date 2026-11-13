@@ -44,6 +44,17 @@
           <label><input type="radio" name="window" value="300"><span>5m</span></label>
           <label><input type="radio" name="window" value="3600" checked><span>1h</span></label>
           <label><input type="radio" name="window" value="86400"><span>24h</span></label>
+          <label><input type="radio" name="window" value="604800"><span>7d</span></label>
+          <label><input type="radio" name="window" value="2592000" title="Everything the gateway keeps (30 days)"><span>All</span></label>
+          <label><input type="radio" name="window" value="custom" id="window-custom"><span>Custom</span></label>
+        </div>
+        <div class="window-custom" id="window-custom-fields" hidden>
+          <input type="number" id="window-n" min="1" max="720" step="1" value="3" inputmode="numeric" aria-label="Window length">
+          <select id="window-unit" aria-label="Window unit">
+            <option value="60">minutes</option>
+            <option value="3600" selected>hours</option>
+            <option value="86400">days</option>
+          </select>
         </div>
       </div>
     </div>

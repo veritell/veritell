@@ -152,17 +152,47 @@ function classKey(name) {
   return KNOWN_CLASSES.has(name) ? name : "unknown";
 }
 
+// The longest window the gateway answers for (MAX_WINDOW_SECS): 30 days,
+// everything it keeps. "All" asks for exactly this.
+const MAX_WINDOW_SECS = 30 * 86400;
+const customFields = el("window-custom-fields");
+const customN = el("window-n");
+const customUnit = el("window-unit");
+
 function windowSecs() {
   const checked = windowGroup.querySelector("input:checked");
-  return checked ? checked.value : "3600";
+  if (!checked) {
+    return "3600";
+  }
+  if (checked.value !== "custom") {
+    return checked.value;
+  }
+  const n = Math.floor(Number(customN.value));
+  const unit = Number(customUnit.value);
+  if (!(n >= 1) || !(unit > 0)) {
+    return "3600";
+  }
+  return String(Math.min(n * unit, MAX_WINDOW_SECS));
 }
 
 function windowLabel() {
   const secs = Number(windowSecs());
-  if (secs <= 300) {
-    return "last 5 minutes";
+  if (secs >= MAX_WINDOW_SECS) {
+    return "everything kept (30 days)";
   }
-  return secs <= 3600 ? "last hour" : "last 24 hours";
+  const parts = [[86400, "day"], [3600, "hour"], [60, "minute"]];
+  for (const [size, name] of parts) {
+    if (secs >= size && secs % size === 0) {
+      const n = secs / size;
+      return n === 1 ? "last " + name : "last " + n + " " + name + "s";
+    }
+  }
+  return "last " + secs + " seconds";
+}
+
+function syncCustomFields() {
+  const custom = el("window-custom").checked;
+  customFields.hidden = !custom;
 }
 
 function setLive(state, message) {
@@ -646,7 +676,12 @@ filterForm.addEventListener("submit", (event) => {
 });
 filterForm.addEventListener("input", scheduleRefresh);
 filterForm.addEventListener("change", scheduleRefresh);
-windowGroup.addEventListener("change", refresh);
+windowGroup.addEventListener("change", () => {
+  syncCustomFields();
+  refresh();
+});
+customN.addEventListener("change", refresh);
+customUnit.addEventListener("change", refresh);
 siteSelect.addEventListener("change", () => {
   setSite(currentSite());
   refresh();

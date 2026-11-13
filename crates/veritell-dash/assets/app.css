@@ -426,6 +426,33 @@ h1, h2, h3 {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
+.window-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.window-custom[hidden] {
+  display: none;
+}
+
+.window-custom input,
+.window-custom select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.window-custom input {
+  width: 64px;
+  font-variant-numeric: tabular-nums;
+}
+
 .segmented input:focus-visible + span {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
