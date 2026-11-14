@@ -1,0 +1,36 @@
+# The end-to-end suite (scripts/e2e.sh) against a release build: about 10
+# minutes. Not on every push, to save Actions minutes: it runs on a version
+# tag, before the release is published, and by hand from the Actions tab or
+# with `gh workflow run e2e`. Checks that need macOS's LibreSSL curl, or
+# loopback aliases, show as SKIP or NOT RUN here, with the reason.
+name: e2e
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # BoringSSL (pulled in by Pingora) needs cmake and a C/C++ toolchain;
+      # bindgen needs libclang. e2e.sh needs curl with HTTP/2, nc and python3.
+      - name: Build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake clang libclang-dev netcat-openbsd
+      - name: Build gateway
+        run: cargo build --release --locked -p veritell-proxy
+      - name: Test certificate
+        run: |
+          mkdir -p certs
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+            -keyout certs/key.pem -out certs/cert.pem -days 2 -subj /CN=localhost
+      - name: e2e.sh
+        run: scripts/e2e.sh
