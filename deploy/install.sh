@@ -41,7 +41,7 @@ host_checks() {
   [ "$why" = 0 ] || exit 1
   # Warnings: not reasons to stop.
   if [ "$UPSTREAM_TLS" != off ]; then
-    hdr=$(curl -skI --max-time 10 --resolve "$SITE_HOST:${UPSTREAM##*:}:${UPSTREAM%:*}" "https://$SITE_HOST:${UPSTREAM##*:}/" 2>/dev/null || true)
+    hdr=$(curl -skI --max-time 10 --resolve "$SITE_HOST:$(upstream_port):$(upstream_host)" "https://$SITE_HOST:$(upstream_port)/" 2>/dev/null || true)
     if printf '%s' "$hdr" | grep -iq '^alt-svc:.*h3'; then
       log "WARNING: the site sends an Alt-Svc header for HTTP/3. Browsers that follow it use UDP 443, which does not go through the gateway. Turn HTTP/3 off or block UDP 443 for the run."
     fi

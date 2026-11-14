@@ -6,7 +6,7 @@
 # certbot hook, the secrets, the certificate copy and the state. Prints each
 # thing it removes.
 # It never touches site.conf, the kit's own files (scripts, binary, compose
-# files) or anything of the site, except the copies cutover and rollback kept
+# files, nor agents/ and previous/) or anything of the site, except the copies cutover and rollback kept
 # of the site's env file.
 SCRIPT=uninstall
 . "$(dirname "$0")/lib.sh"

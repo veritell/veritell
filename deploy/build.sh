@@ -32,5 +32,5 @@ fi
 cp tools/known_link.py "$OUT/"
 [ -f deploy/client-address.md ] && cp deploy/client-address.md "$OUT/"
 cp deploy/clickhouse/low-memory.xml deploy/clickhouse/events.sql deploy/clickhouse/migrate.sql "$OUT/clickhouse/"
-( cd "$OUT" && shasum -a 256 veritell > veritell.sha256 )
+( cd "$OUT" && if command -v sha256sum >/dev/null; then sha256sum veritell; else shasum -a 256 veritell; fi > veritell.sha256 )
 echo "kit in $OUT ($(cut -c1-16 "$OUT/veritell.sha256")...)"

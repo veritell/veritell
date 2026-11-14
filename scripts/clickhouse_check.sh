@@ -7,7 +7,8 @@
 set -u
 cd "$(dirname "$0")/.."
 IMAGE=${CH_IMAGE:-clickhouse/clickhouse-server:25.8}
-HTTP=${CH_HTTP:-18123}; PORT=${PORT:-8447}
+# Not 18123: the kit's own ClickHouse publishes that port.
+HTTP=${CH_HTTP:-18133}; PORT=${PORT:-8447}
 NAME="veritell-ch-check-$$"
 WORK=$(mktemp -d)
 PASSWORD="check-$(openssl rand -hex 12)"

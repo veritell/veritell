@@ -16,4 +16,7 @@ trap 'kill -INT $PID 2>/dev/null; sleep 0.3; kill -9 $PID 2>/dev/null; rm -rf "$
 for _ in $(seq 1 50); do nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 0.1; done
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 hey -n 2000 -c "$C" -h2 -H "User-Agent: $UA" "https://localhost:$PORT/" >/dev/null 2>&1   # warm-up
-hey -n "$N" -c "$C" -h2 -H "User-Agent: $UA" "https://localhost:$PORT/" | grep -E "Requests/sec|Average|50%|90%|99%|\[200\]|Error"
+out=$(hey -n "$N" -c "$C" -h2 -H "User-Agent: $UA" "https://localhost:$PORT/") || { echo "$out" >&2; echo "latency.sh: hey failed" >&2; exit 1; }
+printf '%s\n' "$out" | grep -E "Requests/sec|Average|50%|90%|99%|\[200\]|Error" || true
+# Fail when the run saw no 200s at all (the gateway did not answer).
+printf '%s\n' "$out" | grep -q '\[200\]' || { echo "latency.sh: no 200 responses" >&2; exit 1; }

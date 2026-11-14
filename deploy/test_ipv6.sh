@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for IPv6 visitors in compose mode: ipv6_wire in lib.sh and what
+# Tests for IPv6: ipv6_wire in lib.sh, the IPv6 UPSTREAM split, and what
 # compose.yml carries. Runs anywhere, as any user:  deploy/test_ipv6.sh
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -34,6 +34,18 @@ eq "compose.yml: gateway on front"        "$(grep -c 'networks: \[front, site, s
 eq "compose.yml: front's IPv6 from kit.env" "$(grep -A1 '^  front:' "$C" | tail -1 | tr -d ' ')" 'enable_ipv6:${VERITELL_FRONT_IPV6:-true}'
 eq "update.sh wires it"                   "$(grep -c '^ipv6_wire' "$HERE/update.sh")" 1
 eq "install.sh wires it"                  "$(grep -c '^ipv6_wire' "$HERE/install.sh")" 1
+
+# UPSTREAM split for curl --resolve (install.sh, upstream_status).
+up() { (cd "$KIT" && SCRIPT=test RUN_ID=t KIT="$KIT" bash -c ". ./lib.sh >/dev/null; $1 $2"); }
+eq "upstream_host IPv4"               "$(up upstream_host 127.0.0.1:8444)" 127.0.0.1
+eq "upstream_port IPv4"               "$(up upstream_port 127.0.0.1:8444)" 8444
+eq "upstream_host name"               "$(up upstream_host site.internal:443)" site.internal
+eq "upstream_host [::1]:8444"         "$(up upstream_host '[::1]:8444')" '[::1]'
+eq "upstream_port [::1]:8444"         "$(up upstream_port '[::1]:8444')" 8444
+eq "upstream_host brackets added"     "$(up upstream_host ::1:8444)" '[::1]'
+eq "upstream_port ::1:8444"           "$(up upstream_port ::1:8444)" 8444
+eq "upstream_host [2001:db8::5]:443"  "$(up upstream_host '[2001:db8::5]:443')" '[2001:db8::5]'
+eq "install.sh uses the helpers"      "$(grep -c -- '--resolve "$SITE_HOST:$(upstream_port):$(upstream_host)"' "$HERE/install.sh")" 1
 
 echo
 if [ "$fails" = 0 ]; then echo "ALL PASSED"; else echo "$fails FAILED"; fi

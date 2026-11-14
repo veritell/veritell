@@ -91,6 +91,9 @@ rolls back, which runs `SITE_RESTORE_CMD`. The commands are run as root with
 containers and the ClickHouse volume (the stored events too), the check and
 boot units, the weekly timer and its reports, the certbot hook, the secrets, the certificate copy and the state,
 and prints each. It never touches `site.conf`, the kit's files or the site.
+It also leaves `agents/` (your trusted agents) and `previous/` (the kit that
+`update.sh` kept, scripts and binary only, no secrets) in the kit's folder;
+delete them by hand if you want the folder clean.
 
 ## Compose mode
 
@@ -173,7 +176,7 @@ cp site.conf.example site.conf    # and fill it in
 - **rollback.sh** does the reverse, step by step even if one fails, and
   checks that the marker does not reach the gateway and the state is `nginx`.
 
-Each swap leaves HTTPS unanswered for a few seconds (a few seconds in practice). Port 80 is never touched.
+Each swap leaves HTTPS unanswered for a few seconds. Port 80 is never touched.
 
 ## Updating the gateway
 
@@ -412,8 +415,7 @@ replaced by an empty string. The newest 3 exports are kept; `update.sh` leaves
 
 The gateway serves its dashboard on port 9090 in the container, published on
 the host's `127.0.0.1:9090` only. `VERITELL_ADMIN_PUBLISH` in `kit.env`
-changes the address (keep it on loopback) but not the port: the gateway
-checks `Host` against port 9090, so another port gets 421. From the workstation, through SSH:
+changes the address (keep it on loopback) but not the port. From the workstation, through SSH:
 
 ```
 ssh -L 9090:127.0.0.1:9090 <host>                 # leave it open
@@ -421,8 +423,8 @@ sudo grep ^VERITELL_ADMIN_TOKEN= /opt/veritell/gateway.env   # on the host
 ```
 
 Then open `http://localhost:9090` and give the token as the password (any
-user name). Keep the local port 9090: the gateway checks the port in `Host`,
-and another one gets 421. `install.sh` and `update.sh` write the token into `gateway.env`
+user name). Keep the local port 9090 on both sides: the gateway checks the
+port in `Host`, and any other port gets 421. `install.sh` and `update.sh` write the token into `gateway.env`
 when it is missing; delete the line and run `update.sh` again to change it.
 Anything else that reaches the port (the host's users, the site's
 containers) needs the token too, and a `Host` other than `localhost`,

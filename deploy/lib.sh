@@ -324,10 +324,20 @@ status_public() {
     --resolve "$SITE_HOST:$1:$(public_addr)" "https://$SITE_HOST:$1${2:-/}" || true
 }
 
+# upstream_port / upstream_host: the two halves of UPSTREAM (HOST:PORT, or
+# [ADDR6]:PORT). upstream_host always gives an IPv6 address in brackets (even
+# if UPSTREAM has none, as in ::1:8444), which is what curl's --resolve wants.
+upstream_port() { printf '%s' "${1:-$UPSTREAM}" | sed 's/.*://'; }
+upstream_host() {
+  local u=${1:-$UPSTREAM} h; h=${u%:*}
+  case "$h" in \[*) ;; *:*) h="[$h]";; esac
+  printf '%s' "$h"
+}
+
 # upstream_status [PATH]: the status code of the site itself at UPSTREAM
 # (redirect and port), over TLS or plain HTTP as UPSTREAM_TLS says.
 upstream_status() {
-  local scheme=https host=${UPSTREAM%:*} port=${UPSTREAM##*:}
+  local scheme=https host port; host=$(upstream_host) port=$(upstream_port)
   [ "$UPSTREAM_TLS" = off ] && scheme=http
   curl -sk --max-time 10 -o /dev/null -w '%{http_code}' \
     --resolve "$SITE_HOST:$port:$host" "$scheme://$SITE_HOST:$port${1:-/}" || true
