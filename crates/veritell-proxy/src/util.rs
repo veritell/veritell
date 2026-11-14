@@ -246,11 +246,18 @@ mod tests {
 
     #[test]
     fn cookie_lookup() {
-        let h = "a=1; __pal=tok.en; b=2";
-        assert_eq!(cookie_value(h, "__pal"), Some("tok.en"));
-        assert_eq!(cookie_value(h, "pal"), None);
-        assert_eq!(cookie_value("", "__pal"), None);
-        assert_eq!(cookie_value("x__pal=evil; __pal=good", "__pal"), Some("good"));
+        let h = "a=1; __Host-veritell=tok.en; b=2";
+        assert_eq!(cookie_value(h, "__Host-veritell"), Some("tok.en"));
+        assert_eq!(cookie_value(h, "veritell"), None);
+        assert_eq!(cookie_value("", "__Host-veritell"), None);
+        assert_eq!(
+            cookie_value("x__Host-veritell=evil; __Host-veritell=good", "__Host-veritell"),
+            Some("good")
+        );
+        // The known-person mark shares the prefix but is another cookie.
+        let both = "__Host-veritell-known=p01.ab; __Host-veritell=tok";
+        assert_eq!(cookie_value(both, "__Host-veritell"), Some("tok"));
+        assert_eq!(cookie_value("__Host-veritell-known=p01.ab", "__Host-veritell"), None);
     }
 
     #[test]

@@ -632,8 +632,9 @@ read -r challenge counter < <(python3 scripts/solve.py < "$WORK/light.html")
 hdrs=$(curl -sk --http2 -D - -o /dev/null -c "$WORK/passjar" --data-urlencode "challenge=$challenge" \
   --data-urlencode "counter=$counter" --data-urlencode "return_to=/products?id=7" "$URL/__veritell/verify")
 check "E31 the light page's challenge is solved" "$hdrs" 'HTTP/2 303'
+check "E31 the pass cookie is a __Host- cookie"   "$hdrs" 'set-cookie: __Host-veritell='
 check "E31 and the session reaches the origin"   "$(curl -sk --http2 -b "$WORK/passjar" "$URL/products?id=7")" '"origin": true'
-sess=$(sed 's/^#HttpOnly_//' "$WORK/passjar" | awk -F'\t' 'NF>=7 && $6=="__pal" {print $6"="$7}' | head -1)
+sess=$(sed 's/^#HttpOnly_//' "$WORK/passjar" | awk -F'\t' 'NF>=7 && $6=="__Host-veritell" {print $6"="$7}' | head -1)
 check "E31 the session also counts in a second cookie field (HTTP/2 may split them)" \
   "$(curl -sk --http2 -H 'cookie: unrelated=1' -H "cookie: $sess" "$URL/products?id=7")" '"origin": true'
 

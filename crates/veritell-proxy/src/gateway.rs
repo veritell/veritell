@@ -30,7 +30,8 @@ use crate::pass::{PrivacyPass, Redemption};
 use crate::probe::{self, ProbeStore};
 use crate::util::{cookie_value, parse_form, SystemResolver, Throttle};
 
-pub const COOKIE_NAME: &str = "__pal";
+/// `__Host-`: browsers keep it only when Secure, on Path=/ and without Domain.
+pub const COOKIE_NAME: &str = "__Host-veritell";
 const TOKEN_TTL_SECS: u64 = 1800;
 const TOKEN_BUDGET: u32 = 500;
 const CHALLENGE_TTL_SECS: u64 = 120;
