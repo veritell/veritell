@@ -642,6 +642,45 @@ fn signed_agent_of(
     }
 }
 
+/// HTTP/2 settings and pseudo-header order of Apple's system HTTP client
+/// (CFNetwork / URLSession), as opposed to WebKit's own: same TLS, other
+/// settings order and window, `:path` before `:authority`.
+const APPLE_SYSTEM_H2_SETTINGS: &str = "2:0;4:2097152;3:100;9:1";
+const APPLE_SYSTEM_H2_ORDER: &str = "m,s,p,a";
+/// What an iOS app's own icon fetch trips when it borrows the browser's
+/// User-Agent: the engine check sees Apple's system client, not WebKit.
+const IOS_APP_ICON_IDS: [&str; 3] = ["h2_settings_mismatch", "h2_pseudo_order_mismatch", "missing_sec_fetch"];
+
+/// A site icon, as browsers and apps fetch them from the site's root.
+fn is_icon_path(path: &str) -> bool {
+    matches!(path, "/favicon.ico" | "/favicon.png" | "/favicon.svg")
+        || (path.starts_with("/apple-touch-icon") && path.ends_with(".png") && !path[1..].contains('/'))
+}
+
+/// iOS browsers built on WebKit (DuckDuckGo, for one) fetch a site's icons
+/// with the app's own HTTP client: Apple's system client, over the same TLS
+/// as Safari, without `sec-fetch-*`, but with the browser's User-Agent. The
+/// engine check then reads a WebKit browser with the wrong HTTP/2 and no
+/// Fetch Metadata, which is what a bot pretending to be Safari looks like.
+/// For that request alone (a GET or HEAD of a site icon, an iOS
+/// User-Agent, Apple's system HTTP/2 exactly, TLS that matched), those three
+/// findings are dropped; anything else that fired stays. An icon is worth
+/// nothing to a scraper, and the TLS must still be Apple's.
+fn drop_ios_app_icon_fetch(detections: &mut Vec<Detection>, method: &str, path: &str, ua: Option<&str>, h2: Option<&str>) {
+    let ios = ua.is_some_and(|u| ["iPhone", "iPad", "iPod"].iter().any(|d| u.contains(d)));
+    let apple_h2 = h2.is_some_and(|h| {
+        let parts: Vec<&str> = h.split('|').collect();
+        parts.len() == 4 && parts[0] == APPLE_SYSTEM_H2_SETTINGS && parts[3] == APPLE_SYSTEM_H2_ORDER
+    });
+    if !(ios && apple_h2 && matches!(method, "GET" | "HEAD") && is_icon_path(path)) {
+        return;
+    }
+    if detections.iter().any(|d| d.id == "tls_ua_mismatch") {
+        return;
+    }
+    detections.retain(|d| !IOS_APP_ICON_IDS.contains(&d.id.as_str()));
+}
+
 /// The visitor's network: AS number, class as stored (`hosting`, `other`, or
 /// `unknown` when the address is in no routed range or there is no database),
 /// and the network detection a request gets for it, if any.
@@ -689,6 +728,7 @@ impl Gateway {
             h2_akamai: f.h2.as_deref(),
             header_names: &f.header_names,
         });
+        drop_ios_app_icon_fetch(&mut detections, &f.method, &f.path, f.user_agent.as_deref(), f.h2.as_deref());
 
         let crawler = self.crawlers.verify(f.user_agent.as_deref(), f.ip).await;
         detections.extend(crawler.detection());
@@ -2018,6 +2058,60 @@ impl ProxyHttp for Gateway {
 
 #[cfg(test)]
 mod tests {
+    mod ios_app_icon {
+        use super::super::drop_ios_app_icon_fetch;
+        use veritell_core::{Detection, Layer};
+
+        const DDG: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.3 Mobile/15E148 Safari/604.1 Ddg/27.3";
+        const APPLE: &str = "2:0;4:2097152;3:100;9:1|10485760|0|m,s,p,a";
+        const WEBKIT: &str = "2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p";
+
+        fn fired(ids: &[&str]) -> Vec<Detection> {
+            ids.iter().map(|i| Detection::new(i, Layer::Network, 10, "test")).collect()
+        }
+        fn after(method: &str, path: &str, ua: &str, h2: &str, ids: &[&str]) -> Vec<String> {
+            let mut d = fired(ids);
+            drop_ios_app_icon_fetch(&mut d, method, path, Some(ua), Some(h2));
+            d.into_iter().map(|d| d.id.to_string()).collect()
+        }
+        const SEEN: [&str; 3] = ["h2_settings_mismatch", "h2_pseudo_order_mismatch", "missing_sec_fetch"];
+
+        #[test]
+        fn an_ios_apps_icon_fetch_is_clean() {
+            for path in ["/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-240x240-precomposed.png", "/favicon.svg"] {
+                assert!(after("GET", path, DDG, APPLE, &SEEN).is_empty(), "{path}");
+            }
+            assert!(after("HEAD", "/favicon.ico", DDG, APPLE, &SEEN).is_empty());
+        }
+
+        #[test]
+        fn other_findings_stay() {
+            assert_eq!(after("GET", "/favicon.ico", DDG, APPLE, &["h2_settings_mismatch", "net_hosting"]), ["net_hosting"]);
+        }
+
+        #[test]
+        fn only_icons() {
+            for path in ["/", "/missions", "/item/1", "/favicon.ico.php", "/img/apple-touch-icon.png", "/apple-touch-icon.png/x"] {
+                assert_eq!(after("GET", path, DDG, APPLE, &SEEN).len(), 3, "{path}");
+            }
+            assert_eq!(after("POST", "/favicon.ico", DDG, APPLE, &SEEN).len(), 3);
+        }
+
+        #[test]
+        fn only_apples_system_client_on_ios() {
+            let mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.3 Safari/605.1.15";
+            assert_eq!(after("GET", "/favicon.ico", mac, APPLE, &SEEN).len(), 3);
+            assert_eq!(after("GET", "/favicon.ico", DDG, WEBKIT, &SEEN).len(), 3);
+            assert_eq!(after("GET", "/favicon.ico", DDG, "1:65536;2:0;4:6291456|15663105|0|m,a,s,p", &SEEN).len(), 3);
+        }
+
+        #[test]
+        fn not_with_another_tls_stack() {
+            let ids = ["tls_ua_mismatch", "h2_settings_mismatch", "h2_pseudo_order_mismatch", "missing_sec_fetch"];
+            assert_eq!(after("GET", "/favicon.ico", DDG, APPLE, &ids).len(), 4);
+        }
+    }
+
     #[test]
     fn network_of_looks_up_both_families() {
         use super::{network_of, AsnDb};
