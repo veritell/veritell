@@ -479,5 +479,7 @@ failed requests during the cutover and the rollback.
   `VERITELL_KNOWN_KEY`; changing the key (and restarting) revokes them all.
 - **Injection and a Content-Security-Policy.** The scripts are same-origin,
   which `script-src 'self'` allows; a policy based on nonces or hashes would
-  block them silently. Check the site's policy before the cutover.
+  block them silently. The probe also starts a worker from a `blob:` URL:
+  a policy needs `worker-src 'self' blob:` for it, or the probe's worker
+  check comes back empty. Check the site's policy before the cutover.
 - **One instance.** State files (`state/`) are for this one gateway.
