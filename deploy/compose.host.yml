@@ -99,6 +99,11 @@ services:
     cap_add: [NET_BIND_SERVICE]
     read_only: true
     tmpfs: ["/tmp:size=16m,mode=1777"]
+    # A ceiling, so a leak or a flood takes down the gateway (which Docker
+    # restarts) and not the other containers on the host. The gateway uses
+    # about 110 to 160 MiB with the ASN database; VERITELL_MEM_LIMIT in
+    # kit.env changes it.
+    mem_limit: ${VERITELL_MEM_LIMIT:-512m}
     # Up when the dashboard answers HTTP and the proxy port takes a
     # connection. The image has bash but no curl. Status only: Docker does
     # not restart an unhealthy container (status.sh shows it).
