@@ -15,6 +15,7 @@ const NOT_IN_FEATURES_V1: &[&str] = &[
     "behavior_keys_metronomic",
     "behavior_untrusted_submit",
     "crawler_unresolved",
+    "probe_forged",
     "shared_fp_reported",
     "wba_bad_signature",
     "wba_expired",

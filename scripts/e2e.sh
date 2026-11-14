@@ -110,12 +110,13 @@ refute "E10 each fetch gets a new nonce"         "$nonce2" "^$nonce1\$"
 refute "E18 a later fetch is a different build"  "$build2" "^$build1\$"
 refute "E18 and a different script"              "$(cmp -s "$WORK/probe1.js" "$WORK/probe2.js" && echo same)" 'same'
 
-# E11: reports that must be rejected, all sent by the client "reject-client/1".
+# E11: reports that must be rejected, sent by "reject-client/1" (reports no
+# script makes) and "refused-client/1" (refusals that happen to browsers too).
 fetch_probe "someone-else/1" "$WORK/other.js"
-check "E11 nonce issued to another client"       "$(post_report "reject-client/1" "$(sealed "$nonce" x "$build")")" '403'
+check "E11 nonce issued to another client"       "$(post_report "refused-client/1" "$(sealed "$nonce" x "$build")")" '403'
 fetch_probe "reject-client/1" "$WORK/reject.js"; rbuild=$build; rnonce=$nonce
 forged=$(printf 'A%.0s' $(seq 1 96))
-check "E11 forged nonce"                         "$(post_report "reject-client/1" "$(sealed "$forged" x "$rbuild")")" '403'
+check "E11 forged nonce"                         "$(post_report "refused-client/1" "$(sealed "$forged" x "$rbuild")")" '403'
 check "E11 garbage body"                         "$(post_report "reject-client/1" 'not json')" '403'
 check "E11 oversized body"                       "$(head -c 70000 /dev/zero | tr '\0' 'a' | curl -sk --http2 -o /dev/null -w '%{http_code}' -A "reject-client/1" --data-binary @- "$URL/__veritell/probe")" '413'
 check "E11 GET on the report path is refused"    "$(curl -sk --http2 -o /dev/null -w '%{http_code}' "$URL/__veritell/probe")" '405'
@@ -132,7 +133,10 @@ check "E11 logged: invalid nonce"                "$log" '"outcome":"probe_nonce_
 check "E11 logged: malformed"                    "$log" '"outcome":"probe_malformed"'
 check "E19 logged: seal invalid"                 "$log" '"outcome":"probe_seal_invalid"'
 check "E19 logged: unknown build"                "$log" '"outcome":"probe_build_unknown"'
-refute "E11 rejected reports leave no state"     "$(curl -sk --http2 -A "reject-client/1" "$URL/")" '"layer": "client"'
+# A report the script cannot have made (malformed, a bad seal) marks the
+# client that sent it; the other refusals happen to browsers and leave no state.
+check "E11 forged reports leave evidence"        "$(curl -sk --http2 -A "reject-client/1" "$URL/")" '"probe_forged"'
+refute "E11 other refusals leave no state"       "$(curl -sk --http2 -A "refused-client/1" "$URL/")" '"layer": "client"'
 
 # E12: an accepted report whose User-Agent differs from the HTTP one.
 fetch_probe "probe-client/1" "$WORK/probe3.js"; nonce3=$nonce; build3=$build

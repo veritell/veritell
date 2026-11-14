@@ -1296,7 +1296,9 @@ impl Gateway {
     }
 
     /// POST /__veritell/probe: check and analyse a probe report. A rejected
-    /// report is logged and leaves no state behind.
+    /// report is logged; only one that the script cannot have made (see
+    /// `probe::is_forgery`) leaves state behind, a `probe_forged` detection
+    /// on the client.
     async fn handle_probe_report(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
         let Some(body) = read_body(session, veritell_probe_build::MAX_SEALED_BYTES, self.body_timeout).await? else {
             self.side_event(EventKind::Probe, f, Vec::new(), "probe_too_large");
@@ -1324,6 +1326,14 @@ impl Gateway {
                 // the report must agree with it.
                 if report.nonce != opened.nonce {
                     return Err("probe_malformed");
+                }
+                // Sealing proves the sender read this build's script, not
+                // that it ran it: the build key is in the script. The order
+                // in which the build writes the page's keys differs from
+                // build to build and only a run of it produces that order.
+                let orders = self.probe_builds.builder.key_order(&opened.build_id).unwrap_or_default();
+                if !probe::in_build_order(&orders, &opened.report_json) {
+                    return Err("probe_build_order");
                 }
                 Ok(report)
             })
@@ -1356,7 +1366,17 @@ impl Gateway {
                 if !matches!(reason, "probe_nonce_expired" | "probe_build_expired" | "probe_store_full") {
                     self.agg.strike(&binding.0, now);
                 }
-                self.side_event(EventKind::Probe, f, Vec::new(), reason);
+                // A report that no copy of the script makes is evidence about
+                // the client that sent it: without this, sending one would
+                // leave the client exactly where it was.
+                let found = if probe::is_forgery(reason) {
+                    let found = vec![probe::forged(reason)];
+                    self.probes.put(binding.0, found.clone(), now.saturating_add(PROBE_RESULT_TTL_SECS), now);
+                    found
+                } else {
+                    Vec::new()
+                };
+                self.side_event(EventKind::Probe, f, found, reason);
                 return self
                     .respond(session, 403, "text/plain", b"rejected".to_vec(), &[])
                     .await;

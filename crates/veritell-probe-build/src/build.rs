@@ -336,16 +336,11 @@ impl Builder {
         let key_map = derive_key_map(&self.server_key, seed, expires_at);
 
         // 1. shuffle regions
-        let mut shuffle = Stream::new(&self.server_key, DOMAIN_SHUFFLE, seed, expires_at);
         let mut lines: Vec<String> = Vec::new();
-        for segment in &self.segments {
+        for segment in self.shuffled(seed, expires_at) {
             match segment {
-                Segment::Line(line) => lines.push(line.clone()),
-                Segment::Region(region) => {
-                    let mut region = region.clone();
-                    shuffle.shuffle(&mut region);
-                    lines.extend(region);
-                }
+                Segment::Line(line) => lines.push(line),
+                Segment::Region(region) => lines.extend(region),
             }
         }
         // 2 and 3. comments, whitespace
@@ -407,6 +402,48 @@ impl Builder {
         crate::seal::seal(self, build_id, nonce, v1_json, iv)
     }
 
+    /// The template's segments with every shuffle region in this build's
+    /// order. One stream serves all regions, in template order.
+    fn shuffled(&self, seed: [u8; 16], expires_at: u64) -> Vec<Segment> {
+        let mut shuffle = Stream::new(&self.server_key, DOMAIN_SHUFFLE, seed, expires_at);
+        self.segments
+            .iter()
+            .map(|segment| match segment {
+                Segment::Line(line) => Segment::Line(line.clone()),
+                Segment::Region(region) => {
+                    let mut region = region.clone();
+                    shuffle.shuffle(&mut region);
+                    Segment::Region(region)
+                }
+            })
+            .collect()
+    }
+
+    /// The order in which a build's script writes report keys, for an id
+    /// issued under this secret (expired or not); `None` for anything else.
+    ///
+    /// One list per shuffle region that writes at least two report keys:
+    /// the version 1 keys in the order this build's region writes them. A
+    /// line writes a key when it starts with `<key>:` (an object literal
+    /// entry) or with `$$<name>.<key> =` (an assignment). JavaScript keeps
+    /// the insertion order of such keys, so a report that a run of this
+    /// build produced has them in this order, while a report made without
+    /// running the build is unlikely to.
+    pub fn key_order(&self, build_id: &str) -> Option<Vec<Vec<String>>> {
+        let (seed, expires_at) = self.authenticate(build_id)?;
+        Some(
+            self.shuffled(seed, expires_at)
+                .into_iter()
+                .filter_map(|segment| match segment {
+                    Segment::Region(region) => Some(region.iter().filter_map(|l| written_key(l)).collect::<Vec<_>>()),
+                    Segment::Line(_) => None,
+                })
+                .filter(|keys| keys.len() >= 2)
+                .map(|keys| keys.into_iter().map(str::to_string).collect())
+                .collect(),
+        )
+    }
+
     pub(crate) fn server_key(&self) -> &[u8; 32] {
         &self.server_key
     }
@@ -456,6 +493,30 @@ impl Builder {
     pub(crate) fn build_key(&self, seed: [u8; 16], expires_at: u64) -> [u8; 32] {
         hmac(&self.server_key, &[&[DOMAIN_BUILD_KEY], &seed, &expires_at.to_be_bytes()])
     }
+}
+
+/// The `VOCAB` key a shuffle-region line writes, if any (see
+/// [`Builder::key_order`]).
+fn written_key(line: &str) -> Option<&'static str> {
+    let t = line.trim();
+    // `<key>:` (not `<key>::`, which is not JavaScript anyway)
+    let entry = VOCAB.iter().find(|key| {
+        t.strip_prefix(**key)
+            .map(str::trim_start)
+            .is_some_and(|rest| rest.starts_with(':'))
+    });
+    if let Some(key) = entry {
+        return Some(key);
+    }
+    // `$$<name>.<key> =` (not `==`)
+    let rest = t.strip_prefix(RENAME_PREFIX)?;
+    let name_len = rest.bytes().take_while(|b| is_ident_byte(*b)).count();
+    let rest = rest.get(name_len..)?.strip_prefix('.')?;
+    VOCAB.iter().copied().find(|key| {
+        rest.strip_prefix(*key)
+            .map(str::trim_start)
+            .is_some_and(|after| after.starts_with('=') && !after.starts_with("=="))
+    })
 }
 
 fn parse_segments(template: &str) -> Result<Vec<Segment>, BuildError> {
@@ -596,6 +657,58 @@ mod tests {
         let build = b.build_with_seed([1; 16], u64::MAX, u64::MAX);
         assert_eq!(build.expires_at, u64::MAX);
         assert!(build.script.ends_with("keep;\nalso;"), "{}", build.script);
+    }
+
+    #[test]
+    fn written_keys() {
+        assert_eq!(written_key("  $$p.plugins = $$tryOr(f, 0);"), Some("plugins"));
+        assert_eq!(written_key("$$p.tz_offset_min=1;"), Some("tz_offset_min"));
+        assert_eq!(written_key("$$p.tz = 1;"), Some("tz"));
+        assert_eq!(written_key("error_line: $$T(f, false),"), Some("error_line"));
+        assert_eq!(written_key("error_line_number : x,"), Some("error_line_number"));
+        assert_eq!(written_key("$$p.tz == 1;"), None);
+        assert_eq!(written_key("\"platform\","), None);
+        assert_eq!(written_key("p.plugins = 1;"), None);
+        assert_eq!(written_key("$$p.unknown = 1;"), None);
+    }
+
+    #[test]
+    fn key_order_follows_the_shuffled_script() {
+        let tpl = format!(
+            "{BASE}/*@shuffle*/\n$$o.screen = 1;\n$$o.window = 2;\n$$o.tz = 3;\n$$o.plugins = 4;\n/*@end*/\n\
+             /*@shuffle*/\n\"x\",\n\"y\",\n/*@end*/\n"
+        );
+        let b = Builder::new(&tpl, SECRET).unwrap();
+        let mut seen = BTreeSet::new();
+        for seed in 0..40u8 {
+            let build = b.build_with_seed([seed; 16], 10, 10);
+            let order = b.key_order(&build.id).unwrap();
+            // Only the region that writes report keys is listed.
+            assert_eq!(order.len(), 1);
+            let at = |k: &str| build.script.find(&format!(".{k} =")).unwrap();
+            let mut by_place = order[0].clone();
+            by_place.sort_by_key(|k| at(k));
+            assert_eq!(order[0], by_place, "the order is the script's");
+            seen.insert(order[0].clone());
+        }
+        assert!(seen.len() > 10, "builds differ: {}", seen.len());
+        assert_eq!(b.key_order("nope"), None);
+    }
+
+    #[test]
+    fn key_order_of_the_real_probe() {
+        let b = Builder::new(include_str!("../../../probe/probe.js"), SECRET).unwrap();
+        let build = b.build_with_seed([5; 16], 10, 10);
+        let order = b.key_order(&build.id).unwrap();
+        let sets: Vec<BTreeSet<&str>> = order.iter().map(|o| o.iter().map(String::as_str).collect()).collect();
+        let page: BTreeSet<&str> = [
+            "plugins", "screen", "window", "dpr_x100", "touch_points", "chrome_obj",
+            "notif_permission", "perm_query_notif", "tz", "tz_offset_min",
+        ]
+        .into_iter()
+        .collect();
+        assert!(sets.contains(&page), "{order:?}");
+        assert!(order.iter().all(|o| o.len() >= 2));
     }
 
     #[test]

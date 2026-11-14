@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use veritell_core::Detection;
+use veritell_core::{Class, Detection, Layer};
 use veritell_probe::{Claimed, Engine, Os};
 use veritell_ua::{parse_user_agent, UaKind};
 
@@ -53,6 +53,95 @@ pub fn claimed(user_agent: Option<&str>) -> Claimed<'_> {
         os,
         mobile: claim.mobile,
     }
+}
+
+/// Detection id for a report that no copy of the probe script sends.
+pub const FORGED: &str = "probe_forged";
+
+/// Rejections that the gateway's own script cannot cause, so the report was
+/// made some other way. Expired nonces and builds, a nonce from another
+/// connection or sent twice, and an unknown build or nonce key (a restart
+/// with a new secret) all happen to real browsers and are not on the list.
+pub fn is_forgery(reason: &str) -> bool {
+    matches!(reason, "probe_malformed" | "probe_seal_invalid" | "probe_build_order")
+}
+
+/// The evidence a forged report leaves on the client that sent it.
+pub fn forged(reason: &str) -> Detection {
+    Detection::new(
+        FORGED,
+        Layer::Client,
+        50,
+        format!("sent a probe report that the probe script did not make ({reason})"),
+    )
+    .with_class(Class::Automated)
+}
+
+/// Whether the report's `page` object has its keys in the order this build
+/// writes them (`Builder::key_order`). A real run of the build cannot do
+/// otherwise; a report written without running it, even one sealed
+/// correctly, almost always does. `orders` is the build's list; a report
+/// that cannot be read here passes (the version 1 parser has its say).
+pub fn in_build_order(orders: &[Vec<String>], report_json: &[u8]) -> bool {
+    let Some(page) = page_keys(report_json) else { return true };
+    orders.iter().all(|order| {
+        let written: Vec<&String> = page.iter().filter(|k| order.contains(k)).collect();
+        let expected: Vec<&String> = order.iter().filter(|k| page.contains(k)).collect();
+        written == expected
+    })
+}
+
+/// The keys of the report's top-level `page` object, in the order written.
+fn page_keys(report_json: &[u8]) -> Option<Vec<String>> {
+    use serde::de::{Deserializer, IgnoredAny, MapAccess, Visitor};
+
+    struct Keys(Vec<String>);
+    impl<'de> serde::Deserialize<'de> for Keys {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = Keys;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("an object")
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Keys, A::Error> {
+                    let mut keys = Vec::new();
+                    while let Some((key, IgnoredAny)) = map.next_entry::<String, IgnoredAny>()? {
+                        keys.push(key);
+                    }
+                    Ok(Keys(keys))
+                }
+            }
+            d.deserialize_map(V)
+        }
+    }
+
+    struct Top(Option<Vec<String>>);
+    impl<'de> serde::Deserialize<'de> for Top {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = Top;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("an object")
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Top, A::Error> {
+                    let mut page = None;
+                    while let Some(key) = map.next_key::<String>()? {
+                        if key == "page" && page.is_none() {
+                            page = Some(map.next_value::<Keys>()?.0);
+                        } else {
+                            map.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                    Ok(Top(page))
+                }
+            }
+            d.deserialize_map(V)
+        }
+    }
+
+    serde_json::from_slice::<Top>(report_json).ok()?.0
 }
 
 struct Record {
@@ -183,7 +272,6 @@ impl ProbeStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use veritell_core::Layer;
 
     fn det(id: &str) -> Detection {
         Detection::new(id, Layer::Client, 10, "")
@@ -241,6 +329,39 @@ mod tests {
         assert!(s.records.lock().unwrap().len() <= 3);
         let many: Vec<Detection> = (0..100).map(|i| det(&format!("d{i}"))).collect();
         assert_eq!(s.put([9; 16], many, 100, 0).len(), MAX_DETECTIONS);
+    }
+
+    #[test]
+    fn page_order_is_checked_against_the_build() {
+        let orders = vec![vec!["tz".to_string(), "plugins".into(), "screen".into()], vec!["x".into(), "y".into()]];
+        let ok = br#"{"v":1,"page":{"tz":"","window":[0],"plugins":1,"screen":[0],"globals":[]},"main":{"y":1,"x":2}}"#;
+        assert!(in_build_order(&orders, ok), "only the page is checked; other keys do not matter");
+        let bad = br#"{"v":1,"page":{"plugins":1,"tz":"","screen":[0]}}"#;
+        assert!(!in_build_order(&orders, bad));
+        // Only the keys present are compared.
+        assert!(in_build_order(&orders, br#"{"page":{"tz":"","screen":[0]}}"#));
+        assert!(!in_build_order(&orders, br#"{"page":{"screen":[0],"tz":""}}"#));
+        // Nothing to compare against, or nothing readable: the check passes.
+        assert!(in_build_order(&[], bad));
+        assert!(in_build_order(&orders, b"not json"));
+        assert!(in_build_order(&orders, br#"{"v":1}"#));
+        assert!(in_build_order(&orders, br#"{"page":[1,2]}"#));
+        assert_eq!(page_keys(br#"{"a":{"page":{"z":1}},"page":{"b":[{"c":1}],"a":null}}"#), Some(vec!["b".into(), "a".into()]));
+    }
+
+    #[test]
+    fn only_reports_no_script_makes_are_forgeries() {
+        for reason in ["probe_malformed", "probe_seal_invalid", "probe_build_order"] {
+            assert!(is_forgery(reason), "{reason}");
+        }
+        for reason in [
+            "probe_nonce_expired", "probe_build_expired", "probe_store_full", "probe_nonce_reused",
+            "probe_nonce_other_client", "probe_nonce_invalid", "probe_build_unknown", "probe_too_large",
+        ] {
+            assert!(!is_forgery(reason), "{reason}");
+        }
+        let d = forged("probe_malformed");
+        assert_eq!((d.id.as_str(), d.layer), (FORGED, Layer::Client));
     }
 
     #[test]
