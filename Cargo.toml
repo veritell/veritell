@@ -7,7 +7,7 @@ edition = "2021"
 # 1.99: AtomicU64::try_update and the as_chunks lints.
 rust-version = "1.99"
 license = "AGPL-3.0-only"
-version = "0.1.0"
+version = "0.2.0"
 
 [workspace.dependencies]
 veritell-core = { path = "crates/veritell-core" }

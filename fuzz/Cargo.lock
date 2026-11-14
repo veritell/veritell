@@ -811,7 +811,7 @@ checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
 
 [[package]]
 name = "veritell-behavior"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -820,14 +820,14 @@ dependencies = [
 
 [[package]]
 name = "veritell-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "veritell-directory"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rustls",
  "rustls-pki-types",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "veritell-fp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "loona-hpack",
  "sha2",
@@ -868,7 +868,7 @@ dependencies = [
 
 [[package]]
 name = "veritell-privacypass"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "hmac",
@@ -878,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "veritell-probe"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.4.3",
  "hmac",
@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "veritell-token"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.4.3",
  "hmac",
@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "veritell-ua"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -908,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "veritell-wba"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
