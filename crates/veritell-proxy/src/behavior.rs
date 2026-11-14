@@ -12,6 +12,47 @@ pub const REPORT_PATH: &str = "/__veritell/behavior";
 pub const CONFIG_TOKEN: &str = "\"__VERITELL_BEHAVIOR__\"";
 /// Summaries accepted per nonce: the script sends at most this many per page.
 pub const SUMMARIES_PER_NONCE: u32 = 3;
+
+/// Why a behaviour summary was refused; [`Refusal::as_str`] is the event
+/// outcome.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    TooLarge,
+    Malformed,
+    NonceExpired,
+    NonceOtherClient,
+    NonceInvalid,
+    NonceSpent,
+    StoreFull,
+}
+
+impl Refusal {
+    #[cfg(test)]
+    pub const ALL: [Refusal; 7] = [
+        Refusal::TooLarge, Refusal::Malformed, Refusal::NonceExpired, Refusal::NonceOtherClient,
+        Refusal::NonceInvalid, Refusal::NonceSpent, Refusal::StoreFull,
+    ];
+
+    /// The event outcome.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Refusal::TooLarge => "behavior_too_large",
+            Refusal::Malformed => "behavior_malformed",
+            Refusal::NonceExpired => "behavior_nonce_expired",
+            Refusal::NonceOtherClient => "behavior_nonce_other_client",
+            Refusal::NonceInvalid => "behavior_nonce_invalid",
+            Refusal::NonceSpent => "behavior_nonce_spent",
+            Refusal::StoreFull => "behavior_store_full",
+        }
+    }
+
+    /// Whether it counts as a strike against the client: an expired nonce is
+    /// what a page left open overnight sends, and a full store is not the
+    /// client's doing.
+    pub fn strikes(self) -> bool {
+        !matches!(self, Refusal::NonceExpired | Refusal::StoreFull | Refusal::TooLarge)
+    }
+}
 /// Most behaviour detections remembered for one client.
 const MAX_DETECTIONS: usize = 8;
 
@@ -109,6 +150,18 @@ impl BehaviorStore {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn refusals_keep_their_outcome_names_and_strike_rules() {
+        let names: Vec<&str> = Refusal::ALL.iter().map(|r| r.as_str()).collect();
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "one name each");
+        assert!(names.iter().all(|n| n.starts_with("behavior_")));
+        let no_strike: Vec<&str> = Refusal::ALL.iter().filter(|r| !r.strikes()).map(|r| r.as_str()).collect();
+        assert_eq!(no_strike, ["behavior_too_large", "behavior_nonce_expired", "behavior_store_full"]);
+    }
+
     use super::*;
     use veritell_core::Layer;
 

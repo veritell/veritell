@@ -58,21 +58,72 @@ pub fn claimed(user_agent: Option<&str>) -> Claimed<'_> {
 /// Detection id for a report that no copy of the probe script sends.
 pub const FORGED: &str = "probe_forged";
 
-/// Rejections that the gateway's own script cannot cause, so the report was
-/// made some other way. Expired nonces and builds, a nonce from another
-/// connection or sent twice, and an unknown build or nonce key (a restart
-/// with a new secret) all happen to real browsers and are not on the list.
-pub fn is_forgery(reason: &str) -> bool {
-    matches!(reason, "probe_malformed" | "probe_seal_invalid" | "probe_build_order")
+/// Why a probe report was refused. Each is recorded as the event's
+/// outcome ([`Refusal::as_str`]); what follows for the client depends on the
+/// kind, never on the text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    TooLarge,
+    BuildUnknown,
+    BuildExpired,
+    SealInvalid,
+    Malformed,
+    BuildOrder,
+    NonceExpired,
+    NonceOtherClient,
+    NonceInvalid,
+    NonceReused,
+    StoreFull,
+}
+
+impl Refusal {
+    #[cfg(test)]
+    pub const ALL: [Refusal; 11] = [
+        Refusal::TooLarge, Refusal::BuildUnknown, Refusal::BuildExpired, Refusal::SealInvalid,
+        Refusal::Malformed, Refusal::BuildOrder, Refusal::NonceExpired, Refusal::NonceOtherClient,
+        Refusal::NonceInvalid, Refusal::NonceReused, Refusal::StoreFull,
+    ];
+
+    /// The event outcome.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Refusal::TooLarge => "probe_too_large",
+            Refusal::BuildUnknown => "probe_build_unknown",
+            Refusal::BuildExpired => "probe_build_expired",
+            Refusal::SealInvalid => "probe_seal_invalid",
+            Refusal::Malformed => "probe_malformed",
+            Refusal::BuildOrder => "probe_build_order",
+            Refusal::NonceExpired => "probe_nonce_expired",
+            Refusal::NonceOtherClient => "probe_nonce_other_client",
+            Refusal::NonceInvalid => "probe_nonce_invalid",
+            Refusal::NonceReused => "probe_nonce_reused",
+            Refusal::StoreFull => "probe_store_full",
+        }
+    }
+
+    /// Refusals that the gateway's own script cannot cause, so the report was
+    /// made some other way. Expired nonces and builds, a nonce from another
+    /// connection or sent twice, and an unknown build or nonce key (a restart
+    /// with a new secret) all happen to real browsers and are not on the list.
+    pub fn is_forgery(self) -> bool {
+        matches!(self, Refusal::Malformed | Refusal::SealInvalid | Refusal::BuildOrder)
+    }
+
+    /// Whether the refusal counts as a strike against the client. A page
+    /// left open past its nonce or its build sends an expired one, and a full
+    /// store is not the client's doing.
+    pub fn strikes(self) -> bool {
+        !matches!(self, Refusal::NonceExpired | Refusal::BuildExpired | Refusal::StoreFull | Refusal::TooLarge)
+    }
 }
 
 /// The evidence a forged report leaves on the client that sent it.
-pub fn forged(reason: &str) -> Detection {
+pub fn forged(why: Refusal) -> Detection {
     Detection::new(
         FORGED,
         Layer::Client,
         50,
-        format!("sent a probe report that the probe script did not make ({reason})"),
+        format!("sent a probe report that the probe script did not make ({})", why.as_str()),
     )
     .with_class(Class::Automated)
 }
@@ -351,17 +402,23 @@ mod tests {
 
     #[test]
     fn only_reports_no_script_makes_are_forgeries() {
-        for reason in ["probe_malformed", "probe_seal_invalid", "probe_build_order"] {
-            assert!(is_forgery(reason), "{reason}");
-        }
-        for reason in [
-            "probe_nonce_expired", "probe_build_expired", "probe_store_full", "probe_nonce_reused",
-            "probe_nonce_other_client", "probe_nonce_invalid", "probe_build_unknown", "probe_too_large",
-        ] {
-            assert!(!is_forgery(reason), "{reason}");
-        }
-        let d = forged("probe_malformed");
+        let forgeries: Vec<&str> = Refusal::ALL.iter().filter(|r| r.is_forgery()).map(|r| r.as_str()).collect();
+        assert_eq!(forgeries, ["probe_seal_invalid", "probe_malformed", "probe_build_order"]);
+        let d = forged(Refusal::Malformed);
         assert_eq!((d.id.as_str(), d.layer), (FORGED, Layer::Client));
+        assert!(d.detail.contains("probe_malformed"));
+    }
+
+    #[test]
+    fn refusals_keep_their_outcome_names_and_strike_rules() {
+        let names: Vec<&str> = Refusal::ALL.iter().map(|r| r.as_str()).collect();
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "one name each");
+        assert!(names.iter().all(|n| n.starts_with("probe_")));
+        let no_strike: Vec<&str> = Refusal::ALL.iter().filter(|r| !r.strikes()).map(|r| r.as_str()).collect();
+        assert_eq!(no_strike, ["probe_too_large", "probe_build_expired", "probe_nonce_expired", "probe_store_full"]);
     }
 
     #[test]

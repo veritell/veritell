@@ -739,22 +739,54 @@ fn network_of(db: &AsnDb, ip: IpAddr) -> (u32, &'static str, Option<Detection>) 
     }
 }
 
+/// What the session token in a request's cookie turned out to be. Only
+/// `Valid` counts as holding a token; the rest say why not, in the events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TokenState {
+    None,
+    Valid,
+    BudgetSpent,
+    StoreFull,
+    Expired,
+    BindingMismatch,
+    Invalid,
+}
+
+impl TokenState {
+    fn is_valid(self) -> bool {
+        self == TokenState::Valid
+    }
+
+    /// The `token` field of events.
+    fn as_str(self) -> &'static str {
+        match self {
+            TokenState::None => "none",
+            TokenState::Valid => "valid",
+            TokenState::BudgetSpent => "budget_spent",
+            TokenState::StoreFull => "store_full",
+            TokenState::Expired => "expired",
+            TokenState::BindingMismatch => "binding_mismatch",
+            TokenState::Invalid => "invalid",
+        }
+    }
+}
+
 struct Assessment {
     model: Option<ModelOpinion>,
     verdict: Verdict,
     verified_bot: Option<String>,
-    /// Name of the verified crawler or signed agent, or "".
-    identity: String,
+    /// Name of the verified crawler or signed agent.
+    identity: Option<String>,
     asn: u32,
     net_class: &'static str,
-    has_token: bool,
-    token_state: &'static str,
-    /// Counter key for the proven identity, or "" when nothing is proven.
-    /// The kind is part of it, so a signed agent that names itself after a
-    /// crawler does not share that crawler's counters.
-    identity_key: String,
-    /// What the identity had left of its day before this request.
-    quota_left: u32,
+    token: TokenState,
+    /// Counter key for the proven identity. The kind is part of it, so a
+    /// signed agent that names itself after a crawler does not share that
+    /// crawler's counters.
+    identity_key: Option<String>,
+    /// What the identity had left of its day before this request, when it
+    /// has a daily quota.
+    quota_left: Option<u32>,
 }
 
 impl Gateway {
@@ -855,29 +887,29 @@ impl Gateway {
             crawler_from_another_network(&mut detections, &claimed, asn);
         }
 
-        let (has_token, token_state) = match f
+        let token = match f
             .cookie
             .as_deref()
             .and_then(|c| cookie_value(c, COOKIE_NAME))
         {
-            None => (false, "none"),
+            None => TokenState::None,
             Some(token) => match veritell_token::verify(&self.keys, token, &self.binding(f), now) {
                 Ok(claims) => match self
                     .token_budgets
                     .try_consume(&claims.id, claims.budget, claims.expires_at, now)
                 {
-                    Consumed::Used => (true, "valid"),
-                    Consumed::Spent => (false, "budget_spent"),
+                    Consumed::Used => TokenState::Valid,
+                    Consumed::Spent => TokenState::BudgetSpent,
                     // A full store cannot count this token's uses, so the
                     // token does not count: the budget would be off.
                     Consumed::Full => {
                         note_full("token budgets");
-                        (false, "store_full")
+                        TokenState::StoreFull
                     }
                 },
-                Err(veritell_token::TokenError::Expired) => (false, "expired"),
-                Err(veritell_token::TokenError::BindingMismatch) => (false, "binding_mismatch"),
-                Err(_) => (false, "invalid"),
+                Err(veritell_token::TokenError::Expired) => TokenState::Expired,
+                Err(veritell_token::TokenError::BindingMismatch) => TokenState::BindingMismatch,
+                Err(_) => TokenState::Invalid,
             },
         };
 
@@ -886,7 +918,7 @@ impl Gateway {
             Some(found) => detections.extend(found),
             // Every challenge page runs the probe, so a client that holds a
             // token and never reported skipped or blocked the script.
-            None if has_token => detections.push(
+            None if token.is_valid() => detections.push(
                 Detection::new(
                     "probe_missing",
                     Layer::Client,
@@ -955,20 +987,17 @@ impl Gateway {
         } else {
             None
         };
-        let identity = verified_bot
-            .clone()
-            .or(signed_agent)
-            .unwrap_or_default();
-        let identity_key = match proven {
-            Some(Proven::VerifiedBot) => format!("bot\n{identity}"),
-            Some(Proven::SignedAgent) => format!("agent\n{identity}"),
-            None => String::new(),
+        let identity = verified_bot.clone().or(signed_agent);
+        let identity_key = match (proven, &identity) {
+            (Some(Proven::VerifiedBot), Some(name)) => Some(format!("bot\n{name}")),
+            (Some(Proven::SignedAgent), Some(name)) => Some(format!("agent\n{name}")),
+            _ => None,
         };
         // Every request by a proven identity counts against its day,
         // whatever is decided afterwards.
-        let quota_left = match self.policy.quota_for(&identity) {
-            Some(per_day) if proven.is_some() => self.quotas.take(&identity_key, per_day, now),
-            _ => NO_QUOTA,
+        let quota_left = match (&identity_key, &identity) {
+            (Some(key), Some(name)) => self.policy.quota_for(name).map(|per_day| self.quotas.take(key, per_day, now)),
+            _ => None,
         };
 
         let model = self.model.as_ref().and_then(|m| {
@@ -993,8 +1022,7 @@ impl Gateway {
             identity,
             asn,
             net_class,
-            has_token,
-            token_state,
+            token,
             identity_key,
             quota_left,
         }
@@ -1016,9 +1044,9 @@ impl Gateway {
             asn: a.asn,
             net_class: a.net_class,
             verified_bot: a.verified_bot.as_deref().unwrap_or(""),
-            has_token: a.has_token,
-            identity: &a.identity,
-            quota_left: a.quota_left,
+            has_token: a.token.is_valid(),
+            identity: a.identity.as_deref().unwrap_or(""),
+            quota_left: a.quota_left.unwrap_or(NO_QUOTA),
         })
     }
 
@@ -1054,16 +1082,16 @@ impl Gateway {
             "class": a.verdict.class.as_str(),
             "detections": a.verdict.detections.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
             "verified_bot": a.verified_bot,
-            "identity": a.identity,
+            "identity": a.identity.as_deref().unwrap_or(""),
             "asn": a.asn,
             "net_class": a.net_class,
-            "token": a.token_state,
+            "token": a.token.as_str(),
             "action": d.action.to_string(),
             "enforced": d.enforced,
             "route": d.route,
             "rule": d.rule,
             "policy_error": d.error,
-            "quota_left": (a.quota_left != NO_QUOTA).then_some(a.quota_left),
+            "quota_left": a.quota_left,
             "offer": d.offer.as_ref().map(|o| o.name.as_str()),
             "outcome": outcome,
             "model": a.model.as_ref().map(ModelOpinion::to_json),
@@ -1087,10 +1115,10 @@ impl Gateway {
             score: a.verdict.score,
             class: a.verdict.class,
             detections: a.verdict.detections.clone(),
-            identity: a.identity.clone(),
+            identity: a.identity.clone().unwrap_or_default(),
             asn: a.asn,
             net_class: a.net_class.to_string(),
-            token: a.token_state.to_string(),
+            token: a.token.as_str().to_string(),
             action: d.action.to_string(),
             enforced: d.enforced,
             route: d.route.clone().unwrap_or_default(),
@@ -1298,11 +1326,11 @@ impl Gateway {
 
     /// POST /__veritell/probe: check and analyse a probe report. A rejected
     /// report is logged; only one that the script cannot have made (see
-    /// `probe::is_forgery`) leaves state behind, a `probe_forged` detection
+    /// `probe::Refusal::is_forgery`) leaves state behind, a `probe_forged` detection
     /// on the client.
     async fn handle_probe_report(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
         let Some(body) = read_body(session, veritell_probe_build::MAX_SEALED_BYTES, self.body_timeout).await? else {
-            self.side_event(EventKind::Probe, f, Vec::new(), "probe_too_large");
+            self.side_event(EventKind::Probe, f, Vec::new(), probe::Refusal::TooLarge.as_str());
             return self
                 .respond(session, 413, "text/plain", b"too large".to_vec(), &[])
                 .await;
@@ -1315,18 +1343,18 @@ impl Gateway {
             .builder
             .open(&body, now)
             .map_err(|e| match e {
-                OpenError::UnknownBuild => "probe_build_unknown",
-                OpenError::ExpiredBuild => "probe_build_expired",
-                OpenError::Decrypt => "probe_seal_invalid",
-                OpenError::TooLarge | OpenError::Malformed | OpenError::Keys => "probe_malformed",
+                OpenError::UnknownBuild => probe::Refusal::BuildUnknown,
+                OpenError::ExpiredBuild => probe::Refusal::BuildExpired,
+                OpenError::Decrypt => probe::Refusal::SealInvalid,
+                OpenError::TooLarge | OpenError::Malformed | OpenError::Keys => probe::Refusal::Malformed,
             })
             .and_then(|opened| {
                 let report = veritell_probe::parse_report(&opened.report_json)
-                    .map_err(|_| "probe_malformed")?;
+                    .map_err(|_| probe::Refusal::Malformed)?;
                 // The outer nonce is the authenticated one; the copy inside
                 // the report must agree with it.
                 if report.nonce != opened.nonce {
-                    return Err("probe_malformed");
+                    return Err(probe::Refusal::Malformed);
                 }
                 // Sealing proves the sender read this build's script, not
                 // that it ran it: the build key is in the script. The order
@@ -1334,7 +1362,7 @@ impl Gateway {
                 // build to build and only a run of it produces that order.
                 let orders = self.probe_builds.builder.key_order(&opened.build_id).unwrap_or_default();
                 if !probe::in_build_order(&orders, &opened.report_json) {
-                    return Err("probe_build_order");
+                    return Err(probe::Refusal::BuildOrder);
                 }
                 Ok(report)
             })
@@ -1342,42 +1370,40 @@ impl Gateway {
                 let info =
                     veritell_probe::verify_nonce(&self.probe_key, &report.nonce, &binding.0, now)
                         .map_err(|e| match e {
-                            NonceError::Expired => "probe_nonce_expired",
-                            NonceError::BindingMismatch => "probe_nonce_other_client",
-                            NonceError::Malformed | NonceError::BadMac => "probe_nonce_invalid",
+                            NonceError::Expired => probe::Refusal::NonceExpired,
+                            NonceError::BindingMismatch => probe::Refusal::NonceOtherClient,
+                            NonceError::Malformed | NonceError::BadMac => probe::Refusal::NonceInvalid,
                         })?;
                 // Single use: a captured report cannot be sent again. A full
                 // store cannot tell a replay, so the report is refused.
                 match self.used_nonces.try_consume(&info.id, 1, info.expires_at, now) {
                     Consumed::Used => {}
-                    Consumed::Spent => return Err("probe_nonce_reused"),
+                    Consumed::Spent => return Err(probe::Refusal::NonceReused),
                     Consumed::Full => {
                         note_full("probe nonces");
-                        return Err("probe_store_full");
+                        return Err(probe::Refusal::StoreFull);
                     }
                 }
                 Ok(report)
             });
         let report = match checked {
             Ok(report) => report,
-            Err(reason) => {
-                // A page left open past its nonce or its build sends this;
-                // only the other refusals count against the client.
-                // A full store is not the client's doing either.
-                if !matches!(reason, "probe_nonce_expired" | "probe_build_expired" | "probe_store_full") {
+            Err(why) => {
+                // Not every refusal counts against the client (Refusal::strikes).
+                if why.strikes() {
                     self.agg.strike(&binding.0, now);
                 }
                 // A report that no copy of the script makes is evidence about
                 // the client that sent it: without this, sending one would
                 // leave the client exactly where it was.
-                let found = if probe::is_forgery(reason) {
-                    let found = vec![probe::forged(reason)];
+                let found = if why.is_forgery() {
+                    let found = vec![probe::forged(why)];
                     self.probes.put(binding.0, found.clone(), now.saturating_add(PROBE_RESULT_TTL_SECS), now);
                     found
                 } else {
                     Vec::new()
                 };
-                self.side_event(EventKind::Probe, f, found, reason);
+                self.side_event(EventKind::Probe, f, found, why.as_str());
                 return self
                     .respond(session, 403, "text/plain", b"rejected".to_vec(), &[])
                     .await;
@@ -1421,14 +1447,14 @@ impl Gateway {
     /// rejected summary is logged and counts as a strike against the client.
     async fn handle_behavior_report(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
         let Some(body) = read_body(session, veritell_behavior::MAX_SUMMARY_BYTES, self.body_timeout).await? else {
-            self.side_event(EventKind::Probe, f, Vec::new(), "behavior_too_large");
+            self.side_event(EventKind::Probe, f, Vec::new(), behavior::Refusal::TooLarge.as_str());
             return self
                 .respond(session, 413, "text/plain", b"too large".to_vec(), &[])
                 .await;
         };
         let binding = self.binding(f);
         let checked = veritell_behavior::parse_summary(&body)
-            .map_err(|_| "behavior_malformed")
+            .map_err(|_| behavior::Refusal::Malformed)
             .and_then(|summary| {
                 let info = veritell_probe::verify_nonce(
                     &self.probe_key,
@@ -1437,9 +1463,9 @@ impl Gateway {
                     now,
                 )
                 .map_err(|e| match e {
-                    NonceError::Expired => "behavior_nonce_expired",
-                    NonceError::BindingMismatch => "behavior_nonce_other_client",
-                    NonceError::Malformed | NonceError::BadMac => "behavior_nonce_invalid",
+                    NonceError::Expired => behavior::Refusal::NonceExpired,
+                    NonceError::BindingMismatch => behavior::Refusal::NonceOtherClient,
+                    NonceError::Malformed | NonceError::BadMac => behavior::Refusal::NonceInvalid,
                 })?;
                 match self.used_behavior_nonces.try_consume(
                     &info.id,
@@ -1448,23 +1474,21 @@ impl Gateway {
                     now,
                 ) {
                     Consumed::Used => {}
-                    Consumed::Spent => return Err("behavior_nonce_spent"),
+                    Consumed::Spent => return Err(behavior::Refusal::NonceSpent),
                     Consumed::Full => {
                         note_full("behaviour nonces");
-                        return Err("behavior_store_full");
+                        return Err(behavior::Refusal::StoreFull);
                     }
                 }
                 Ok(summary)
             });
         let summary = match checked {
             Ok(summary) => summary,
-            Err(reason) => {
-                // An expired nonce is what a page left open overnight sends;
-                // a full store is not the client's doing.
-                if !matches!(reason, "behavior_nonce_expired" | "behavior_store_full") {
+            Err(why) => {
+                if why.strikes() {
                     self.agg.strike(&binding.0, now);
                 }
-                self.side_event(EventKind::Probe, f, Vec::new(), reason);
+                self.side_event(EventKind::Probe, f, Vec::new(), why.as_str());
                 return self
                     .respond(session, 403, "text/plain", b"rejected".to_vec(), &[])
                     .await;
@@ -1509,13 +1533,12 @@ impl Gateway {
     /// What is actually done: nothing in shadow mode, and a challenge or a
     /// throttle only when a token or the rate allowance does not cover it.
     fn effective(&self, f: &Facts, a: &Assessment, d: &Decision, now: u64) -> Action {
-        effective_action(d, a.has_token, Self::claims_receipt(f, d), |per_minute| {
+        effective_action(d, a.token.is_valid(), Self::claims_receipt(f, d), |per_minute| {
             // A proven identity is limited as itself, wherever it comes
             // from; everyone else by address.
-            if a.identity_key.is_empty() {
-                self.throttle.allow(f.ip, per_minute, now)
-            } else {
-                self.quotas.allow_rate(&a.identity_key, per_minute, now)
+            match &a.identity_key {
+                Some(key) => self.quotas.allow_rate(key, per_minute, now),
+                None => self.throttle.allow(f.ip, per_minute, now),
             }
         })
     }
@@ -1718,8 +1741,8 @@ impl Gateway {
             "class": a.verdict.class.as_str(),
             "detections": a.verdict.detections,
             "verified_bot": a.verified_bot,
-            "identity": a.identity,
-            "token": a.token_state,
+            "identity": a.identity.as_deref().unwrap_or(""),
+            "token": a.token.as_str(),
             "model": a.model.as_ref().map(ModelOpinion::to_json),
         });
         self.respond(

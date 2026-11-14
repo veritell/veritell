@@ -298,7 +298,9 @@ fn main() {
                 })
                 .collect(),
         },
-        timeout: Duration::ZERO,
+        // Said outright rather than with zero, which the crate also reads as
+        // the default.
+        timeout: veritell_directory::FetchConfig::DEFAULT_TIMEOUT,
     };
     let directory_roots = args.get("wba-directory-ca").map(|path| {
         std::fs::read(path).unwrap_or_else(|e| fail(format!("cannot read {path}: {e}")))
