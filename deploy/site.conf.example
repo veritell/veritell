@@ -32,8 +32,9 @@ UPSTREAM_TLS=on
 # The host's own address as visitors reach it; used for the checks. Left out,
 # it is the source address of the route to the internet.
 #PUBLIC_ADDR=203.0.113.10
-# IPv6 firewall rules (redirect): auto (when the host has IPv6 and ip6tables),
-# on or off.
+# IPv6: auto (when the host has IPv6), on or off. Redirect: the IPv6 firewall
+# rules (auto also needs ip6tables). Compose: IPv6 on the gateway's front
+# network, so IPv6 visitors keep their own address (README.md, "IPv6 visitors").
 #IPV6=auto
 
 # ---- redirect only ----------------------------------------------------------

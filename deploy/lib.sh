@@ -257,6 +257,25 @@ asn_wire() {
   echo "$want"
 }
 
+# ipv6_wire: kit.env's VERITELL_FRONT_IPV6 and VERITELL_INNER_LISTEN (compose
+# mode). With IPv6 (IPV6 on, or auto on a host that has it) the gateway's
+# front network gets IPv6, so IPv6 visitors keep their own address instead of
+# arriving through docker-proxy, and the gateway listens on [::]:8443;
+# otherwise the network is IPv4 only and it listens on 0.0.0.0:8443. Prints on
+# or off. See README.md, "IPv6 visitors".
+ipv6_wire() {
+  local on=off v6=false listen=0.0.0.0:8443
+  case "${IPV6:-auto}" in
+    on) on=on;;
+    off) ;;
+    *) [ -e "${IPV6_PROC:-/proc/net/if_inet6}" ] && on=on;;
+  esac
+  [ "$on" = on ] && { v6=true; listen='[::]:8443'; }
+  [ "$(get_kv "$KIT/kit.env" VERITELL_FRONT_IPV6)" = "$v6" ] || set_kv "$KIT/kit.env" VERITELL_FRONT_IPV6 "$v6"
+  [ "$(get_kv "$KIT/kit.env" VERITELL_INNER_LISTEN)" = "$listen" ] || set_kv "$KIT/kit.env" VERITELL_INNER_LISTEN "$listen"
+  echo "$on"
+}
+
 # agents_wire: kit.env's VERITELL_WBA_AGENTS, from what is there: the path in
 # the gateway when agents/agents.json exists and is not empty, else empty
 # (no agent trusted). Makes agents/ so the compose files' mount has a folder.

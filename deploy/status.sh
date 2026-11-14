@@ -28,4 +28,9 @@ else echo "ASN database: none (asn=0, net_class unknown in the events): run $KIT
 if [ -n "$(get_kv "$KIT/kit.env" VERITELL_WBA_AGENTS)" ] && [ -s "$KIT/agents/agents.json" ]; then
   echo "Web Bot Auth: trusted agents from agents/agents.json"
 else echo "Web Bot Auth: no trusted agent"; fi
+case "$(get_kv "$KIT/kit.env" VERITELL_FRONT_IPV6)" in
+  true) echo "IPv6 visitors: their own address (front network with IPv6)";;
+  false) echo "IPv6 visitors: none expected (IPV6=off or no IPv6 on this host)";;
+  *) [ "$FRONT" = compose ] && echo "IPv6 visitors: through docker-proxy, all with the bridge's address: run update.sh";;
+esac
 [ "${state%%:*}" = inconsistent ] && exit 1 || exit 0

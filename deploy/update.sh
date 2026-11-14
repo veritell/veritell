@@ -56,6 +56,8 @@ fi
 asn_wire >/dev/null
 # Trusted Web Bot Auth agents stay in agents/ across updates, like asn/.
 agents_wire >/dev/null
+# The front network's IPv6 (README.md, "IPv6 visitors").
+ipv6_wire >/dev/null
 docker tag veritell:latest veritell:previous 2>/dev/null || true
 docker build -q -f "$KIT/Dockerfile.prebuilt" -t veritell:latest "$KIT" >/dev/null
 # A compose.yml that Compose refuses fails here, before any restart: that

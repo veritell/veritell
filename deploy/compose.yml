@@ -10,6 +10,11 @@ services:
     image: veritell:${VERITELL_TAG:-latest}
     container_name: veritell-gateway
     command:
+      # [::]:8443 takes IPv4 and IPv6 (the image's ENTRYPOINT passes
+      # 0.0.0.0:8443; the last --listen wins). 0.0.0.0:8443 with IPV6=off in
+      # site.conf, or on a host without IPv6. See README.md, "IPv6 visitors".
+      - --listen
+      - ${VERITELL_INNER_LISTEN:-[::]:8443}
       - --upstream
       - ${SITE_UPSTREAM:?set SITE_UPSTREAM, e.g. web:8081}
       # Other sites on this host: certificates by name (EXTRA_CERT_NAMES in
@@ -66,7 +71,11 @@ services:
       - ./policy.yaml:/etc/veritell/policy.yaml:ro
       - ./asn:/etc/veritell/asn:ro
       - ./agents:/etc/veritell/agents:ro
-    networks: [site, store]
+    # front: the network Docker publishes the ports through. With IPv6 on it,
+    # an IPv6 visitor reaches the gateway with its own address; without, Docker
+    # relays IPv6 through docker-proxy and every IPv6 visitor arrives from the
+    # bridge's address.
+    networks: [front, site, store]
     # Started once the store answers, so the first events are not dropped.
     depends_on:
       clickhouse: { condition: service_healthy }
@@ -111,6 +120,10 @@ networks:
     external: true
     name: ${SITE_NETWORK:?set SITE_NETWORK, e.g. mysite_default}
   store: {}
+  # IPv6 from Docker's own private pool (Docker 27 or later), unless
+  # IPV6=off in site.conf or the host has no IPv6.
+  front:
+    enable_ipv6: ${VERITELL_FRONT_IPV6:-true}
 
 volumes:
   clickhouse: {}

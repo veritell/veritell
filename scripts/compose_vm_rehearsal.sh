@@ -18,6 +18,25 @@ fails=0
 check() { if printf '%s' "$2" | grep -q -- "$3"; then echo "PASS  $1"; else echo "FAIL  $1  (wanted: $3; got: $(printf '%s' "$2" | tail -c 400))"; fails=$((fails+1)); fi; }
 refute() { if printf '%s' "$2" | grep -q -- "$3"; then echo "FAIL  $1  (unwanted: $3)"; fails=$((fails+1)); else echo "PASS  $1"; fi; }
 outside() { docker run --rm --add-host "$HOST:$ADDR" curlimages/curl -sk --max-time 10 "$@"; }
+# An IPv6 visitor from outside: a network namespace behind a veth pair, as
+# another machine would be (not a container: Docker masquerades traffic that
+# leaves a container's bridge, and a real visitor comes in on the host's own
+# interface). It connects to the host's IPv6 address ADDR6 (a ULA on a dummy
+# interface, made below). Prints what the site says it saw, then the client's
+# address.
+ADDR6=fd5e:a1::10
+CLIENT6=fd5e:b2::2
+outside6() {
+  ip netns exec rh-out curl -sk --max-time 10 -6 --resolve "$HOST:443:[$ADDR6]" "https://$HOST/whoami6" | tr -d '\n'
+  printf ' client=%s' "$CLIENT6"
+}
+# The same outside machine over IPv4, to the host's address ADDR.
+CLIENT4=10.99.0.2
+outside4() {
+  ip netns exec rh-out curl -sk --max-time 10 -4 --resolve "$HOST:443:$ADDR" "https://$HOST/whoami4" | tr -d '\n'
+  printf ' client=%s' "$CLIENT4"
+}
+same_addr() { echo "$1" | awk '{print ($3 == substr($4, 8)) ? "same" : "different"}'; }
 # seen PATH: events in the store with that path (the gateway writes no line
 # per request to its log). Waits 2 s for the gateway's batch first.
 seen() {
@@ -48,6 +67,19 @@ docker rm -f veritell-gateway veritell-clickhouse >/dev/null 2>&1; docker volume
 (cd "$SITE" 2>/dev/null && docker compose --env-file .env.production down >/dev/null 2>&1)
 rm -rf "$KIT" "$SITE"
 iptables -S | grep -q veritell && { echo "veritell rules left from an earlier run"; exit 1; }
+
+# ---- IPv6: an address for the host, and a network for the IPv6 client ----
+ip link show rh-dum0 >/dev/null 2>&1 || ip link add rh-dum0 type dummy
+ip link set rh-dum0 up; ip -6 addr replace "$ADDR6/64" dev rh-dum0
+ip netns del rh-out 2>/dev/null; ip link del rh-veth0 2>/dev/null
+ip netns add rh-out; ip link add rh-veth0 type veth peer name rh-veth1; ip link set rh-veth1 netns rh-out
+ip -6 addr add fd5e:b2::1/64 dev rh-veth0 nodad; ip link set rh-veth0 up
+ip netns exec rh-out ip -6 addr add "$CLIENT6/64" dev rh-veth1 nodad
+ip netns exec rh-out ip link set rh-veth1 up; ip netns exec rh-out ip link set lo up
+ip netns exec rh-out ip -6 route add default via fd5e:b2::1
+ip addr add 10.99.0.1/24 dev rh-veth0; ip netns exec rh-out ip addr add "$CLIENT4/24" dev rh-veth1
+ip netns exec rh-out ip route add default via 10.99.0.1
+sysctl -qw net.ipv6.conf.all.forwarding=1
 
 # ---- the stand-in site, owned by a user, its env file mode 640 ----
 mkdir -p "$SITE" /etc/letsencrypt/live/$HOST
@@ -107,6 +139,8 @@ load_stop "the old kit's cutover"
 check "old kit: front gateway" "$(st)" 'front: gateway'
 check "old kit: from outside, through the gateway" "$(through_gateway old)" '^200 1$'
 check "the site's env file keeps its owner and mode" "$(stat -c '%U:%G %a' "$SITE/.env.production")" "^$owner\$"
+seen6=$(outside6); echo "INFO  old kit, an IPv6 visitor: $seen6 (the bug: the site sees a bridge address, not the client)"
+seen4=$(outside4); check "old kit: the site sees an outside IPv4 visitor's own address ($seen4)" "$(same_addr "$seen4")" '^same$'
 
 # ---- update to the new kit, run by the old kit's update.sh ----
 mkdir -p /home/lima/veritell-kit-new; rm -rf /home/lima/veritell-kit-new/*; cp -a "$NEW"/. /home/lima/veritell-kit-new/
@@ -124,6 +158,14 @@ gw_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{e
 seen=$(outside "https://$HOST/whoami")
 check "new kit: the site's gateway block answers" "$seen" 'site gateway-block'
 refute "new kit: the site sees the visitor, not the gateway ($seen; gateway $gw_ip)" "$seen" "gateway-block ${gw_ip%% *}\$"
+seen6=$(outside6)
+check "new kit: an IPv6 visitor is answered through the gateway ($seen6)" "$seen6" 'site gateway-block'
+check "new kit: the site sees the IPv6 visitor's own address ($seen6)" "$(same_addr "$seen6")" '^same$'
+seen4=$(outside4)
+check "new kit: the site still sees an outside IPv4 visitor's own address ($seen4)" "$(same_addr "$seen4")" '^same$'
+check "new kit: status says IPv6 visitors keep their address" "$("$KIT/status.sh" 2>&1)" 'IPv6 visitors: their own address'
+check "new kit: the gateway is on the front network, with IPv6" "$(docker network inspect veritell_front -f '{{.EnableIPv6}}' 2>&1)" '^true$'
+check "new kit: no docker-proxy for IPv6 on the public port" "$(ss -ltnpH '( sport = :443 )' | grep -c 'docker-proxy.*\[::\]' ) $(ip6tables -t nat -S DOCKER 2>/dev/null | grep -c 'dport 443')" '^0 [1-9]'
 "$KIT/watch.sh"; check "new kit: watch.sh finds no problem" "$(journalctl -t veritell-watch -n 1 --no-pager -o cat)" '^ok: front=gateway'
 
 # ---- every transition with the new kit ----

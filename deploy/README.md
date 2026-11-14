@@ -212,6 +212,31 @@ changed type is not applied; both need a hand-written step. Rows the store
 refuses are dropped by the gateway, which logs it; the 5-minute check
 reports such lines.
 
+## IPv6 visitors
+
+In compose mode Docker publishes the gateway's ports. For IPv4 it forwards
+each connection with the visitor's address. For IPv6 it can do the same only
+when the container has an IPv6 address; without one, Docker's `docker-proxy`
+accepts the connection on the host and opens a new one to the container, so
+every IPv6 visitor reaches the gateway from the Docker bridge's address. Then
+IPv6 visitors share one address in the events, the rules that count per
+address and the visits, and get no ASN, no `net_hosting` and no crawler
+check.
+
+So the gateway has a network of its own, `front`, with IPv6 from Docker's
+private pool (Docker 27 or later), and listens on `[::]:8443`, which takes
+both families. The site's network is not changed. `IPV6` in `site.conf`:
+`auto` (the default) does this when the host has IPv6, `on` always, `off`
+never (IPv4-only network, `0.0.0.0:8443`). `kit.env` holds the result
+(`VERITELL_FRONT_IPV6`, `VERITELL_INNER_LISTEN`), and `status.sh` shows it.
+Docker turns on IPv6 forwarding on the host when it creates the network; a
+host that takes its own IPv6 route from router advertisements, rather than a
+static one, should set `accept_ra=2` on that interface first, or it can lose
+that route.
+
+Changing `IPV6` later, once `front` exists, needs the network made again:
+stop the gateway, `docker network rm veritell_front`, run `update.sh`.
+
 ## Trusted Web Bot Auth agents
 
 A request signed with Web Bot Auth (HTTP Message Signatures, Ed25519) by an
