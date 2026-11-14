@@ -9,7 +9,7 @@
  * This file is also the template for per-build scripts (see SEALING.md):
  * names with the double dollar prefix are renamed per build, marked blocks
  * are reordered, comments are stripped and leading white space is dropped.
- * Run unbuilt, it behaves exactly as the plain Phase 1 probe.
+ * Run unbuilt, it behaves as a plain, unsealed probe.
  */
 (function () {
   "use strict";

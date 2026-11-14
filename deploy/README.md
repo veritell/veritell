@@ -199,6 +199,8 @@ earlier versions of the script, are no longer used and can be deleted.
 
 A restart gives requests in flight one second to finish (the gateway's
 graceful shutdown), then cuts them: a download that takes longer is broken.
+Compose's `stop_grace_period: 10s` is a different limit: the time Docker
+waits for the gateway to save its state and exit before it kills it.
 
 ## The event store's schema
 

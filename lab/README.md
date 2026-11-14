@@ -2,7 +2,9 @@
 
 The gateway's own regression suite. It starts a fresh gateway (shadow mode, or with a policy file) in front of a tiny
 local origin, drives a real or automated browser at it, and records what the gateway detected on the page's follow-up
-request `/lab/after`. Everything runs on localhost with a throwaway self-signed certificate. Only Node built-ins are used.
+request `/lab/after`. Everything runs on localhost with a throwaway self-signed certificate. The runner uses only Node built-ins; the
+automation libraries in `package.json` (Playwright, Puppeteer, Patchright) are optional, and their scenarios report
+"not run" until `npm install` in `lab/`. The lockfile is not committed: each install takes the newest matching version.
 
 ## Run
 
@@ -29,7 +31,7 @@ python3 -m venv lab/.venv
 lab/.venv/bin/python -m pip install -r lab/requirements.txt
 ```
 
-Selenium needs a chromedriver that matches the local Chromium (major 149). Selenium Manager downloads it into
+Selenium needs a chromedriver whose major version matches the local Chromium's. Selenium Manager downloads it into
 `~/.cache/selenium` on first use. If it cannot, the scenario fails with the Selenium error. Python clients are small
 scripts in `lab/clients/`, started with `lab/.venv/bin/python script URL PROFILE_DIR`, and killed by the runner like any
 other client. `CHROME_BIN` is passed to them. Camoufox downloads its own browser and is not approved yet, so its
