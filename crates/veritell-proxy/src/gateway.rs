@@ -101,7 +101,7 @@ pub struct Gateway {
     /// Signatures of verified agents already seen, so that a captured
     /// signed request cannot be sent again as that agent.
     /// Shared with the state saver, so a restart keeps it.
-    pub wba_replays: Arc<std::sync::Mutex<ReplayCache>>,
+    pub wba_replays: Arc<crate::state::Replays>,
     /// Rate and daily quota per proven identity.
     pub quotas: Arc<veritell_quota::Quotas>,
     pub events: Arc<dyn EventSink>,
@@ -692,7 +692,16 @@ fn drop_ios_app_icon_fetch(detections: &mut Vec<Detection>, method: &str, path: 
 /// penalty 20) left the request at 79, which the score reads as a person.
 /// Nothing in it says person: it is an agent of some kind. The finding now
 /// argues for that class; the score and the penalty are unchanged.
-fn unknown_agent_is_not_a_person(detections: &mut [Detection]) {
+///
+/// Only when a fingerprint could have spoken for the client: `ja4` or `h2`
+/// is present. Behind a trusted proxy and in sidecar mode neither is, the
+/// request is judged by its User-Agent alone, and an unfamiliar one is then
+/// no evidence of an agent (a browser the table does not list looks the
+/// same). The finding and its penalty stay; only the class hint is left off.
+fn unknown_agent_is_not_a_person(detections: &mut [Detection], ja4: Option<&str>, h2: Option<&str>) {
+    if ja4.is_none() && h2.is_none() {
+        return;
+    }
     for d in detections.iter_mut() {
         if d.id == "ua_unknown" && d.class_hint.is_none() {
             d.class_hint = Some(Class::UnverifiedAgent);
@@ -809,7 +818,7 @@ impl Gateway {
             header_names: &f.header_names,
         });
         drop_ios_app_icon_fetch(&mut detections, &f.method, &f.path, f.user_agent.as_deref(), f.h2.as_deref());
-        unknown_agent_is_not_a_person(&mut detections);
+        unknown_agent_is_not_a_person(&mut detections, f.ja4.as_deref(), f.h2.as_deref());
 
         let crawler = self.crawlers.verify(f.user_agent.as_deref(), f.ip).await;
         detections.extend(crawler.detection());
@@ -842,10 +851,15 @@ impl Gateway {
             let info = matches!(verdict, WbaVerdict::Verified { .. })
                 .then(|| veritell_wba::signature_info(&parts))
                 .flatten();
-            let mut replays = self.wba_replays.lock().unwrap_or_else(|e| e.into_inner());
+            let mut replays = self.wba_replays.lock();
             let (agent, found) =
                 signed_agent_of(verdict, info.as_ref(), is_write(&f.method), f.query.is_some(), &mut replays, now);
             drop(replays);
+            // A signed agent is returned only after the cache recorded a new
+            // signature, which is what the next state save has to write.
+            if agent.is_some() {
+                self.wba_replays.mark_changed();
+            }
             detections.extend(found);
             signed_agent = agent;
         }
@@ -2189,16 +2203,34 @@ mod tests {
         #[test]
         fn an_unknown_agent_is_not_a_person() {
             let mut d = vec![det("ua_unknown"), det("missing_sec_fetch")];
-            unknown_agent_is_not_a_person(&mut d);
+            unknown_agent_is_not_a_person(&mut d, Some("t13d"), Some("h2"));
             assert_eq!(d[0].class_hint, Some(Class::UnverifiedAgent));
             assert_eq!(d[0].penalty, 10);
             assert_eq!(d[1].class_hint, None);
         }
 
         #[test]
+        fn either_fingerprint_is_enough_to_apply_the_hint() {
+            for (ja4, h2) in [(Some("t13d"), None), (None, Some("h2"))] {
+                let mut d = vec![det("ua_unknown")];
+                unknown_agent_is_not_a_person(&mut d, ja4, h2);
+                assert_eq!(d[0].class_hint, Some(Class::UnverifiedAgent));
+            }
+        }
+
+        #[test]
+        fn without_any_fingerprint_the_hint_is_left_off() {
+            let mut d = vec![det("ua_unknown"), det("missing_sec_fetch")];
+            unknown_agent_is_not_a_person(&mut d, None, None);
+            assert_eq!(ids(&d), ["ua_unknown", "missing_sec_fetch"], "detections stay");
+            assert_eq!(d[0].penalty, 10, "score unchanged");
+            assert_eq!(d[0].class_hint, None);
+        }
+
+        #[test]
         fn a_stronger_hint_is_kept() {
             let mut d = vec![det("ua_unknown").with_class(Class::Malicious)];
-            unknown_agent_is_not_a_person(&mut d);
+            unknown_agent_is_not_a_person(&mut d, Some("t13d"), None);
             assert_eq!(d[0].class_hint, Some(Class::Malicious));
         }
 

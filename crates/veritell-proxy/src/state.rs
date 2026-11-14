@@ -1,8 +1,9 @@
 //! State that survives a restart (`--state-dir`): the day's quota use, every
 //! single-use store (redeemed Privacy Pass tokens, solved challenges, session
-//! token budgets, probe and behaviour nonces), and the probe results (without
-//! which every client holding a token would be marked `probe_missing` after a
-//! restart).
+//! token budgets, probe and behaviour nonces), the Web Bot Auth replay cache
+//! (`wba-replays`: signatures already used, so a restart does not let a
+//! captured one through again), and the probe results (without which every
+//! client holding a token would be marked `probe_missing` after a restart).
 //!
 //! Loaded once at start, before anything is served. Saved every
 //! `--state-flush` seconds and once more when a graceful shutdown (SIGTERM)
@@ -17,6 +18,8 @@
 //! the events hold: the address as `--ip-mode` writes it, the path and the
 //! User-Agent. They are saved once a minute and on shutdown, newest first up
 //! to `EVENTS_MAX_BYTES`, and none older than 30 days is saved or loaded.
+//! The replay cache, up to about 4 MB, is rewritten by an interval save only
+//! when a signature was added since the last save; shutdown always writes it.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -136,13 +139,42 @@ impl Snapshot for crate::probe::ProbeStore {
 /// time until which it is refused. Saved so that a restart does not let a
 /// captured signature through once more. Format: `VWR1`, then 40 bytes per
 /// signature (its 32-byte id, the time as a big-endian u64).
-pub struct Replays(pub Arc<std::sync::Mutex<veritell_wba::ReplayCache>>);
+///
+/// Counts the signatures it has recorded, so that an interval save can skip
+/// the file when nothing was added since the last one.
+pub struct Replays {
+    cache: std::sync::Mutex<veritell_wba::ReplayCache>,
+    /// Bumped by `mark_changed` for every signature recorded.
+    generation: AtomicU64,
+    /// The generation read by the last export.
+    saved: AtomicU64,
+}
+
+impl Replays {
+    pub fn new(cache: veritell_wba::ReplayCache) -> Replays {
+        Replays { cache: std::sync::Mutex::new(cache), generation: AtomicU64::new(0), saved: AtomicU64::new(0) }
+    }
+
+    /// The cache. A caller that adds a signature must call `mark_changed`.
+    pub fn lock(&self) -> std::sync::MutexGuard<'_, veritell_wba::ReplayCache> {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Records that the cache gained a signature since the last export.
+    pub fn mark_changed(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 const REPLAYS_MAGIC: &[u8; 4] = b"VWR1";
 
 impl Snapshot for Replays {
     fn export(&self, now: u64) -> Vec<u8> {
-        let entries = self.0.lock().unwrap_or_else(|e| e.into_inner()).entries(now);
+        // Read before the copy: a signature added meanwhile is either in the
+        // copy or leaves the store due again. The lock is held for the copy
+        // only; the bytes are built after it is released.
+        self.saved.store(self.generation.load(Ordering::Relaxed), Ordering::Relaxed);
+        let entries = self.lock().entries(now);
         let mut out = Vec::with_capacity(4 + entries.len() * 40);
         out.extend_from_slice(REPLAYS_MAGIC);
         for (id, until) in entries {
@@ -157,7 +189,7 @@ impl Snapshot for Replays {
         if body.len() % 40 != 0 {
             return Err(format!("{} bytes is not a whole number of entries", body.len()));
         }
-        let mut cache = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self.lock();
         let mut kept = 0;
         for chunk in body.as_chunks::<40>().0 {
             let (id, until) = chunk.split_at(32);
@@ -169,6 +201,10 @@ impl Snapshot for Replays {
             }
         }
         Ok(kept)
+    }
+
+    fn due(&self, _now: u64) -> bool {
+        self.generation.load(Ordering::Relaxed) != self.saved.load(Ordering::Relaxed)
     }
 }
 
@@ -300,22 +336,47 @@ mod tests {
     #[test]
     fn the_replay_cache_survives_a_restart_and_refuses_junk() {
         use veritell_wba::ReplayCache;
-        let cache = Arc::new(std::sync::Mutex::new(ReplayCache::new(10)));
-        cache.lock().unwrap().restore([1; 32], NOW + 60, NOW);
-        cache.lock().unwrap().restore([2; 32], NOW + 5, NOW);
-        let bytes = Replays(Arc::clone(&cache)).export(NOW);
+        let cache = Replays::new(ReplayCache::new(10));
+        cache.lock().restore([1; 32], NOW + 60, NOW);
+        cache.lock().restore([2; 32], NOW + 5, NOW);
+        let bytes = cache.export(NOW);
         assert_eq!(bytes.len(), 4 + 2 * 40);
 
         // A new process, ten seconds later: the one still valid comes back.
-        let after = Arc::new(std::sync::Mutex::new(ReplayCache::new(10)));
-        assert_eq!(Replays(Arc::clone(&after)).import(&bytes, NOW + 10), Ok(1));
-        assert_eq!(after.lock().unwrap().entries(NOW + 10), vec![([1; 32], NOW + 60)]);
+        let after = Replays::new(ReplayCache::new(10));
+        assert_eq!(after.import(&bytes, NOW + 10), Ok(1));
+        assert_eq!(after.lock().entries(NOW + 10), vec![([1; 32], NOW + 60)]);
 
-        let empty = Arc::new(std::sync::Mutex::new(ReplayCache::new(10)));
-        let r = Replays(Arc::clone(&empty));
+        let r = Replays::new(ReplayCache::new(10));
         assert!(r.import(b"nope", NOW).is_err());
         assert!(r.import(&bytes[..bytes.len() - 1], NOW).is_err());
-        assert!(empty.lock().unwrap().is_empty(), "a refused file changes nothing");
+        assert!(r.lock().is_empty(), "a refused file changes nothing");
+    }
+
+    #[test]
+    fn the_replay_cache_is_saved_again_only_after_a_change() {
+        let r = Replays::new(veritell_wba::ReplayCache::new(10));
+        assert!(!r.due(NOW), "nothing recorded, nothing to save");
+        r.lock().restore([1; 32], NOW + 60, NOW);
+        r.mark_changed();
+        assert!(r.due(NOW));
+        r.export(NOW);
+        assert!(!r.due(NOW + 1), "saved and unchanged");
+        assert!(!r.due(NOW + 100), "time alone does not make it due");
+        r.mark_changed();
+        assert!(r.due(NOW + 2));
+        // Interval saves skip an unchanged file; shutdown writes it anyway.
+        let d = dir("replays-due");
+        let r = Arc::new(r);
+        let st = State::new(d.clone(), quotas(), vec![("wba-replays", Arc::clone(&r) as Arc<dyn Snapshot>)]);
+        assert!(st.save_due(NOW + 3));
+        let file = d.join("wba-replays.state");
+        assert!(file.exists());
+        std::fs::remove_file(&file).unwrap();
+        assert!(st.save_due(NOW + 4));
+        assert!(!file.exists(), "unchanged cache was rewritten");
+        assert!(st.save(NOW + 5));
+        assert!(file.exists(), "shutdown always writes");
     }
 
     #[test]

@@ -109,7 +109,7 @@ fn gateway(policy: Policy, trusted_proxies: Vec<IpAddr>) -> (Gateway, Arc<Memory
         probes: Arc::new(ProbeStore::new(1000)),
         used_nonces: Arc::new(MemoryBudgetStore::new(1000)),
         agents: Arc::new(veritell_feed::Live::new(TrustedAgents::new())),
-        wba_replays: Arc::new(std::sync::Mutex::new(ReplayCache::new(100))),
+        wba_replays: Arc::new(crate::state::Replays::new(ReplayCache::new(100))),
         quotas: Arc::new(veritell_quota::Quotas::new(veritell_quota::Config::default()).unwrap()),
         events: ring.clone(),
         behaviors: BehaviorStore::new(1000),

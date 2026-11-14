@@ -3,15 +3,15 @@
 //!
 //! Which directories are fetched is the operator's decision, never the
 //! request's. A request names a directory in `Signature-Agent`; the gateway
-//! fetches only the ones listed in the agents file, on this thread, and a
-//! request reads whatever was last fetched. A `Signature-Agent` that is not
+//! fetches only the ones listed in the agents file, from this thread (a few
+//! scoped workers at a time), and a request reads whatever was last fetched. A `Signature-Agent` that is not
 //! listed is never fetched, so a client cannot make the gateway connect
 //! anywhere.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use veritell_directory::{fetch_with, Cache, DirectoryUrl, FetchConfig, Transport};
+use veritell_directory::{fetch_with, Cache, DirectoryUrl, FetchConfig, FetchError, Fetched, Transport};
 use veritell_feed::Live;
 use veritell_wba::{Ed25519Key, TrustedAgents};
 
@@ -153,35 +153,77 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+/// Directory fetches in flight at once. Each is bounded by the fetch
+/// timeout (`FetchConfig::timeout`, 5 s as the gateway sets it), so one slow
+/// directory delays at most the ones queued behind its worker, not all.
+const FETCH_THREADS: usize = 6;
+
+/// Fetches every directory that is due, up to `threads` at a time, then
+/// applies the results to the caches in the order of the agents file: the
+/// log lines and the cache updates come out as if they had been fetched one
+/// after another. Returns whether any was due.
+fn refresh(
+    config: &AgentsConfig,
+    caches: &mut [Cache],
+    transport: &(dyn Transport + Sync),
+    fetch: &FetchConfig,
+    threads: usize,
+) -> bool {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    let now = now_secs();
+    let due: Vec<usize> = (0..config.fetched.len()).filter(|&i| caches[i].due(now)).collect();
+    if due.is_empty() {
+        return false;
+    }
+    let results: Mutex<Vec<Option<Result<Fetched, FetchError>>>> = Mutex::new(due.iter().map(|_| None).collect());
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..threads.clamp(1, due.len()) {
+            scope.spawn(|| loop {
+                let k = next.fetch_add(1, Ordering::Relaxed);
+                let Some(&i) = due.get(k) else { break };
+                let result = fetch_with(transport, &config.fetched[i].url, fetch);
+                results.lock().unwrap_or_else(|e| e.into_inner())[k] = Some(result);
+            });
+        }
+    });
+    let results = results.into_inner().unwrap_or_else(|e| e.into_inner());
+    for (&i, result) in due.iter().zip(results) {
+        let (agent, cache) = (&config.fetched[i], &mut caches[i]);
+        match result {
+            Some(Ok(fetched)) => {
+                eprintln!(
+                    "veritell: key directory for {} loaded: {} keys, next fetch in {} s",
+                    agent.name,
+                    fetched.keys.len(),
+                    fetched.ttl_secs
+                );
+                cache.on_success(fetched, now_secs());
+            }
+            Some(Err(e)) => {
+                eprintln!("veritell: key directory for {} refused: {e}", agent.name);
+                cache.on_failure(now_secs());
+            }
+            None => cache.on_failure(now_secs()),
+        }
+    }
+    true
+}
+
 /// Runs forever on its own thread.
-pub fn run(config: AgentsConfig, live: Arc<Live<TrustedAgents>>, transport: impl Transport, fetch: FetchConfig) {
+pub fn run(
+    config: AgentsConfig,
+    live: Arc<Live<TrustedAgents>>,
+    transport: impl Transport + Sync,
+    fetch: FetchConfig,
+) {
     let mut caches: Vec<Cache> = config.fetched.iter().map(|_| Cache::new()).collect();
     let mut last_build = 0u64;
     let mut last_problems: Vec<String> = Vec::new();
     loop {
-        let mut changed = false;
-        for (agent, cache) in config.fetched.iter().zip(caches.iter_mut()) {
-            let now = now_secs();
-            if !cache.due(now) {
-                continue;
-            }
-            match fetch_with(&transport, &agent.url, &fetch) {
-                Ok(fetched) => {
-                    eprintln!(
-                        "veritell: key directory for {} loaded: {} keys, next fetch in {} s",
-                        agent.name,
-                        fetched.keys.len(),
-                        fetched.ttl_secs
-                    );
-                    cache.on_success(fetched, now_secs());
-                }
-                Err(e) => {
-                    eprintln!("veritell: key directory for {} refused: {e}", agent.name);
-                    cache.on_failure(now_secs());
-                }
-            }
-            changed = true;
-        }
+        let changed = refresh(&config, &mut caches, &transport, &fetch, FETCH_THREADS);
         let now = now_secs();
         if changed || now.saturating_sub(last_build) >= REBUILD_EVERY_SECS {
             let (trusted, problems) = build(&config, &caches, now);
@@ -201,7 +243,67 @@ pub fn run(config: AgentsConfig, live: Arc<Live<TrustedAgents>>, transport: impl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use veritell_directory::Fetched;
+    use std::net::{IpAddr, SocketAddr};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use veritell_directory::Response;
+
+    /// Answers every directory after `delay`, except hosts named `bad*`,
+    /// and counts how many requests are in flight at once.
+    struct Slow {
+        delay: Duration,
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    impl Transport for Slow {
+        fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<IpAddr>, String> {
+            Ok(vec!["93.184.216.34".parse().unwrap()])
+        }
+        fn get(&self, _addr: SocketAddr, url: &DirectoryUrl, _max: usize, _timeout: Duration) -> Result<Response, String> {
+            let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(self.delay);
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            if url.host.starts_with("bad") {
+                return Err("down".to_string());
+            }
+            Ok(Response {
+                status: 200,
+                cache_control: Some("max-age=600".to_string()),
+                body: br#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"}]}"#.to_vec(),
+            })
+        }
+    }
+
+    #[test]
+    fn due_directories_are_fetched_concurrently_but_boundedly_and_applied_in_order() {
+        let names = ["a0", "bad1", "a2", "bad3", "a4", "bad5", "a6", "a7"];
+        let file = format!(
+            r#"{{"agents":[{}]}}"#,
+            names
+                .iter()
+                .map(|n| format!(r#"{{"name":"{n}","signature_agent":"https://{n}.example/k"}}"#))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let config = parse_agents(&file).unwrap();
+        let mut caches: Vec<Cache> = names.iter().map(|_| Cache::new()).collect();
+        let transport = Slow { delay: Duration::from_millis(150), active: AtomicUsize::new(0), peak: AtomicUsize::new(0) };
+        let started = std::time::Instant::now();
+        assert!(refresh(&config, &mut caches, &transport, &FetchConfig::default(), 4));
+        let took = started.elapsed();
+        let peak = transport.peak.load(Ordering::SeqCst);
+        assert!(peak > 1 && peak <= 4, "peak concurrency {peak}");
+        assert!(took < Duration::from_millis(150 * 8 * 3 / 4), "took {took:?}, as if one after another");
+        // Each result went to its own agent's cache.
+        let now = now_secs();
+        for (n, cache) in names.iter().zip(&caches) {
+            assert_eq!(cache.keys(now).len(), usize::from(!n.starts_with("bad")), "{n}");
+            assert!(!cache.due(now), "{n} was not recorded as fetched or failed");
+        }
+        // Nothing is due now, so nothing is fetched.
+        assert!(!refresh(&config, &mut caches, &transport, &FetchConfig::default(), 4));
+    }
 
     const FILE: &str = r#"{"agents":[
         {"name":"fixed","keys":[{"kty":"OKP","crv":"Ed25519","x":"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"}]},
