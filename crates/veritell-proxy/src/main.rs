@@ -605,6 +605,7 @@ fn main() {
     let used_behavior_nonces = Arc::new(MemoryBudgetStore::new(single_use_capacity));
     let token_budgets = Arc::new(MemoryBudgetStore::new(single_use_capacity));
     let used_challenges = Arc::new(MemoryBudgetStore::new(single_use_capacity));
+    let wba_replays = Arc::new(std::sync::Mutex::new(veritell_wba::ReplayCache::new(100_000)));
     let saver = args.get("state-dir").map(|dir| {
         let dir = std::path::PathBuf::from(dir);
         if !dir.is_dir() {
@@ -617,6 +618,7 @@ fn main() {
             ("used-challenges", Arc::clone(&used_challenges) as Arc<dyn state::Snapshot>),
             ("probe-results", Arc::clone(&probes) as Arc<dyn state::Snapshot>),
             ("events", Arc::new(state::Events::new(Arc::clone(&ring))) as Arc<dyn state::Snapshot>),
+            ("wba-replays", Arc::new(state::Replays(Arc::clone(&wba_replays))) as Arc<dyn state::Snapshot>),
         ];
         if let Some(p) = &pass {
             stores.push(("used-tokens", Arc::clone(&p.used) as Arc<dyn state::Snapshot>));
@@ -702,7 +704,7 @@ fn main() {
         policy,
         data,
         probe_builds,
-        wba_replays: std::sync::Mutex::new(veritell_wba::ReplayCache::new(100_000)),
+        wba_replays: Arc::clone(&wba_replays),
         // At most 64 crawler lookups at once; tokio's blocking pool has 512
         // threads by default, shared with everything else.
         crawlers: CrawlerVerifier::new(SystemResolver::new(Duration::from_secs(2), 64)),

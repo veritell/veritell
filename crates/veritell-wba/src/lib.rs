@@ -395,8 +395,11 @@ impl WbaVerdict {
 /// exactly as given (trimmed).
 ///
 /// Supported components: `@method`, `@authority`, `@path`, `@query` (the
-/// value is `?` followed by the query, or `?` alone when there is none) and
-/// plain header fields. A header value is trimmed; repeated headers are
+/// value is `?` followed by the query, or `?` alone when there is none),
+/// `@request-target` (the path, then `?` and the query when there is one, as
+/// in the request line), `@target-uri` (`https://`, the lowercased authority,
+/// then the request target: the gateway verifies only requests it received
+/// over TLS) and plain header fields. A header value is trimmed; repeated headers are
 /// joined with `", "` in request order. Lines are separated by `\n` with no
 /// trailing newline.
 ///
@@ -483,6 +486,8 @@ fn component_value(req: &RequestParts<'_>, name: &str) -> Result<String, WbaInva
             "authority" => Ok(req.authority.to_ascii_lowercase()),
             "path" => Ok(if req.path.is_empty() { "/" } else { req.path }.to_string()),
             "query" => Ok(format!("?{}", req.query.unwrap_or(""))),
+            "request-target" => Ok(request_target(req)),
+            "target-uri" => Ok(format!("https://{}{}", req.authority.to_ascii_lowercase(), request_target(req))),
             _ => Err(WbaInvalid::UnsupportedComponent),
         };
     }
@@ -491,6 +496,15 @@ fn component_value(req: &RequestParts<'_>, name: &str) -> Result<String, WbaInva
         return Err(WbaInvalid::Malformed);
     }
     joined_header(req.headers, name, true).ok_or(WbaInvalid::Malformed)
+}
+
+/// The path and, when there is one, `?` and the query: the request line's target.
+fn request_target(req: &RequestParts<'_>) -> String {
+    let path = if req.path.is_empty() { "/" } else { req.path };
+    match req.query {
+        Some(q) => format!("{path}?{q}"),
+        None => path.to_string(),
+    }
 }
 
 /// The value text of member `key` of the dictionary header `name`, for the
@@ -921,6 +935,29 @@ impl ReplayCache {
         self.seen.insert(info.replay_id, until);
         self.by_expiry.insert((until, info.replay_id));
         true
+    }
+
+    /// The signatures still remembered at `now`, each with the time until
+    /// which it is refused, for saving across a restart.
+    pub fn entries(&self, now: u64) -> Vec<([u8; 32], u64)> {
+        self.by_expiry.iter().filter(|(until, _)| *until >= now).map(|&(until, id)| (id, until)).collect()
+    }
+
+    /// Remembers a signature saved by [`ReplayCache::entries`]. One already
+    /// past `until` is skipped; the capacity holds as in
+    /// [`ReplayCache::first_use`].
+    pub fn restore(&mut self, id: [u8; 32], until: u64, now: u64) {
+        if until < now || self.seen.contains_key(&id) {
+            return;
+        }
+        while self.seen.len() >= self.capacity {
+            let Some(oldest) = self.by_expiry.pop_first() else {
+                break;
+            };
+            self.seen.remove(&oldest.1);
+        }
+        self.seen.insert(id, until);
+        self.by_expiry.insert((until, id));
     }
 
     /// Number of signatures remembered.

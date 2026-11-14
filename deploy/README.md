@@ -261,6 +261,21 @@ check the file first. `status.sh` says whether agents are trusted. Format
 and limits: the top of `crates/veritell-proxy/src/main.rs` and
 `crates/veritell-proxy/src/directories.rs`.
 
+What a signature must cover:
+
+- **Every request:** `@authority`, as Web Bot Auth requires.
+- **A write** (any method but GET, HEAD and OPTIONS) counts as the agent's
+  only when the signature also binds the method and the target: `@method`,
+  the path (`@path`, `@request-target` or `@target-uri`) and, when the
+  request has a query, the query (`@query`, or `@request-target` or
+  `@target-uri`, which carry it). Otherwise the request is treated as
+  unsigned and noted `wba_write_unbound` (0 points).
+- **The body is not bound.** Someone who captures a bound write before the
+  agent's own request arrives could send it once with another body. Each
+  signature is accepted once: the gateway remembers used ones until they
+  expire, in `state/wba-replays.state` across restarts (one gateway only; see
+  "What it does not do").
+
 ## The ASN database
 
 The gateway looks up which network (autonomous system) each visitor's

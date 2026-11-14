@@ -132,6 +132,46 @@ impl Snapshot for crate::probe::ProbeStore {
     }
 }
 
+/// The Web Bot Auth replay cache: signatures already used, each with the
+/// time until which it is refused. Saved so that a restart does not let a
+/// captured signature through once more. Format: `VWR1`, then 40 bytes per
+/// signature (its 32-byte id, the time as a big-endian u64).
+pub struct Replays(pub Arc<std::sync::Mutex<veritell_wba::ReplayCache>>);
+
+const REPLAYS_MAGIC: &[u8; 4] = b"VWR1";
+
+impl Snapshot for Replays {
+    fn export(&self, now: u64) -> Vec<u8> {
+        let entries = self.0.lock().unwrap_or_else(|e| e.into_inner()).entries(now);
+        let mut out = Vec::with_capacity(4 + entries.len() * 40);
+        out.extend_from_slice(REPLAYS_MAGIC);
+        for (id, until) in entries {
+            out.extend_from_slice(&id);
+            out.extend_from_slice(&until.to_be_bytes());
+        }
+        out
+    }
+
+    fn import(&self, bytes: &[u8], now: u64) -> Result<usize, String> {
+        let body = bytes.strip_prefix(REPLAYS_MAGIC.as_slice()).ok_or("not a replay cache file")?;
+        if body.len() % 40 != 0 {
+            return Err(format!("{} bytes is not a whole number of entries", body.len()));
+        }
+        let mut cache = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut kept = 0;
+        for chunk in body.as_chunks::<40>().0 {
+            let (id, until) = chunk.split_at(32);
+            let id: [u8; 32] = id.try_into().map_err(|_| "bad entry")?;
+            let until = u64::from_be_bytes(until.try_into().map_err(|_| "bad entry")?);
+            if until >= now {
+                cache.restore(id, until, now);
+                kept += 1;
+            }
+        }
+        Ok(kept)
+    }
+}
+
 pub struct State {
     dir: PathBuf,
     quotas: Arc<Quotas>,
@@ -255,6 +295,27 @@ mod tests {
 
     fn state(d: &Path, q: &Arc<Quotas>, s: &Arc<MemoryBudgetStore>) -> State {
         State::new(d.to_path_buf(), Arc::clone(q), vec![("used-tokens", Arc::clone(s) as Arc<dyn Snapshot>)])
+    }
+
+    #[test]
+    fn the_replay_cache_survives_a_restart_and_refuses_junk() {
+        use veritell_wba::ReplayCache;
+        let cache = Arc::new(std::sync::Mutex::new(ReplayCache::new(10)));
+        cache.lock().unwrap().restore([1; 32], NOW + 60, NOW);
+        cache.lock().unwrap().restore([2; 32], NOW + 5, NOW);
+        let bytes = Replays(Arc::clone(&cache)).export(NOW);
+        assert_eq!(bytes.len(), 4 + 2 * 40);
+
+        // A new process, ten seconds later: the one still valid comes back.
+        let after = Arc::new(std::sync::Mutex::new(ReplayCache::new(10)));
+        assert_eq!(Replays(Arc::clone(&after)).import(&bytes, NOW + 10), Ok(1));
+        assert_eq!(after.lock().unwrap().entries(NOW + 10), vec![([1; 32], NOW + 60)]);
+
+        let empty = Arc::new(std::sync::Mutex::new(ReplayCache::new(10)));
+        let r = Replays(Arc::clone(&empty));
+        assert!(r.import(b"nope", NOW).is_err());
+        assert!(r.import(&bytes[..bytes.len() - 1], NOW).is_err());
+        assert!(empty.lock().unwrap().is_empty(), "a refused file changes nothing");
     }
 
     #[test]

@@ -409,7 +409,6 @@ fn other_algorithms_are_refused() {
 #[test]
 fn unsupported_components_are_refused() {
     for inner in [
-        "(\"@authority\" \"@target-uri\")",
         "(\"@authority\" \"@query-param\";name=\"q\")",
         "(\"@authority\" \"x-test\";sf)",
     ] {

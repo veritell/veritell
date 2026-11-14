@@ -100,7 +100,8 @@ pub struct Gateway {
     pub agents: Arc<veritell_feed::Live<TrustedAgents>>,
     /// Signatures of verified agents already seen, so that a captured
     /// signed request cannot be sent again as that agent.
-    pub wba_replays: std::sync::Mutex<ReplayCache>,
+    /// Shared with the state saver, so a restart keeps it.
+    pub wba_replays: Arc<std::sync::Mutex<ReplayCache>>,
     /// Rate and daily quota per proven identity.
     pub quotas: Arc<veritell_quota::Quotas>,
     pub events: Arc<dyn EventSink>,
@@ -594,35 +595,40 @@ fn is_write(method: &str) -> bool {
     !matches!(method, "GET" | "HEAD" | "OPTIONS")
 }
 
-/// Whether a signature binds the request's method and path (RFC 9421
-/// `@method` and `@path`; veritell-wba verifies no other form of the target,
-/// so `@target-uri` or `@request-target` never get this far). Web Bot Auth
-/// only requires `@authority`, so a captured signature could otherwise be
-/// sent with another method to another path until it expires.
-fn binds_method_and_path(info: &SignatureInfo) -> bool {
-    info.covers("@method") && info.covers("@path")
+/// Whether a signature binds the request's method and target: `@method`,
+/// the path (`@path`, `@request-target` or `@target-uri`) and, when the
+/// request has a query, the query too (`@query`, or one of the two that
+/// carry it). Web Bot Auth only requires `@authority`, so a captured
+/// signature could otherwise be sent with another method, path or query
+/// until it expires. The body is not bound: see SECURITY.md.
+fn binds_target(info: &SignatureInfo, has_query: bool) -> bool {
+    let whole = info.covers("@request-target") || info.covers("@target-uri");
+    info.covers("@method")
+        && (whole || info.covers("@path"))
+        && (!has_query || whole || info.covers("@query"))
 }
 
 /// The agent a request proves, if any, and what to note. A trusted agent's
 /// signature counts once (the replay cache), and on a write request only when
-/// it binds the method and path: otherwise the request is treated as
-/// unsigned, and noted at no cost.
+/// it binds the method and target (`binds_target`): otherwise the request is
+/// treated as unsigned, and noted at no cost.
 fn signed_agent_of(
     verdict: WbaVerdict,
     info: Option<&SignatureInfo>,
     write: bool,
+    has_query: bool,
     replays: &mut ReplayCache,
     now: u64,
 ) -> (Option<String>, Option<Detection>) {
     match verdict {
         WbaVerdict::Verified { agent, .. } => match info {
-            Some(info) if write && !binds_method_and_path(info) => (
+            Some(info) if write && !binds_target(info, has_query) => (
                 None,
                 Some(Detection::new(
                     "wba_write_unbound",
                     Layer::Identity,
                     0,
-                    format!("{agent} signed this write request without covering its method and path: treated as unsigned"),
+                    format!("{agent} signed this write request without covering its method, path and query: treated as unsigned"),
                 )),
             ),
             Some(info) if replays.first_use(info, now) => (Some(agent), None),
@@ -837,7 +843,8 @@ impl Gateway {
                 .then(|| veritell_wba::signature_info(&parts))
                 .flatten();
             let mut replays = self.wba_replays.lock().unwrap_or_else(|e| e.into_inner());
-            let (agent, found) = signed_agent_of(verdict, info.as_ref(), is_write(&f.method), &mut replays, now);
+            let (agent, found) =
+                signed_agent_of(verdict, info.as_ref(), is_write(&f.method), f.query.is_some(), &mut replays, now);
             drop(replays);
             detections.extend(found);
             signed_agent = agent;
@@ -2328,8 +2335,17 @@ mod tests {
             signature: String,
         }
 
-        /// Signs `method path` on shop.test, covering `components`.
-        fn sign(k: &SigningKey, method: &str, path: &str, components: &[&str], nonce: &str) -> Signed {
+        /// `/a?b` as its path and query.
+        fn split(target: &str) -> (&str, Option<&str>) {
+            match target.split_once('?') {
+                Some((p, q)) => (p, Some(q)),
+                None => (target, None),
+            }
+        }
+
+        /// Signs `method target` on shop.test, covering `components`.
+        fn sign(k: &SigningKey, method: &str, target: &str, components: &[&str], nonce: &str) -> Signed {
+            let (path, query) = split(target);
             let keyid = Ed25519Key::from_public(k.verifying_key().to_bytes()).keyid;
             let list = components.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(" ");
             let member = format!(
@@ -2337,19 +2353,20 @@ mod tests {
                 NOW - 10,
                 NOW + 300
             );
-            let parts = RequestParts { method, authority: "shop.test", path, query: None, headers: &[] };
+            let parts = RequestParts { method, authority: "shop.test", path, query, headers: &[] };
             let base = signature_base(&parts, &member).unwrap();
             let sig = base64::engine::general_purpose::STANDARD.encode(k.sign(base.as_bytes()).to_bytes());
             Signed { input: format!("sig1={member}"), signature: format!("sig1=:{sig}:") }
         }
 
-        /// What the gateway concludes for `method path` carrying `s`.
-        fn judge(trusted: &TrustedAgents, cache: &mut ReplayCache, method: &str, path: &str, s: &Signed) -> (Option<String>, Option<String>) {
+        /// What the gateway concludes for `method target` carrying `s`.
+        fn judge(trusted: &TrustedAgents, cache: &mut ReplayCache, method: &str, target: &str, s: &Signed) -> (Option<String>, Option<String>) {
+            let (path, query) = split(target);
             let headers = [("signature-input", s.input.as_str()), ("signature", s.signature.as_str())];
-            let parts = RequestParts { method, authority: "shop.test", path, query: None, headers: &headers };
+            let parts = RequestParts { method, authority: "shop.test", path, query, headers: &headers };
             let verdict = verify(&parts, trusted, NOW);
             let info = signature_info(&parts);
-            let (agent, found) = signed_agent_of(verdict, info.as_ref(), is_write(method), cache, NOW);
+            let (agent, found) = signed_agent_of(verdict, info.as_ref(), is_write(method), query.is_some(), cache, NOW);
             (agent, found.map(|d| d.id))
         }
 
@@ -2381,6 +2398,32 @@ mod tests {
             }
             let s = sign(&k, "POST", "/cart", &["@authority", "@method", "@path"], "bound");
             assert_eq!(judge(&t, &mut cache, "POST", "/cart", &s), (Some("agent.test".into()), None));
+        }
+
+        #[test]
+        fn a_write_with_a_query_must_bind_the_query_too() {
+            let (k, mut cache) = (key(1), ReplayCache::new(64));
+            let t = trusting(&k);
+            // Method and path alone leave the query free: unbound.
+            let s = sign(&k, "POST", "/cart?id=4", &["@authority", "@method", "@path"], "q1");
+            assert_eq!(judge(&t, &mut cache, "POST", "/cart?id=4", &s), (None, Some("wba_write_unbound".into())));
+            for (n, covered) in [
+                &["@authority", "@method", "@path", "@query"][..],
+                &["@authority", "@method", "@request-target"][..],
+                &["@authority", "@method", "@target-uri"][..],
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let s = sign(&k, "POST", "/cart?id=4", covered, &format!("q2-{n}"));
+                assert_eq!(judge(&t, &mut cache, "POST", "/cart?id=4", &s), (Some("agent.test".into()), None), "{covered:?}");
+            }
+            // The whole target binds the path without @path.
+            let s = sign(&k, "POST", "/cart", &["@authority", "@method", "@request-target"], "q3");
+            assert_eq!(judge(&t, &mut cache, "POST", "/cart", &s), (Some("agent.test".into()), None));
+            // And a query signed with the target cannot be swapped.
+            let s = sign(&k, "POST", "/cart?id=4", &["@authority", "@method", "@target-uri"], "q4");
+            assert_eq!(judge(&t, &mut cache, "POST", "/cart?id=5", &s).1.as_deref(), Some("wba_bad_signature"));
         }
 
         #[test]
@@ -2640,26 +2683,26 @@ mod tests {
         let mut cache = ReplayCache::new(10);
         let info = SignatureInfo { replay_id: [7; 32], expires: 1_000, components: vec!["@authority".into()] };
         let verified = || WbaVerdict::Verified { agent: "agent.test".into(), keyid: "k".into() };
-        let (agent, found) = signed_agent_of(verified(), Some(&info), false, &mut cache, 900);
+        let (agent, found) = signed_agent_of(verified(), Some(&info), false, false, &mut cache, 900);
         assert_eq!((agent.as_deref(), found.is_none()), (Some("agent.test"), true));
         // The same signature again is a replay.
-        let (agent, found) = signed_agent_of(verified(), Some(&info), false, &mut cache, 901);
+        let (agent, found) = signed_agent_of(verified(), Some(&info), false, false, &mut cache, 901);
         assert_eq!((agent, found.map(|d| d.id)), (None, Some("wba_replay".to_string())));
         // A new signature from the same agent is fine.
         let other = SignatureInfo { replay_id: [8; 32], ..info.clone() };
-        assert_eq!(signed_agent_of(verified(), Some(&other), false, &mut cache, 902).0.as_deref(), Some("agent.test"));
+        assert_eq!(signed_agent_of(verified(), Some(&other), false, false, &mut cache, 902).0.as_deref(), Some("agent.test"));
         // No replay facts: not believed.
-        assert_eq!(signed_agent_of(verified(), None, false, &mut cache, 902).0, None);
+        assert_eq!(signed_agent_of(verified(), None, false, false, &mut cache, 902).0, None);
     }
 
     #[test]
     fn an_unknown_key_proves_no_agent() {
         use veritell_wba::{ReplayCache, WbaVerdict};
         let mut cache = ReplayCache::new(10);
-        let (agent, found) = signed_agent_of(WbaVerdict::UnknownKey { keyid: "k".into() }, None, false, &mut cache, 1);
+        let (agent, found) = signed_agent_of(WbaVerdict::UnknownKey { keyid: "k".into() }, None, false, false, &mut cache, 1);
         assert_eq!((agent, found.map(|d| d.id)), (None, Some("wba_unknown_key".to_string())));
         assert!(cache.is_empty(), "an unknown key fills nothing");
-        let (agent, found) = signed_agent_of(WbaVerdict::Absent, None, false, &mut cache, 1);
+        let (agent, found) = signed_agent_of(WbaVerdict::Absent, None, false, false, &mut cache, 1);
         assert!(agent.is_none() && found.is_none());
     }
 
