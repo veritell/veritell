@@ -5,6 +5,9 @@ SCRIPT=status
 state=$(front_state)
 echo "front: $state"
 echo "mode: $FRONT"
+# Docker's own view: running, and the compose healthcheck (dashboard answers
+# HTTP, proxy port takes a connection). "none" before an update that added it.
+echo "gateway container: $(docker inspect -f '{{.State.Status}}, health {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}, restarts {{.RestartCount}}' veritell-gateway 2>/dev/null || echo 'not found')"
 case "$FRONT:$state" in
   compose:gateway) echo "public $PUBLIC_PORT through the gateway: $(status_via "$PUBLIC_PORT" /__veritell/probe.js)"; echo "nginx on $NGINX_LOCAL_HTTPS: $(status_via "${NGINX_LOCAL_HTTPS##*:}")";;
   compose:nginx) echo "public $PUBLIC_PORT (nginx): $(status_via "$PUBLIC_PORT")"; echo "gateway beside it on 9443: $(status_via 9443 /__veritell/probe.js)";;

@@ -166,6 +166,16 @@ check "new kit: the site still sees an outside IPv4 visitor's own address ($seen
 check "new kit: status says IPv6 visitors keep their address" "$("$KIT/status.sh" 2>&1)" 'IPv6 visitors: their own address'
 check "new kit: the gateway is on the front network, with IPv6" "$(docker network inspect veritell_front -f '{{.EnableIPv6}}' 2>&1)" '^true$'
 check "new kit: no docker-proxy for IPv6 on the public port" "$(ss -ltnpH '( sport = :443 )' | grep -c 'docker-proxy.*\[::\]' ) $(ip6tables -t nat -S DOCKER 2>/dev/null | grep -c 'dport 443')" '^0 [1-9]'
+# Least privilege and the healthcheck (compose.yml).
+check "new kit: the gateway drops every capability but NET_BIND_SERVICE, with a read-only root" \
+  "$(docker inspect -f '{{.HostConfig.CapDrop}} {{.HostConfig.CapAdd}} {{.HostConfig.ReadonlyRootfs}}' veritell-gateway)" '^\[\(CAP_\)\{0,1\}ALL\] \[\(CAP_\)\{0,1\}NET_BIND_SERVICE\] true$'
+check "  and the process has only that capability" \
+  "$(docker exec veritell-gateway sh -c 'grep CapEff /proc/1/status')" '0000000000000400$'
+for _ in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Health.Status}}' veritell-gateway 2>/dev/null)" = healthy ] && break; sleep 2; done
+check "new kit: the gateway's healthcheck says healthy" "$(docker inspect -f '{{.State.Health.Status}}' veritell-gateway 2>&1)" '^healthy$'
+check "new kit: status shows the container's health" "$("$KIT/status.sh" 2>&1)" 'gateway container: running, health healthy'
+check "new kit: the state is still saved under a read-only root" "$(docker restart -t 10 veritell-gateway >/dev/null; sleep 3; docker logs --since 30s veritell-gateway 2>&1 | grep -ci 'read-only\|EROFS\|permission denied')" '^0$'
+check "  and it answers after that restart" "$(through_gateway ro-restart)" '^200 1$'
 "$KIT/watch.sh"; check "new kit: watch.sh finds no problem" "$(journalctl -t veritell-watch -n 1 --no-pager -o cat)" '^ok: front=gateway'
 
 # ---- every transition with the new kit ----
