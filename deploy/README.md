@@ -94,6 +94,10 @@ and prints each. It never touches `site.conf`, the kit's files or the site.
 
 ## Compose mode
 
+The default `FRONT`: the site is a Docker Compose project whose nginx moves
+off 443 (the other modes are under "Modes" above). The next section is
+about this mode only; the rest of this file is about all three.
+
 ## What the site needs first
 
 Two changes in the site's own repository, deployed the usual way before
@@ -440,7 +444,12 @@ Older events are in ClickHouse (query them directly).
 (download, refusal, unchanged, restart and going back) with `file:` URLs and
 a stub `docker` and `curl`.
 `deploy/test_lib.sh` tests `set_kv`, `ensure_admin_token` and every case of
-`front_state` with a stub `docker`; it runs anywhere. The scripts as a whole were rehearsed on a
+`front_state` with a stub `docker`; it runs anywhere.
+`deploy/test_conf.sh` checks that a `site.conf`, or a kit folder, that others
+can write is refused before it runs. `deploy/test_certs.sh` tests
+`copy_certs` and `copy_extra_certs`; `deploy/test_agents.sh` the trusted Web
+Bot Auth agents (`agents_wire`); `deploy/test_ipv6.sh` IPv6 visitors in
+Compose mode (`ipv6_wire`). `./test.sh` runs them all. The scripts as a whole were rehearsed on a
 workstation's Docker with a stand-in site: install, cutover,
 rollback, a site deploy and a certificate renewal under cutover, a good and
 a broken update.

@@ -10,6 +10,7 @@
 SCRIPT=install-watch
 . "$(dirname "$0")/lib.sh"
 [ "$REHEARSAL" = 1 ] && { log "rehearsal: no systemd timer"; exit 0; }
+command -v systemctl >/dev/null || { log "no systemd on this host: no timers. Run $KIT/watch.sh every 5 minutes, report.sh weekly and asn.sh weekly from cron"; exit 0; }
 cat > /etc/systemd/system/veritell-watch.service <<UNIT
 [Unit]
 Description=Check the veritell gateway (journalctl -t veritell-watch)

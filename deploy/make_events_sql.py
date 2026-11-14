@@ -37,6 +37,11 @@ def columns(text):
 
 
 def main():
+    if sys.argv[1:]:
+        # It takes no arguments: anything (--help included) prints what it
+        # does instead of rewriting the files.
+        print(__doc__)
+        sys.exit(0 if sys.argv[1:] in (["-h"], ["--help"]) else 2)
     text = ddl()
     cols = columns(text)
     names = [c.split()[0] for c in cols]

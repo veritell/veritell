@@ -2,3 +2,6 @@ target/
 certs/
 *.pem
 .git/
+dist/
+lab/node_modules/
+lab/logs/

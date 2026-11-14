@@ -60,7 +60,9 @@ set_kv() {
   fi
   if grep -q "^$key=" "$file"; then
     local tmp; tmp=$(mktemp "$file.XXXXXX")
-    awk -v k="$key" -v v="$value" -F= 'BEGIN{OFS="="} $1==k {print k, v; next} {print}' "$file" >"$tmp"
+    # The value through the environment: awk -v would read its backslashes
+    # as escapes.
+    SET_KV_VALUE="$value" awk -v k="$key" -F= 'BEGIN{OFS="="} $1==k {print k, ENVIRON["SET_KV_VALUE"]; next} {print}' "$file" >"$tmp"
     # Keep the file's mode and owner: the scripts run as root, and the site's
     # own deploys, run as its user, must still read its env file.
     chmod --reference="$file" "$tmp" 2>/dev/null || chmod "$(stat -f '%Lp' "$file")" "$tmp"

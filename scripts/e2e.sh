@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end checks E1-E35. Needs: a release build, curl with
+# End-to-end checks E1-E48. Needs: a release build, curl with
 # HTTP/2, python3, and a certificate pair (default: certs/, which is git-ignored).
 set -u
 cd "$(dirname "$0")/.."
@@ -1059,5 +1059,10 @@ refute "no panics in the proxy log"              "$(cat "$WORK/enforce.err" "$WO
 
 echo
 [ "$skips" -gt 0 ] && echo "$skips skipped: see the SKIP lines for why"
-if [ "$fails" -eq 0 ]; then echo "ALL PASSED (logs in $WORK)"; else echo "$fails FAILED (logs in $WORK)"; fi
+# The work folder holds keys and secrets as well as the logs: kept only when
+# a check failed, or with E2E_KEEP=1.
+if [ "$fails" -eq 0 ] && [ "${E2E_KEEP:-0}" != 1 ]; then
+  cleanup; trap - EXIT; rm -rf "$WORK"
+  echo "ALL PASSED (logs removed; E2E_KEEP=1 keeps them)"
+elif [ "$fails" -eq 0 ]; then echo "ALL PASSED (logs in $WORK)"; else echo "$fails FAILED (logs in $WORK)"; fi
 exit "$fails"

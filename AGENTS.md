@@ -9,12 +9,14 @@ a site's real traffic.
 | Path | What |
 |---|---|
 | `crates/veritell-proxy` | The gateway binary `veritell` (Pingora, BoringSSL) |
-| `crates/veritell-*` | One crate per layer: `fp` network fingerprints, `ua`, `probe`, `behavior`, `agg` population, `policy`, `model`, `token`, `privacypass`, `wba`, `directory`, `events`, `dash`, `feed` (bundle format and verification only) |
+| `crates/veritell-*` | One crate per layer: `fp` network fingerprints, `ua`, `probe`, `behavior`, `agg` population, `policy`, `model`, `token`, `privacypass`, `wba`, `directory`, `events`, `dash`, `feed` (bundle format and verification only), `identity` crawler and network checks, `quota` per-identity rates, `probe-build` per-build sealed probes, `share` opt-in sharing between installs, `persist` state files, `core` shared types |
 | `probe/` | `probe.js` and `behavior.js`, embedded into the binary at build time, and their schemas |
 | `deploy/` | The rollout kit for a partner's server, see `deploy/README.md` |
 | `lab/` | Real and stealth bot clients driven at a local gateway |
 | `scripts/` | End-to-end, fuzz, soak and VM checks |
 | `sidecar/` | Running beside nginx, Caddy, Envoy or Traefik |
+| `fuzz/` | cargo-fuzz targets, run by `scripts/fuzz.sh` and CI |
+| `docs/` | Media for the README |
 | `tools/` | `known_link.py` (known-person links), `export/` (opening a partner's encrypted export) |
 
 ## Commands

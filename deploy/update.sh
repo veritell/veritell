@@ -38,6 +38,15 @@ if [ "${VERITELL_UPDATE_STAGE:-1}" != 2 ]; then
   VERITELL_UPDATE_STAGE=2 RUN_ID=$RUN_ID exec "$KIT/update.sh" "$SRC"
 fi
 
+# Until the restart below the old gateway keeps running: a step that fails
+# before it (migrate.sh, the image build) puts the previous kit back, so the
+# kit's files match what runs.
+put_back_kit() {
+  log "the update stopped before the restart: putting back the previous kit (the gateway was not touched)"
+  rsync -a --checksum --delete "${local_files[@]}" "$KIT/previous"/ "$KIT"/
+}
+trap put_back_kit ERR
+
 # Compose: the published port; redirect: GATEWAY_PORT; port: the end of VERITELL_LISTEN.
 port=$(gateway_port)
 answers() { gateway_answers; } # 200 from the gateway's own script within 20 s
@@ -60,10 +69,14 @@ agents_wire >/dev/null
 ipv6_wire >/dev/null
 docker tag veritell:latest veritell:previous 2>/dev/null || true
 docker build -q -f "$KIT/Dockerfile.prebuilt" -t veritell:latest "$KIT" >/dev/null
+trap - ERR
 # A compose.yml that Compose refuses fails here, before any restart: that
 # goes back too, rather than leave the new kit beside the old container.
 if gateway_compose up -d gateway >/dev/null 2>&1 && answers; then
   log "updated: the gateway answers on $port ($(cut -c1-16 "$KIT/veritell.sha256"))"
+  # asn.sh --no-restart above kept the database it replaced, for a restart
+  # that has now gone well.
+  rm -f "$KIT/asn/ip2asn.tsv.previous"
   # ClickHouse reads its settings when it starts, and the file is mounted on
   # its own, so a restart would keep reading the replaced one: a changed file
   # needs the container made again. The data stays in its volume; the
