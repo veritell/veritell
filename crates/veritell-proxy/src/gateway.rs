@@ -681,6 +681,47 @@ fn drop_ios_app_icon_fetch(detections: &mut Vec<Detection>, method: &str, path: 
     detections.retain(|d| !IOS_APP_ICON_IDS.contains(&d.id.as_str()));
 }
 
+/// A User-Agent that is no browser, tool or crawler we know (`ua_unknown`,
+/// penalty 20) left the request at 79, which the score reads as a person.
+/// Nothing in it says person: it is an agent of some kind. The finding now
+/// argues for that class; the score and the penalty are unchanged.
+fn unknown_agent_is_not_a_person(detections: &mut [Detection]) {
+    for d in detections.iter_mut() {
+        if d.id == "ua_unknown" && d.class_hint.is_none() {
+            d.class_hint = Some(Class::UnverifiedAgent);
+        }
+    }
+}
+
+/// The networks a crawler's operator crawls from. A claim whose address has
+/// no reverse DNS stays unresolved (a DNS failure must never brand the real
+/// crawler), but when the address is in a routed range of another network
+/// the claim is false either way.
+const CRAWLER_NETWORKS: [(&str, &[u32]); 4] = [
+    ("Googlebot", &[15169]),
+    ("Bingbot", &[8075]),
+    ("Applebot", &[714, 6185]),
+    ("YandexBot", &[13238]),
+];
+
+/// An unresolved crawler claim from a known address outside the operator's
+/// networks is spoofed: `crawler_unresolved` gives way to `crawler_spoofed`.
+/// No AS number (no database, or an unrouted address) changes nothing.
+fn crawler_from_another_network(detections: &mut Vec<Detection>, claimed: &str, asn: u32) {
+    let Some((_, networks)) = CRAWLER_NETWORKS.iter().find(|(name, _)| *name == claimed) else {
+        return;
+    };
+    if asn == 0 || networks.contains(&asn) {
+        return;
+    }
+    detections.retain(|d| d.id != "crawler_unresolved");
+    let mut d = CrawlerVerdict::Spoofed { claimed: claimed.to_string() }
+        .detection()
+        .expect("a spoofed claim always has a detection");
+    d.detail = format!("claims to be {claimed}, from AS{asn}, which is not that operator's network (no reverse DNS)");
+    detections.push(d);
+}
+
 /// The visitor's network: AS number, class as stored (`hosting`, `other`, or
 /// `unknown` when the address is in no routed range or there is no database),
 /// and the network detection a request gets for it, if any.
@@ -729,9 +770,14 @@ impl Gateway {
             header_names: &f.header_names,
         });
         drop_ios_app_icon_fetch(&mut detections, &f.method, &f.path, f.user_agent.as_deref(), f.h2.as_deref());
+        unknown_agent_is_not_a_person(&mut detections);
 
         let crawler = self.crawlers.verify(f.user_agent.as_deref(), f.ip).await;
         detections.extend(crawler.detection());
+        let unresolved_claim = match &crawler {
+            CrawlerVerdict::Unresolved { claimed } => Some(claimed.clone()),
+            _ => None,
+        };
         let verified_bot = match crawler {
             CrawlerVerdict::Verified { name } => Some(name),
             _ => None,
@@ -804,6 +850,9 @@ impl Gateway {
 
         let (asn, net_class, net_detection) = network_of(&self.asn, f.ip);
         detections.extend(net_detection);
+        if let Some(claimed) = unresolved_claim {
+            crawler_from_another_network(&mut detections, &claimed, asn);
+        }
 
         let (has_token, token_state) = match f
             .cookie
@@ -2058,6 +2107,61 @@ impl ProxyHttp for Gateway {
 
 #[cfg(test)]
 mod tests {
+    mod rules_2026_11 {
+        use super::super::{crawler_from_another_network, unknown_agent_is_not_a_person};
+        use veritell_core::{Class, Detection, Layer};
+
+        fn det(id: &str) -> Detection {
+            Detection::new(id, Layer::Identity, 10, "test")
+        }
+        fn ids(d: &[Detection]) -> Vec<&str> {
+            d.iter().map(|d| d.id.as_str()).collect()
+        }
+
+        #[test]
+        fn an_unknown_agent_is_not_a_person() {
+            let mut d = vec![det("ua_unknown"), det("missing_sec_fetch")];
+            unknown_agent_is_not_a_person(&mut d);
+            assert_eq!(d[0].class_hint, Some(Class::UnverifiedAgent));
+            assert_eq!(d[0].penalty, 10);
+            assert_eq!(d[1].class_hint, None);
+        }
+
+        #[test]
+        fn a_stronger_hint_is_kept() {
+            let mut d = vec![det("ua_unknown").with_class(Class::Malicious)];
+            unknown_agent_is_not_a_person(&mut d);
+            assert_eq!(d[0].class_hint, Some(Class::Malicious));
+        }
+
+        #[test]
+        fn googlebot_from_another_network_is_spoofed() {
+            let mut d = vec![det("crawler_unresolved"), det("bot_unverified")];
+            crawler_from_another_network(&mut d, "Googlebot", 212238);
+            assert_eq!(ids(&d), ["bot_unverified", "crawler_spoofed"]);
+            assert_eq!(d[1].class_hint, Some(Class::Malicious));
+            assert!(d[1].detail.contains("AS212238"));
+        }
+
+        #[test]
+        fn the_operators_own_network_stays_unresolved() {
+            for (name, asn) in [("Googlebot", 15169), ("Bingbot", 8075), ("Applebot", 714), ("Applebot", 6185)] {
+                let mut d = vec![det("crawler_unresolved")];
+                crawler_from_another_network(&mut d, name, asn);
+                assert_eq!(ids(&d), ["crawler_unresolved"], "{name} {asn}");
+            }
+        }
+
+        #[test]
+        fn no_network_known_or_another_crawler_changes_nothing() {
+            let mut d = vec![det("crawler_unresolved")];
+            crawler_from_another_network(&mut d, "Googlebot", 0);
+            assert_eq!(ids(&d), ["crawler_unresolved"]);
+            crawler_from_another_network(&mut d, "Baiduspider", 212238);
+            assert_eq!(ids(&d), ["crawler_unresolved"]);
+        }
+    }
+
     mod ios_app_icon {
         use super::super::drop_ios_app_icon_fetch;
         use veritell_core::{Detection, Layer};
