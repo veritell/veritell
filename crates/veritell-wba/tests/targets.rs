@@ -104,4 +104,7 @@ fn the_replay_cache_is_saved_and_restored() {
     }
     assert_eq!(small.len(), 2);
     assert_eq!(small.entries(NOW).iter().map(|e| e.1).collect::<Vec<_>>(), vec![NOW + 103, NOW + 104]);
+    // Full, an entry ending before everything held is the one left out.
+    small.restore([9; 32], NOW + 50, NOW);
+    assert_eq!(small.entries(NOW).iter().map(|e| e.1).collect::<Vec<_>>(), vec![NOW + 103, NOW + 104]);
 }

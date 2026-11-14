@@ -105,6 +105,15 @@ impl AddrRedactor {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
             };
+            // A random key only moves forward: a caller whose clock reads
+            // the day before (a thread either side of midnight, a clock
+            // stepped back) gets the current key, not a fresh one that would
+            // give the same address two values in a day. Keys derived per
+            // day give each day its own key either way.
+            let day = match (&self.key_for_day, slot.day) {
+                (None, Some(d)) => d.max(day),
+                _ => day,
+            };
             if slot.day != Some(day) || slot.key.is_none() {
                 let key = match &self.key_for_day {
                     Some(f) => Some(f(day)),
@@ -181,4 +190,20 @@ fn keyed_text(key: &[u8; 32], ip: IpAddr) -> String {
         .map(|b| format!("{b:02x}"))
         .collect();
     format!("k:{hex}")
+}
+
+#[cfg(test)]
+mod forward_tests {
+    use super::*;
+
+    #[test]
+    fn a_random_key_is_not_redrawn_for_an_earlier_day() {
+        let r = AddrRedactor::new(AddrMode::Keyed);
+        let ip: IpAddr = "203.0.113.9".parse().unwrap();
+        let day = 20_000 * SECS_PER_DAY;
+        let today = r.stored(ip, day + 10);
+        assert_eq!(r.stored(ip, day - 10), today, "a late caller from yesterday");
+        assert_eq!(r.stored(ip, day + 20), today, "and today again: no flip");
+        assert_ne!(r.stored(ip, day + SECS_PER_DAY), today, "tomorrow moves on");
+    }
 }

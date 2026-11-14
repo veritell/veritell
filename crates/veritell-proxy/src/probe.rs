@@ -263,7 +263,8 @@ impl ProbeStore {
         if record.expires_at < now {
             record.detections.clear();
         }
-        record.expires_at = expires_at;
+        // A shorter result never cuts short what is already on record.
+        record.expires_at = record.expires_at.max(expires_at);
         for d in detections {
             let known = record.detections.iter().any(|k| k.id == d.id);
             if !known && record.detections.len() < MAX_DETECTIONS {
@@ -378,7 +379,9 @@ mod tests {
         assert_eq!(s.get(&b, 200).map(|d| d.len()), Some(2));
         assert!(s.get(&b, 201).is_none());
         // After expiry a new report starts a fresh record.
-        assert_eq!(s.put(b, vec![], 400, 300).len(), 0);
+        assert_eq!(s.put(b, vec![], 400, 300).len(), 0);        // A result with a shorter life does not cut the record short.
+        s.put(b, vec![det("c")], 350, 310);
+        assert_eq!(s.get(&b, 380).map(|d| d.len()), Some(1));
     }
 
     #[test]

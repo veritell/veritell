@@ -288,7 +288,7 @@ async fn an_enforcing_policy_challenges_and_its_open_route_passes() {
     let (status, head, body, handled) = send(&g, &get("/cart"), true).await;
     assert!(handled);
     assert_eq!(status, 403, "{head}");
-    assert!(body.contains(CHALLENGE_PATH) || body.contains("challenge"), "the challenge page");
+    assert!(body.contains(VERIFY_PATH) && body.contains("data-difficulty"), "the proof-of-work page: {body}");
     let (status, _, _, _) = send(&g, &get("/open/page"), true).await;
     assert_eq!(status, 200, "the open route passes");
     assert_eq!(outcomes(&ring), ["challenged", "passed"]);
@@ -312,4 +312,15 @@ async fn the_plain_listener_serves_only_the_sidecar_endpoint() {
     );
     let (status, head, _, _) = send(&g, &request, false).await;
     assert_eq!(status, 200, "shadow mode allows: {head}");
+}
+
+#[tokio::test]
+async fn http11_without_host_is_refused_and_http10_is_not() {
+    let (g, ring) = gateway(Policy::default_shadow(), Vec::new());
+    let (status, _, body, handled) = send(&g, "GET / HTTP/1.1\r\nUser-Agent: curl/8.7.1\r\nConnection: close\r\n\r\n", true).await;
+    assert!(handled);
+    assert_eq!((status, body.as_str()), (400, "missing Host"));
+    assert!(ring.events().is_empty(), "not an assessed request");
+    let (status, _, _, _) = send(&g, "GET / HTTP/1.0\r\nUser-Agent: curl/8.7.1\r\n\r\n", true).await;
+    assert_ne!(status, 400, "HTTP/1.0 needs no Host");
 }

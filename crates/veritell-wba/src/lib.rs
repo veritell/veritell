@@ -950,6 +950,12 @@ impl ReplayCache {
         if until < now || self.seen.contains_key(&id) {
             return;
         }
+        // Full: an entry that ends before everything held is the one to drop.
+        if self.seen.len() >= self.capacity
+            && self.by_expiry.first().is_some_and(|&(first, _)| until <= first)
+        {
+            return;
+        }
         while self.seen.len() >= self.capacity {
             let Some(oldest) = self.by_expiry.pop_first() else {
                 break;

@@ -1829,6 +1829,15 @@ impl ProxyHttp for Gateway {
             self.handle_sidecar(session, now).await?;
             return Ok(true);
         }
+        // HTTP/1.1 requires Host (RFC 9112, 3.2): without one the request
+        // would go to the default site under no name at all.
+        {
+            let req = session.req_header();
+            if req.version == http::Version::HTTP_11 && req.uri.authority().is_none() && !req.headers.contains_key("host") {
+                self.respond(session, 400, "text/plain", b"missing Host".to_vec(), &[]).await?;
+                return Ok(true);
+            }
+        }
         let mut f = gather(session, &self.trusted_proxies);
         ctx.peer_ip = session.client_addr().and_then(|a| a.as_inet()).map(|a| canonical(a.ip()));
         ctx.client_ip = Some(f.ip);
