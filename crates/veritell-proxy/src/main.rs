@@ -184,6 +184,31 @@ fn fail(message: impl std::fmt::Display) -> ! {
     std::process::exit(2);
 }
 
+/// Fails unless `addr` (the value of `--flag`) names an address this process
+/// can listen on. Pingora binds later, inside `run_forever`: a bad address
+/// panics there, and an address in use is retried silently for 30 s and
+/// then panics, after "listening on" was already printed. An address in use
+/// is retried here the same way, saying so, and then fails cleanly.
+fn check_bindable(flag: &str, addr: &str) {
+    use std::net::{TcpListener, ToSocketAddrs};
+    let Some(sock) = addr.to_socket_addrs().ok().and_then(|mut a| a.next()) else {
+        fail(format!("--{flag} {addr:?} is not ip:port"));
+    };
+    for attempt in 0..30 {
+        match TcpListener::bind(sock) {
+            Ok(_) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                if attempt == 0 {
+                    eprintln!("veritell: --{flag} {addr} is in use; trying again for 30 s");
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            Err(e) => fail(format!("--{flag} {addr}: {e}")),
+        }
+    }
+    fail(format!("--{flag} {addr} is still in use: is another gateway running?"));
+}
+
 /// Whether `--name` is one of the flags USAGE lists.
 /// Where the gateway's pages say its source is (`--source-url`).
 const DEFAULT_SOURCE_URL: &str = "https://github.com/veritell/veritell";
@@ -776,6 +801,7 @@ fn main() {
         fail("could not register the TLS fingerprint hook");
     }
     tls.enable_h2();
+    check_bindable("listen", listen);
     service.add_tls_with_settings(listen, None, tls);
     // The client's TCP SYN, measured and never scored (Linux only).
     #[cfg(target_os = "linux")]
@@ -786,6 +812,7 @@ fn main() {
         None => eprintln!("veritell: no port in --listen {listen:?}; the TCP SYN is not measured"),
     }
     if let Some(addr) = &sidecar {
+        check_bindable("sidecar-listen", addr);
         service.add_tcp(addr);
         eprintln!("veritell: authorization endpoint on http://{addr}{}", gateway::AUTHZ_PATH);
     }
@@ -803,6 +830,7 @@ fn main() {
                 hosts: admin::allowed_hosts(addr.parse().unwrap_or_else(|_| fail(format!("--admin {addr:?} is not ip:port")))),
             },
         );
+        check_bindable("admin", addr);
         admin_service.add_tcp(addr);
         server.add_service(admin_service);
         eprintln!(
