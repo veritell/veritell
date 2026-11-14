@@ -2,6 +2,23 @@
 set -euo pipefail
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$KIT/site.conf" ] || { echo "no $KIT/site.conf: copy site.conf.example and fill it in" >&2; exit 2; }
+# site.conf is shell, run by root: only root (or, in a rehearsal, the user
+# running the kit) may own it, and nobody else may write to it, or whoever
+# can edit it runs commands as root. The same for the folder that holds it.
+conf_safe() {
+  local f owner mode
+  for f in "$KIT" "$KIT/site.conf"; do
+    if owner=$(stat -c '%u' "$f" 2>/dev/null); then mode=$(stat -c '%a' "$f"); else owner=$(stat -f '%u' "$f"); mode=$(stat -f '%Lp' "$f"); fi
+    if [ "$owner" != 0 ] && [ "$owner" != "$(id -u)" ]; then
+      echo "$f is owned by user $owner: it must be root's (chown root $f)" >&2; return 1
+    fi
+    # The group and others digits must not have the write bit (2).
+    if (( (8#$mode & 8#022) != 0 )); then
+      echo "$f can be written by others (mode $mode): chmod go-w $f" >&2; return 1
+    fi
+  done
+}
+conf_safe || exit 2
 # shellcheck source=/dev/null
 . "$KIT/site.conf"
 # The gateway's user in the image (Dockerfile.prebuilt).
