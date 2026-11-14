@@ -2882,6 +2882,7 @@ dependencies = [
  "http",
  "libc",
  "pingora",
+ "ring",
  "serde",
  "serde_json",
  "sha2",

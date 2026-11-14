@@ -600,3 +600,196 @@ mod tests {
         assert!(!d.sees_end(b"x\r\n\rx"));
     }
 }
+
+/// The stream wrapper itself, driven over an in-memory pipe.
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+
+    const T: Duration = Duration::from_secs(15);
+    const BODY: Duration = Duration::from_secs(60);
+    const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+    fn frame(kind: u8, flags: u8, stream: u32, payload: &[u8]) -> Vec<u8> {
+        let len = payload.len() as u32;
+        let mut f = vec![(len >> 16) as u8, (len >> 8) as u8, len as u8, kind, flags];
+        f.extend_from_slice(&stream.to_be_bytes());
+        f.extend_from_slice(payload);
+        f
+    }
+
+    /// A browser-like preamble: SETTINGS, WINDOW_UPDATE and a first HEADERS
+    /// frame of static-table fields (:method, :authority, :scheme, :path).
+    fn preamble() -> Vec<u8> {
+        let mut b = PREFACE.to_vec();
+        let mut s = Vec::new();
+        for (k, v) in [(1u16, 65536u32), (2, 0), (4, 6291456), (6, 262144)] {
+            s.extend_from_slice(&k.to_be_bytes());
+            s.extend_from_slice(&v.to_be_bytes());
+        }
+        b.extend(frame(0x4, 0, 0, &s));
+        b.extend(frame(0x8, 0, 0, &15663105u32.to_be_bytes()));
+        b.extend(frame(0x1, 0x4 | 0x1, 1, &[0x82, 0x41, 0x00, 0x87, 0x84]));
+        b
+    }
+
+    fn tee(capture: Option<Arc<H2Capture>>, guard: Option<Guard>) -> (DuplexStream, TeeStream) {
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        (client, TeeStream::new(Box::new(server), capture, guard))
+    }
+
+    // ---------- H2Capture ----------
+
+    #[test]
+    fn a_capture_is_attached_once() {
+        let c = H2Capture::default();
+        assert!(c.attach());
+        assert!(!c.attach());
+    }
+
+    #[test]
+    fn the_fingerprint_waits_for_the_first_header_block() {
+        let c = H2Capture::default();
+        let p = preamble();
+        c.record(&p[..30]);
+        assert!(c.fingerprint().is_none(), "still incomplete");
+        c.record(&[]);
+        c.record(&p[30..]);
+        let fp = c.fingerprint().expect("complete");
+        assert_eq!(fp.akamai, "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p");
+        // Cached, and nothing more is captured.
+        c.record(b"more bytes");
+        assert_eq!(c.fingerprint().map(|f| f.akamai.as_str()), Some(fp.akamai.as_str()));
+        assert!(c.buf.lock().unwrap().is_empty(), "the buffer is released");
+    }
+
+    #[test]
+    fn capture_stops_at_its_limit_and_gives_up() {
+        let c = H2Capture::default();
+        c.record(PREFACE);
+        // A SETTINGS frame that claims more than the limit and never ends.
+        c.record(&[0x00, 0x80, 0x00, 0x04, 0x00, 0, 0, 0, 0]);
+        c.record(&vec![0u8; CAPTURE_LIMIT]);
+        assert_eq!(c.buf.lock().unwrap().len(), CAPTURE_LIMIT, "bounded");
+        assert!(c.fingerprint().is_none(), "incomplete at the limit is no fingerprint");
+        assert!(c.fingerprint().is_none(), "and stays none");
+    }
+
+    #[test]
+    fn a_preamble_that_is_not_http2_has_no_fingerprint() {
+        let c = H2Capture::default();
+        c.record(b"GET / HTTP/1.1\r\nHost: shop.test\r\n\r\n");
+        assert!(c.fingerprint().is_none());
+    }
+
+    // ---------- TeeStream ----------
+
+    #[tokio::test]
+    async fn reads_pass_through_and_the_preamble_is_captured() {
+        let capture = Arc::new(H2Capture::default());
+        let (mut client, mut stream) = tee(Some(capture.clone()), Some(Guard::H2(H2Guard::new(T, BODY))));
+        client.write_all(&preamble()).await.unwrap();
+        let mut got = vec![0u8; preamble().len()];
+        stream.read_exact(&mut got).await.unwrap();
+        assert_eq!(got, preamble(), "the bytes are not changed");
+        assert!(capture.fingerprint().is_some());
+    }
+
+    #[tokio::test]
+    async fn without_a_guard_or_capture_it_is_a_plain_stream() {
+        let (mut client, mut stream) = tee(None, None);
+        client.write_all(b"ping").await.unwrap();
+        let mut got = [0u8; 4];
+        stream.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"ping");
+        stream.write_all(b"pong").await.unwrap();
+        stream.flush().await.unwrap();
+        client.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"pong");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_http1_client_that_stops_mid_headers_is_cut_off() {
+        let (mut client, mut stream) = tee(None, Some(Guard::H1(H1Guard::new(T))));
+        let partial = b"GET / HTTP/1.1\r\nHost: sh";
+        client.write_all(partial).await.unwrap();
+        let mut buf = [0u8; 64];
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(n, partial.len());
+        // Nothing more arrives; the timer wakes the read and ends it.
+        let e = stream.read(&mut buf).await.unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
+        assert_eq!(e.to_string(), "request not complete in time");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_http1_byte_after_the_deadline_is_refused() {
+        let (mut client, mut stream) = tee(None, Some(Guard::H1(H1Guard::new(T))));
+        tokio::time::advance(T + Duration::from_secs(1)).await;
+        client.write_all(b"G").await.unwrap();
+        let mut buf = [0u8; 8];
+        assert_eq!(stream.read(&mut buf).await.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn after_a_response_the_next_request_gets_a_fresh_deadline() {
+        let (mut client, mut stream) = tee(None, Some(Guard::H1(H1Guard::new(T))));
+        let mut buf = [0u8; 256];
+        let first = b"GET / HTTP/1.1\r\nHost: shop.test\r\n\r\n";
+        client.write_all(first).await.unwrap();
+        stream.read_exact(&mut buf[..first.len()]).await.unwrap();
+        // A response goes out, written vectored as Pingora may do.
+        let parts = [std::io::IoSlice::new(b""), std::io::IoSlice::new(b"HTTP/1.1 200 OK\r\n\r\n")];
+        let n = stream.write_vectored(&parts).await.unwrap();
+        assert!(n > 0);
+        // Idle on a kept-alive connection for longer than the header timeout.
+        tokio::time::advance(T * 3).await;
+        client.write_all(b"GET /2 HTTP/1.1\r\n").await.unwrap();
+        assert!(stream.read(&mut buf).await.is_ok(), "the second request's clock starts now");
+        tokio::time::advance(T + Duration::from_secs(1)).await;
+        client.write_all(b"Host: shop.test\r\n").await.unwrap();
+        assert_eq!(stream.read(&mut buf).await.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_http2_client_that_stalls_mid_frame_is_cut_off() {
+        let (mut client, mut stream) = tee(None, Some(Guard::H2(H2Guard::new(T, BODY))));
+        let mut bytes = PREFACE.to_vec();
+        bytes.extend_from_slice(&frame(0x4, 0, 0, &[0; 6])[..5]);
+        client.write_all(&bytes).await.unwrap();
+        let mut buf = [0u8; 64];
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(n, bytes.len());
+        let e = stream.read(&mut buf).await.unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test]
+    async fn a_closed_client_reads_as_the_end() {
+        let (client, mut stream) = tee(None, Some(Guard::H1(H1Guard::new(T))));
+        drop(client);
+        let mut buf = [0u8; 8];
+        assert_eq!(stream.read(&mut buf).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_connection_details_are_the_inner_streams() {
+        let (_client, mut stream) = tee(None, None);
+        assert!(format!("{stream:?}").starts_with("TeeStream"));
+        let _ = stream.id();
+        assert!(stream.get_ssl().is_none());
+        assert!(stream.get_ssl_digest().is_none());
+        assert!(stream.selected_alpn_proto().is_none());
+        let _ = stream.get_timing_digest();
+        let _ = stream.get_read_pending_time();
+        let _ = stream.get_write_pending_time();
+        assert!(stream.get_proxy_digest().is_none());
+        let _ = stream.get_socket_digest();
+        let _ = stream.is_write_vectored();
+        let mut peek = [0u8; 4];
+        assert!(!stream.try_peek(&mut peek).await.unwrap());
+        Shutdown::shutdown(&mut stream).await;
+        AsyncWriteExt::shutdown(&mut stream).await.unwrap();
+    }
+}

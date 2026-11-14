@@ -179,4 +179,96 @@ mod tests {
         assert!(check_bind("127.0.0.1:9090".parse().unwrap(), false).is_ok());
         assert!(check_bind("[::1]:9090".parse().unwrap(), false).is_ok());
     }
+
+    // ---------- the listener's answers ----------
+
+    use base64::Engine as _;
+    use tokio::io::AsyncWriteExt;
+
+    const TOKEN: &[u8] = b"admin-test-token";
+
+    fn app(token: Option<&[u8]>) -> AdminApp {
+        AdminApp {
+            events: Arc::new(MemoryRing::new(16)),
+            token: token.map(<[u8]>::to_vec),
+            hosts: allowed_hosts("127.0.0.1:9090".parse().unwrap()),
+        }
+    }
+
+    /// Sends `request` (raw HTTP/1.1) to `app` and returns its answer.
+    async fn ask(app: &AdminApp, request: &str) -> Response<Vec<u8>> {
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        client.write_all(request.as_bytes()).await.unwrap();
+        let mut session = ServerSession::new_http1(Box::new(server));
+        assert!(session.read_request().await.unwrap(), "the request is read");
+        app.response(&mut session).await
+    }
+
+    fn get(path: &str, host: &str, authorization: Option<&str>) -> String {
+        let auth = authorization.map(|a| format!("Authorization: {a}\r\n")).unwrap_or_default();
+        format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{auth}\r\n")
+    }
+
+    fn header<'a>(r: &'a Response<Vec<u8>>, name: &str) -> &'a str {
+        r.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("")
+    }
+
+    #[tokio::test]
+    async fn another_host_is_misdirected_before_anything_else() {
+        let r = ask(&app(Some(TOKEN)), &get("/api/summary", "attacker.example:9090", None)).await;
+        assert_eq!(r.status(), http::StatusCode::MISDIRECTED_REQUEST);
+        assert_eq!(r.body(), b"wrong host");
+        assert_eq!(header(&r, "cache-control"), "no-store");
+        assert_eq!(header(&r, "content-length"), "10");
+        assert!(r.headers().get("www-authenticate").is_none(), "no login offered to a rebinding page");
+    }
+
+    #[tokio::test]
+    async fn without_a_token_configured_the_dashboard_is_served() {
+        let a = app(None);
+        let r = ask(&a, &get("/", "localhost:9090", None)).await;
+        assert_eq!(r.status(), http::StatusCode::OK);
+        assert!(header(&r, "content-type").starts_with("text/html"));
+        assert_eq!(header(&r, "content-length"), r.body().len().to_string());
+        let r = ask(&a, &get("/api/summary?window_secs=60", "127.0.0.1:9090", None)).await;
+        assert_eq!(r.status(), http::StatusCode::OK);
+        assert!(header(&r, "content-type").starts_with("application/json"));
+        assert!(String::from_utf8_lossy(r.body()).contains("\"total\""));
+    }
+
+    #[tokio::test]
+    async fn with_a_token_configured_nothing_is_served_without_it() {
+        let a = app(Some(TOKEN));
+        let r = ask(&a, &get("/api/events", "localhost:9090", None)).await;
+        assert_eq!(r.status(), http::StatusCode::UNAUTHORIZED);
+        assert_eq!(r.body(), b"unauthorized");
+        assert!(header(&r, "www-authenticate").starts_with("Basic realm=\"veritell admin\""));
+        assert_eq!(header(&r, "cache-control"), "no-store");
+        let r = ask(&a, &get("/api/events", "localhost:9090", Some("Bearer wrong"))).await;
+        assert_eq!(r.status(), http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn the_token_is_taken_as_a_bearer_or_a_basic_password() {
+        let a = app(Some(TOKEN));
+        let bearer = format!("Bearer {}", std::str::from_utf8(TOKEN).unwrap());
+        let r = ask(&a, &get("/api/events", "localhost:9090", Some(&bearer))).await;
+        assert_eq!(r.status(), http::StatusCode::OK);
+        let basic = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode([b"admin:".as_slice(), TOKEN].concat())
+        );
+        let r = ask(&a, &get("/api/events?limit=5", "localhost:9090", Some(&basic))).await;
+        assert_eq!(r.status(), http::StatusCode::OK);
+        assert_eq!(r.body(), b"[]");
+    }
+
+    #[tokio::test]
+    async fn the_dashboards_own_answers_and_headers_are_passed_on() {
+        let a = app(None);
+        let r = ask(&a, "POST /api/events HTTP/1.1\r\nHost: localhost:9090\r\nContent-Length: 0\r\n\r\n").await;
+        assert_eq!(r.status(), http::StatusCode::METHOD_NOT_ALLOWED);
+        let r = ask(&a, &get("/nothing-here", "localhost:9090", None)).await;
+        assert_eq!(r.status(), http::StatusCode::NOT_FOUND);
+    }
 }

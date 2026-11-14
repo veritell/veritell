@@ -81,6 +81,38 @@ fn write_export(sharing: &Sharing, to: &ExportTo, now: u64) -> Result<usize, Str
     Ok(entries.len())
 }
 
+/// One look at the import file. Takes it if its modification time changed
+/// since `last_seen` (`None` when there is nothing new to try). A bundle is
+/// tried once per change, taken or refused. On success returns the version
+/// and how many fingerprints are now imported, and `version` becomes it.
+fn check_import(
+    sharing: &Sharing,
+    from: &ImportFrom,
+    last_seen: &mut Option<SystemTime>,
+    version: &mut u64,
+    now: u64,
+) -> Option<Result<(u64, usize), String>> {
+    let modified = std::fs::metadata(&from.path).ok().and_then(|m| m.modified().ok());
+    if modified.is_none() || modified == *last_seen {
+        return None;
+    }
+    *last_seen = modified;
+    let outcome = std::fs::read(&from.path).map_err(|e| format!("cannot read: {e}")).and_then(|bytes| {
+        let (v, entries) = veritell_share::open_bundle(&bytes, &from.keys, now, *version).map_err(|e| e.to_string())?;
+        // The same bytes, already verified: only for the expiry.
+        let expires = veritell_feed::open(&bytes, &from.keys, now, 0).map_err(|e| e.to_string())?.expires;
+        Ok((v, expires, entries))
+    });
+    Some(outcome.map(|(v, expires, entries)| {
+        *version = v;
+        let imported = Imported::new(&entries);
+        let count = imported.len();
+        sharing.imported.store(imported);
+        sharing.imported_until.store(expires, Ordering::Relaxed);
+        (v, count)
+    }))
+}
+
 /// Runs forever on its own thread.
 pub fn run(sharing: Arc<Sharing>, export: Option<ExportTo>, import: Option<ImportFrom>) {
     let mut last_export: Option<std::time::Instant> = None;
@@ -102,29 +134,10 @@ pub fn run(sharing: Arc<Sharing>, export: Option<ExportTo>, import: Option<Impor
             }
         }
         if let Some(from) = &import {
-            let modified = std::fs::metadata(&from.path).ok().and_then(|m| m.modified().ok());
-            if modified.is_some() && modified != last_seen {
-                last_seen = modified;
-                let now = now_secs();
-                let outcome = std::fs::read(&from.path)
-                    .map_err(|e| format!("cannot read: {e}"))
-                    .and_then(|bytes| {
-                        let (v, entries) =
-                            veritell_share::open_bundle(&bytes, &from.keys, now, version).map_err(|e| e.to_string())?;
-                        // The same bytes, already verified: only for the expiry.
-                        let expires = veritell_feed::open(&bytes, &from.keys, now, 0).map_err(|e| e.to_string())?.expires;
-                        Ok((v, expires, entries))
-                    });
-                match outcome {
-                    Ok((v, expires, entries)) => {
-                        version = v;
-                        let imported = Imported::new(&entries);
-                        eprintln!("veritell: share bundle version {v} taken: {} fingerprints", imported.len());
-                        sharing.imported.store(imported);
-                        sharing.imported_until.store(expires, Ordering::Relaxed);
-                    }
-                    Err(e) => eprintln!("veritell: share bundle refused, keeping version {version}: {e}"),
-                }
+            match check_import(&sharing, from, &mut last_seen, &mut version, now_secs()) {
+                None => {}
+                Some(Ok((v, n))) => eprintln!("veritell: share bundle version {v} taken: {n} fingerprints"),
+                Some(Err(e)) => eprintln!("veritell: share bundle refused, keeping version {version}: {e}"),
             }
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -151,5 +164,120 @@ mod tests {
         assert!(sharing.reported_at("other", 999).is_none());
         sharing.imported_until.store(0, Ordering::Relaxed);
         assert!(sharing.reported_at("fp", 1).is_none(), "nothing loaded");
+    }
+
+    const SECRET: &[u8] = b"0123456789abcdef0123456789abcdef";
+    const SEED: [u8; 32] = [3; 32];
+    const NOW: u64 = 1_800_000_000;
+
+    fn sharing(ledger: Option<Ledger>) -> Sharing {
+        Sharing {
+            key: ShareKey::new(SECRET).unwrap(),
+            ledger,
+            imported: Live::new(Imported::empty()),
+            imported_until: AtomicU64::new(0),
+        }
+    }
+
+    fn ledger() -> Ledger {
+        let config = veritell_share::Config { min_networks: veritell_share::MIN_NETWORKS_FLOOR, ..Default::default() };
+        Ledger::new(ShareKey::new(SECRET).unwrap(), config).unwrap()
+    }
+
+    /// A fresh directory for one test, removed by the caller.
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("veritell-share-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn network(n: u8) -> [u8; 8] {
+        [n, 0, 0, 0, 0, 0, 0, 0]
+    }
+
+    #[test]
+    fn judgements_are_noted_unless_they_leaned_on_a_report() {
+        let s = sharing(Some(ledger()));
+        for n in 0..5 {
+            s.note("own", network(n), Class::Automated, false, NOW);
+            s.note("echo", network(n), Class::Automated, true, NOW);
+        }
+        let exported = s.ledger.as_ref().unwrap().export(NOW);
+        assert_eq!(exported.len(), 1, "only the independent judgement");
+        assert_eq!(exported[0].hash, s.key.hash("own"));
+        // Without a ledger (importing only) nothing is noted and nothing breaks.
+        sharing(None).note("own", network(0), Class::Automated, false, NOW);
+    }
+
+    #[test]
+    fn nothing_is_written_without_a_ledger() {
+        let dir = temp_dir("no-ledger");
+        let to = ExportTo { path: dir.join("out.json"), seed: SEED, every: Duration::from_secs(60) };
+        assert_eq!(write_export(&sharing(None), &to, NOW), Ok(0));
+        assert!(!to.path.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_export_is_written_whole_and_another_install_takes_it() {
+        let dir = temp_dir("round-trip");
+        let exporter = sharing(Some(ledger()));
+        for n in 0..5 {
+            exporter.note("bot-fp", network(n), Class::Automated, false, NOW);
+        }
+        let to = ExportTo { path: dir.join("share.json"), seed: SEED, every: Duration::from_secs(60) };
+        assert_eq!(write_export(&exporter, &to, NOW), Ok(1));
+        assert!(!dir.join("share.json.tmp").exists(), "the temporary file was renamed");
+
+        let importer = sharing(None);
+        let from = ImportFrom { path: to.path.clone(), keys: vec![veritell_feed::public_key(&SEED)] };
+        let (mut last_seen, mut version) = (None, 0u64);
+        assert_eq!(check_import(&importer, &from, &mut last_seen, &mut version, NOW), Some(Ok((NOW, 1))));
+        assert_eq!(version, NOW, "an export's version is its time");
+        assert_eq!(importer.imported_until.load(Ordering::Relaxed), NOW + EXPORT_LIFETIME_SECS);
+        assert!(importer.reported_at("bot-fp", NOW).is_some());
+        assert!(importer.reported_at("bot-fp", NOW + EXPORT_LIFETIME_SECS).is_none(), "gone at expiry");
+        assert_eq!(check_import(&importer, &from, &mut last_seen, &mut version, NOW), None, "unchanged");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_export_to_a_missing_directory_fails_with_a_reason() {
+        let dir = temp_dir("missing");
+        let to = ExportTo { path: dir.join("no-such-dir").join("share.json"), seed: SEED, every: Duration::from_secs(60) };
+        assert!(write_export(&sharing(Some(ledger())), &to, NOW).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_refused_bundle_keeps_what_was_imported() {
+        let dir = temp_dir("refused");
+        let path = dir.join("share.json");
+        let importer = sharing(None);
+        let entry = veritell_share::Entry { hash: importer.key.hash("kept"), class: Class::Automated };
+        importer.imported.store(Imported::new(&[entry]));
+        importer.imported_until.store(NOW + 10, Ordering::Relaxed);
+        let (mut last_seen, mut version) = (None, 5u64);
+        let from = ImportFrom { path: path.clone(), keys: vec![veritell_feed::public_key(&SEED)] };
+
+        assert_eq!(check_import(&importer, &from, &mut last_seen, &mut version, NOW), None, "no file");
+
+        // Signed by a key this install does not trust.
+        let bundle = veritell_share::seal_bundle(&[], 9, NOW, NOW + 60, &[4; 32]).unwrap();
+        std::fs::write(&path, bundle).unwrap();
+        let refused = check_import(&importer, &from, &mut last_seen, &mut version, NOW).unwrap().unwrap_err();
+        assert_eq!(refused, "bundle signature does not verify");
+        assert_eq!(version, 5);
+        assert!(importer.reported_at("kept", NOW).is_some(), "the earlier import stays");
+        assert_eq!(check_import(&importer, &from, &mut last_seen, &mut version, NOW), None, "tried once per change");
+
+        // An older version than the one in force is a rollback.
+        let old = veritell_share::seal_bundle(&[], 4, NOW, NOW + 60, &SEED).unwrap();
+        std::fs::write(&path, &old).unwrap();
+        last_seen = None;
+        let refused = check_import(&importer, &from, &mut last_seen, &mut version, NOW).unwrap().unwrap_err();
+        assert_eq!(refused, "bundle version 4 is older than 5");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
