@@ -257,6 +257,21 @@ asn_wire() {
   echo "$want"
 }
 
+# agents_wire: kit.env's VERITELL_WBA_AGENTS, from what is there: the path in
+# the gateway when agents/agents.json exists and is not empty, else empty
+# (no agent trusted). Makes agents/ so the compose files' mount has a folder.
+# Prints the value.
+AGENTS_IN_GATEWAY=/etc/veritell/agents/agents.json
+agents_wire() {
+  local want=""
+  mkdir -p "$KIT/agents"; chmod 0755 "$KIT/agents"
+  [ -s "$KIT/agents/agents.json" ] && want=$AGENTS_IN_GATEWAY
+  if [ "$(get_kv "$KIT/kit.env" VERITELL_WBA_AGENTS)" != "$want" ] || ! grep -q '^VERITELL_WBA_AGENTS=' "$KIT/kit.env" 2>/dev/null; then
+    set_kv "$KIT/kit.env" VERITELL_WBA_AGENTS "$want"
+  fi
+  echo "$want"
+}
+
 # public_addr: the host's own address as a visitor reaches it: PUBLIC_ADDR in
 # site.conf, else the source address of the route to the internet.
 public_addr() {

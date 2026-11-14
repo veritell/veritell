@@ -25,6 +25,10 @@ services:
       # the first download or with ASN_DB=off, means none.
       - --asn-db
       - ${VERITELL_ASN_DB:-}
+      # Web Bot Auth agents the operator trusts (agents/agents.json, see
+      # README.md); empty when there is no such file, which means none.
+      - --wba-agents
+      - ${VERITELL_WBA_AGENTS:-}
       - --ip-mode
       - keyed
       - --state-dir
@@ -61,6 +65,7 @@ services:
       - ./state:/state
       - ./policy.yaml:/etc/veritell/policy.yaml:ro
       - ./asn:/etc/veritell/asn:ro
+      - ./agents:/etc/veritell/agents:ro
     networks: [site, store]
     # Started once the store answers, so the first events are not dropped.
     depends_on:

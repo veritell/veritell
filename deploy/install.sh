@@ -110,6 +110,8 @@ fi
 # site's host blocks the download) the gateway starts anyway, and
 # veritell-asn.timer tries again every week; or run asn.sh.
 "$KIT/asn.sh" --no-restart || log "the gateway starts without an ASN database for now: run $KIT/asn.sh once the download works"
+# Trusted Web Bot Auth agents, if agents/agents.json is there (README.md).
+agents_wire >/dev/null
 docker build -q -f Dockerfile.prebuilt -t veritell:latest . >/dev/null
 log "image veritell:latest built"
 gateway_compose up -d

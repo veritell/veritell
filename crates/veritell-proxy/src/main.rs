@@ -280,7 +280,8 @@ fn main() {
             .unwrap_or_else(|| fail("--token-budget must be a positive integer")),
     };
 
-    let agents_config = match args.get("wba-agents") {
+    // Empty means none, as for --asn-db: the kit always passes the flag.
+    let agents_config = match args.get("wba-agents").filter(|p| !p.is_empty()) {
         None => directories::AgentsConfig::default(),
         Some(path) => directories::parse_agents(&read_file("agents file", path))
             .unwrap_or_else(|e| fail(format!("{path}: {e}"))),

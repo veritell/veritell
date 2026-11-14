@@ -25,4 +25,7 @@ if [ "$ASN_DB" = off ]; then echo "ASN database: off (site.conf)"
 elif [ -n "$asn" ] && [ -s "$KIT/asn/ip2asn.tsv" ]; then
   echo "ASN database: $(asn_rows "$KIT/asn/ip2asn.tsv") ranges, downloaded $(date -u -r "$KIT/asn/ip2asn.tsv" '+%Y-%m-%d %H:%M UTC' 2>/dev/null || echo '?')"
 else echo "ASN database: none (asn=0, net_class unknown in the events): run $KIT/asn.sh"; fi
+if [ -n "$(get_kv "$KIT/kit.env" VERITELL_WBA_AGENTS)" ] && [ -s "$KIT/agents/agents.json" ]; then
+  echo "Web Bot Auth: trusted agents from agents/agents.json"
+else echo "Web Bot Auth: no trusted agent"; fi
 [ "${state%%:*}" = inconsistent ] && exit 1 || exit 0

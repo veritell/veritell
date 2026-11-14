@@ -212,6 +212,28 @@ changed type is not applied; both need a hand-written step. Rows the store
 refuses are dropped by the gateway, which logs it; the 5-minute check
 reports such lines.
 
+## Trusted Web Bot Auth agents
+
+A request signed with Web Bot Auth (HTTP Message Signatures, Ed25519) by an
+agent the operator trusts is classed `signed_agent`, whatever its other
+detections. None is trusted by default. To trust one, put its public keys in
+`agents/agents.json` in the kit's folder and run `update.sh` (the same short
+restart as an update):
+
+```json
+{"agents": [{"name": "example-agent", "keys": [{"kty": "OKP", "crv": "Ed25519", "x": "<public key, base64url>"}]}]}
+```
+
+An agent can instead give `signature_agent`, the URL of its key directory,
+and no `keys`: the gateway then fetches the keys from there and keeps them
+current. Only public keys go in the file; it is mounted read-only. The kit's
+`kit.env` has `VERITELL_WBA_AGENTS` set to its path in the gateway when the
+file exists and is not empty, and empty otherwise. A file the gateway
+refuses stops it from starting, so `update.sh` puts the previous kit back:
+check the file first. `status.sh` says whether agents are trusted. Format
+and limits: the top of `crates/veritell-proxy/src/main.rs` and
+`crates/veritell-proxy/src/directories.rs`.
+
 ## The ASN database
 
 The gateway looks up which network (autonomous system) each visitor's

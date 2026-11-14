@@ -16,4 +16,5 @@ step "deploy/export"    bash deploy/test_export.sh
 step "deploy/report"    python3 -I deploy/test_report.py
 step "deploy/certs"     bash deploy/test_certs.sh
 step "deploy/asn"       bash deploy/test_asn.sh
+step "deploy/agents"    bash deploy/test_agents.sh
 echo "core: all passed"
