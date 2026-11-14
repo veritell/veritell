@@ -45,7 +45,7 @@ impl KnownKey {
     }
 
     #[cfg(test)]
-    fn new(key: &[u8]) -> KnownKey {
+    pub(crate) fn new(key: &[u8]) -> KnownKey {
         KnownKey(key.to_vec())
     }
 

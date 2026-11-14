@@ -2825,3 +2825,7 @@ mod tests {
         assert_eq!(stable_ja4("é"), "é_");
     }
 }
+
+#[cfg(test)]
+#[path = "router_tests.rs"]
+mod router_tests;
