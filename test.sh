@@ -11,6 +11,7 @@ step() { echo "-- $1"; shift; "$@" >"$LOG" 2>&1 || { cat "$LOG"; echo "FAILED: $
 step "fixed contracts"  shasum -a 256 -c .acceptance.sha256 --quiet
 step "cargo test"       cargo test --workspace -q
 step "deploy/lib.sh"    bash deploy/test_lib.sh
+step "deploy/conf"      bash deploy/test_conf.sh
 step "deploy/front"     bash deploy/test_front.sh
 step "deploy/export"    bash deploy/test_export.sh
 step "deploy/report"    python3 -I deploy/test_report.py

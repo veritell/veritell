@@ -88,20 +88,6 @@ eq "a gateway on 127.0.0.1:443 does not hold the public port" \
   "$(state 'veritell-gateway|127.0.0.1:443->8443/tcp\n'"$WEB_LOCAL")" "inconsistent: set for the gateway, but nothing publishes 443"
 eq "nor does 8443 match 443"              "$(state 'veritell-gateway|0.0.0.0:8443->8443/tcp\n'"$WEB_LOCAL")" "inconsistent: set for the gateway, but nothing publishes 443"
 
-# site.conf is sourced as root: one that others can write, in a folder others
-# can write, is refused before anything in it runs.
-lib_rc() { out=$( ( . "$T/kit/lib.sh" ) 2>&1 ); echo "$? $out"; }
-chmod 0644 "$T/kit/site.conf"
-eq "a site.conf only its owner writes is sourced" "$(lib_rc | cut -d' ' -f1)" "0"
-chmod 0664 "$T/kit/site.conf"
-eq "a site.conf the group can write is refused, saying how to fix it" "$(lib_rc | grep -c '^2 .*site.conf can be written by others (mode 664): chmod go-w')" "1"
-chmod 0646 "$T/kit/site.conf"
-eq "a site.conf anyone can write is refused" "$(lib_rc | cut -d' ' -f1)" "2"
-chmod 0644 "$T/kit/site.conf"; chmod 0777 "$T/kit"
-eq "a kit folder anyone can write is refused" "$(lib_rc | cut -d' ' -f1)" "2"
-chmod 0755 "$T/kit"
-eq "and with both put right it is sourced again" "$(lib_rc | cut -d' ' -f1)" "0"
-
 echo
 if [ "$fails" = 0 ]; then echo "ALL PASSED"; else echo "$fails FAILED"; fi
 exit "$fails"
