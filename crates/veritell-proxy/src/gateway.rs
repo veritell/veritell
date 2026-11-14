@@ -642,6 +642,22 @@ fn signed_agent_of(
     }
 }
 
+/// The visitor's network: AS number, class as stored (`hosting`, `other`, or
+/// `unknown` when the address is in no routed range or there is no database),
+/// and the network detection a request gets for it, if any.
+fn network_of(db: &AsnDb, ip: IpAddr) -> (u32, &'static str, Option<Detection>) {
+    match db.lookup(ip) {
+        Some(info) => {
+            let class = match info.class {
+                NetClass::Hosting => "hosting",
+                NetClass::Other => "other",
+            };
+            (info.asn, class, info.detection())
+        }
+        None => (0, "unknown", None),
+    }
+}
+
 struct Assessment {
     model: Option<ModelOpinion>,
     verdict: Verdict,
@@ -746,17 +762,8 @@ impl Gateway {
             );
         }
 
-        let (asn, net_class) = match self.asn.lookup(f.ip) {
-            Some(info) => {
-                detections.extend(info.detection());
-                let class = match info.class {
-                    NetClass::Hosting => "hosting",
-                    NetClass::Other => "other",
-                };
-                (info.asn, class)
-            }
-            None => (0, "unknown"),
-        };
+        let (asn, net_class, net_detection) = network_of(&self.asn, f.ip);
+        detections.extend(net_detection);
 
         let (has_token, token_state) = match f
             .cookie
@@ -1012,8 +1019,11 @@ impl Gateway {
         self.side_event_with(kind, f, detections, outcome, String::new());
     }
 
-    /// A side event that also carries a behaviour report's counts.
+    /// A side event that also carries a behaviour report's counts. It records
+    /// the visitor's network like a request does, but adds no network
+    /// detection: a side event's detections are those of the report itself.
     fn side_event_with(&self, kind: EventKind, f: &Facts, detections: Vec<Detection>, outcome: &str, summary: String) {
+        let (asn, net_class, _) = network_of(&self.asn, f.ip);
         let ids: Vec<&str> = detections.iter().map(|d| d.id.as_str()).collect();
         if self.log_requests {
             println!(
@@ -1039,8 +1049,8 @@ impl Gateway {
             class: verdict.class,
             detections: verdict.detections,
             identity: String::new(),
-            asn: 0,
-            net_class: String::new(),
+            asn,
+            net_class: net_class.to_string(),
             token: String::new(),
             action: String::new(),
             enforced: false,
@@ -2008,6 +2018,30 @@ impl ProxyHttp for Gateway {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn network_of_looks_up_both_families() {
+        use super::{network_of, AsnDb};
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+        let db = AsnDb::from_iptoasn_tsv(
+            "203.0.113.0\t203.0.113.255\t64500\tZZ\tEXAMPLE-HOSTING\n\
+             2001:db8::\t2001:db8:ffff:ffff:ffff:ffff:ffff:ffff\t64501\tZZ\tEXAMPLE-ISP\n",
+        )
+        .unwrap();
+        let v4 = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
+        let mapped = IpAddr::V6(Ipv4Addr::new(203, 0, 113, 7).to_ipv6_mapped());
+        let v6: IpAddr = "2001:db8::42".parse().unwrap();
+        let none = IpAddr::V6(Ipv6Addr::LOCALHOST);
+        let (asn, _, _) = network_of(&db, v4);
+        assert_eq!(asn, 64500);
+        // A dual-stack listener sees IPv4 visitors as ::ffff:a.b.c.d.
+        assert_eq!(network_of(&db, mapped).0, 64500);
+        assert_eq!(network_of(&db, v6).0, 64501);
+        let (asn, class, det) = network_of(&db, none);
+        assert_eq!((asn, class, det.is_none()), (0, "unknown", true));
+        let (asn, class, det) = network_of(&AsnDb::empty(), v4);
+        assert_eq!((asn, class, det.is_none()), (0, "unknown", true));
+    }
+
     use super::{forwarded_ip, stable_ja4, upstream_sni};
     use super::{admitted, signed_agent_of, last_forwarded, original_request, set_forwarding, Ctx, Original, SidecarError};
     use super::{check_solution, effective_action, link_difficulty, retry_difficulty, source_link, without_bot_claim};
