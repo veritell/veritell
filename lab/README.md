@@ -35,6 +35,19 @@ scripts in `lab/clients/`, started with `lab/.venv/bin/python script URL PROFILE
 other client. `CHROME_BIN` is passed to them. Camoufox downloads its own browser and is not approved yet, so its
 scenario always reports "not run: camoufox not installed".
 
+## Against a live site
+
+```
+LAB_TARGET_HOSTS=www.example.org node lab/run.mjs --target https://www.example.org [--dwell 20] [--only id,id] [--json out.json]
+```
+
+Runs each client against a site you operate, behind its own gateway, instead of a local one: the client opens
+`<target>/?s=<scenario id>`, stays `--dwell` seconds (default 20), and is stopped. Nothing is checked here; the site's
+gateway records what it saw, and the JSON output gives each scenario's start and end time for matching. The host must
+be listed in `LAB_TARGET_HOSTS`, so a typo cannot send the clients elsewhere, and only `https` is accepted. Scenarios
+with a policy need the lab's own gateway and are skipped. Clients that go on to the local origin's `/lab/...` pages
+request them on the site too, where they are not found. Only run it against a site you operate.
+
 ## Expectations
 
 `clean`, `detected`, `blocked` and the other expectations decide PASS or FAIL. `measure` never fails: the result column

@@ -114,8 +114,12 @@ async function cdpChrome(ctx, { stealth }) {
   return { stop: async () => { cdp.close(); await stopProc(child); } };
 }
 
-/** Firefox cannot load a self-signed page, so trust it for this host:port with a cert_override.txt. */
+/** Firefox cannot load a self-signed page, so trust it for this host:port with a cert_override.txt (not needed live). */
 async function firefox(ctx) {
+  if (ctx.live) {
+    const child = spawnTracked(FIREFOX, ["--headless", "--no-remote", "--profile", ctx.profile, ctx.url]);
+    return { stop: () => stopProc(child) };
+  }
   const line = `localhost:${ctx.port}:\tOID.2.16.840.1.101.3.4.2.1\t${ctx.cert.fingerprint}\tU\t\n`;
   writeFileSync(join(ctx.profile, "cert_override.txt"), "# PSM Certificate Override Settings file\n# This is a generated file!  Do not edit.\n" + line);
   writeFileSync(join(ctx.profile, "user.js"), 'user_pref("browser.shell.checkDefaultBrowser", false);\nuser_pref("datareporting.policy.dataSubmissionEnabled", false);\n');

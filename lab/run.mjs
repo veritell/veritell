@@ -1,4 +1,8 @@
 // Bot lab runner: node lab/run.mjs [--only id,id] [--json out.json] [--keep-logs] [--extra file.mjs,...]
+//                                  [--target URL [--dwell seconds]]
+//   --target runs each client against a live site you operate instead of a local
+//            gateway (see README.md, "Against a live site"). Its host must be listed
+//            in LAB_TARGET_HOSTS. Nothing is checked: the site's own gateway records it.
 //   --extra  more scenarios from files kept elsewhere, each exporting `scenarios`
 //            (they can import their building blocks from ./scenarios.mjs)
 import { writeFileSync } from "node:fs";
@@ -13,6 +17,20 @@ const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : un
 const only = opt("--only")?.split(",");
 const jsonOut = opt("--json");
 const keepLogs = args.includes("--keep-logs");
+const target = opt("--target");
+const dwell = Number(opt("--dwell") ?? 20);
+let liveOrigin = null;
+if (target !== undefined) {
+  let u;
+  try { u = new URL(target); } catch { console.error(`--target is not a URL: ${target}`); process.exit(2); }
+  const allowed = (process.env.LAB_TARGET_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+  if (u.protocol !== "https:" || !allowed.includes(u.hostname.toLowerCase())) {
+    console.error(`--target must be https and its host listed in LAB_TARGET_HOSTS (now: ${allowed.join(",") || "empty"})`);
+    process.exit(2);
+  }
+  if (!(dwell >= 1 && dwell <= 600)) { console.error("--dwell must be 1 to 600 seconds"); process.exit(2); }
+  liveOrigin = u.origin;
+}
 const scenarios = [...builtIn];
 for (const file of opt("--extra")?.split(",") ?? []) {
   const mod = await import(pathToFileURL(resolve(file)).href);
@@ -27,12 +45,12 @@ process.on("exit", cleanupSync);
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { cleanupSync(); process.exit(130); });
 process.on("uncaughtException", (e) => { console.error(e); cleanupSync(); process.exit(1); });
 
-if (!existsSync(GATEWAY)) { console.error(`gateway binary not found: ${GATEWAY} (build it with cargo build --release -p veritell-proxy)`); process.exit(2); }
+if (!liveOrigin && !existsSync(GATEWAY)) { console.error(`gateway binary not found: ${GATEWAY} (build it with cargo build --release -p veritell-proxy)`); process.exit(2); }
 const selected = only ? scenarios.filter((s) => only.includes(s.id)) : scenarios;
 if (only) for (const id of only) if (!scenarios.some((s) => s.id === id)) { console.error(`unknown scenario: ${id}`); process.exit(2); }
 
 const workDir = makeTmp("work");
-const cert = makeCert(workDir);
+const cert = liveOrigin ? null : makeCert(workDir);
 const pathOf = (e) => e.path.split("?")[0];
 const group = (dets) => {
   const g = { identity: [], network: [], client: [] };
@@ -40,7 +58,36 @@ const group = (dets) => {
   return g;
 };
 
+/** Live mode: start the client on the site, let it run for --dwell seconds, stop it. */
+async function runLive(sc) {
+  const rec = { id: sc.id, client: sc.client, status: "fail", reason: "" };
+  if (sc.policy) return { ...rec, status: "not run", reason: "needs the lab's own gateway (policy)" };
+  const skip = await sc.available();
+  if (skip) return { ...rec, status: "not run", reason: skip };
+  const dir = makeTmp(sc.id);
+  const profile = join(dir, "profile");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(profile);
+  // ?s= names the scenario in the site's own records, as the local origin's URL does.
+  const url = `${liveOrigin}/?s=${encodeURIComponent(sc.id)}`;
+  let client;
+  rec.started = new Date().toISOString();
+  try {
+    client = await sc.launch({ url, profile, cert: null, port: null, live: true });
+    await sleep(dwell * 1000);
+    rec.status = "ran";
+  } catch (e) {
+    rec.reason = `error: ${e.message}`;
+  } finally {
+    try { await client?.stop(); } catch { /* ignore */ }
+    rec.ended = new Date().toISOString();
+    removeDir(dir);
+  }
+  return rec;
+}
+
 async function runScenario(sc) {
+  if (liveOrigin) return runLive(sc);
   const rec = { id: sc.id, client: sc.client, expectation: sc.expect.text, status: "fail", reason: "" };
   const skip = await sc.available();
   if (skip) return { ...rec, status: "not run", reason: skip };
@@ -110,6 +157,12 @@ for (const sc of selected) {
   results.push(await runScenario(sc));
 }
 removeDir(workDir);
+
+if (liveOrigin) {
+  for (const r of results) console.log(`${r.id.padEnd(30)} ${r.status === "ran" ? `ran ${r.started} to ${r.ended}` : `${r.status}: ${r.reason}`}`);
+  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ when: new Date().toISOString(), target: liveOrigin, dwell, results }, null, 2) + "\n");
+  process.exit(results.some((r) => r.status === "fail") ? 1 : 0);
+}
 
 // ---- report ---------------------------------------------------------------
 const cols = ["scenario", "client", "score", "class", "network", "client layer", "behaviour, population", "expectation", "result"];
