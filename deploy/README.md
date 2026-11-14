@@ -458,8 +458,8 @@ failed requests during the cutover and the rollback.
 
 - **The dashboard is not on the internet.** Only through an SSH tunnel, and
   only the gateway's memory (above).
-- **Alerts go to the journal only** (`watch.sh` every 5 minutes, the user's
-  choice). It reports the gateway down or crashed, ClickHouse unhealthy,
+- **Alerts go to the journal only** (`watch.sh` every 5
+  minutes). It reports the gateway down or crashed, ClickHouse unhealthy,
   dropped event batches, the front `inconsistent`, HTTPS or the site behind it
   not answering, the certificate under 14 days, the disk over 90%. It
   changes nothing itself; nothing restarts or rolls back on its own except
@@ -468,5 +468,5 @@ failed requests during the cutover and the rollback.
   `VERITELL_KNOWN_KEY`; changing the key (and restarting) revokes them all.
 - **Injection and a Content-Security-Policy.** The scripts are same-origin,
   which `script-src 'self'` allows; a policy based on nonces or hashes would
-  block them silently. The site has no such policy today.
+  block them silently. Check the site's policy before the cutover.
 - **One instance.** State files (`state/`) are for this one gateway.

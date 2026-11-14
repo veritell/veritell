@@ -6,7 +6,8 @@
 # certbot hook, the secrets, the certificate copy and the state. Prints each
 # thing it removes.
 # It never touches site.conf, the kit's own files (scripts, binary, compose
-# files) or anything of the site.
+# files) or anything of the site, except the copies cutover and rollback kept
+# of the site's env file.
 SCRIPT=uninstall
 . "$(dirname "$0")/lib.sh"
 [ "${1:-}" = --yes ] || { echo "usage: uninstall.sh --yes   (removes the gateway, its data and its secrets; the site is left as it was)" >&2; exit 2; }
@@ -45,5 +46,12 @@ done
 for f in "$KIT"/*.before-*; do
   [ -e "$f" ] && { rm -f "$f"; log "removed: $f"; }
 done
+# The copies set_kv kept of the site's env file (cutover and rollback, Compose
+# mode) hold the site's own secrets. The kit made them; nothing else needs them.
+if [ -n "${SITE_DIR:-}" ] && [ -n "${SITE_ENV_FILE:-}" ]; then
+  for f in "$SITE_DIR/$SITE_ENV_FILE".before-cutover-* "$SITE_DIR/$SITE_ENV_FILE".before-rollback-*; do
+    [ -e "$f" ] && { rm -f "$f"; log "removed: $f"; }
+  done
+fi
 log "done. site.conf and the kit's files are still in $KIT; the site was not touched."
 exit 0

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The weekly report:  report.sh [days]      default 7, 1 to 31
-# Reads the last N days of events from ClickHouse (through docker exec, as
-# the review tools' fetch.sh does) and writes, in /opt/veritell/reports/:
+# Reads the last N days of events from ClickHouse (through docker exec,
+# like migrate.sh) and writes, in /opt/veritell/reports/:
 #   report-<UTC date>.html   one page to read, forward or print
 #   report-<UTC date>.json   the same numbers
 # The newest 8 of each are kept. Nothing leaves the host. Run every Monday by
@@ -35,7 +35,7 @@ else
   out=/out
 fi
 
-# Same way as migrate.sh and the review tools' fetch.sh: the password is an argument
+# Same way as migrate.sh: the password is an argument
 # of clickhouse-client inside the container (visible to root in ps there).
 if ! docker exec veritell-clickhouse clickhouse-client --user veritell --password "$P" \
     --query "SELECT ts, kind, ip, ja4, h2, user_agent, detection_ids, action, path, known, class, score, identity FROM veritell.events WHERE ts > now() - INTERVAL $days DAY ORDER BY ts FORMAT JSONEachRow" \

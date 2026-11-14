@@ -3,7 +3,7 @@
 #   tools/export/open_export.sh <export.cms> <private key> [out dir]
 # -> <out dir>/events.jsonl   (default out dir: review-<the .cms name without .cms>)
 # Checks that every line is a JSON object. On any failure: exit 1 and no
-# events.jsonl. Then use review.py and thresholds.py on the file.
+# events.jsonl, one gateway event per line.
 set -euo pipefail
 CMS=${1:?usage: open_export.sh <export.cms> <private key> [out dir]}
 KEY=${2:?usage: open_export.sh <export.cms> <private key> [out dir]}
