@@ -117,6 +117,16 @@ impl Refusal {
     }
 }
 
+/// The nonce named on the outside of a sealed report (`"n"`, see
+/// probe/SEALING.md), read without opening it. A report that fails to open
+/// still names one: whether it was issued to the sender decides whether the
+/// failure counts as evidence about the sender.
+pub fn outer_nonce(body: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let nonce = value.get("n")?.as_str()?;
+    (nonce.len() <= veritell_probe_build::MAX_NONCE_BYTES).then(|| nonce.to_string())
+}
+
 /// The evidence a forged report leaves on the client that sent it.
 pub fn forged(why: Refusal) -> Detection {
     Detection::new(

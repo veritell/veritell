@@ -1333,8 +1333,8 @@ impl Gateway {
 
     /// POST /__veritell/probe: check and analyse a probe report. A rejected
     /// report is logged; only one that the script cannot have made (see
-    /// `probe::Refusal::is_forgery`) leaves state behind, a `probe_forged` detection
-    /// on the client.
+    /// `probe::Refusal::is_forgery`) and that names a nonce issued to this
+    /// client leaves state behind, a `probe_forged` detection on the client.
     async fn handle_probe_report(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
         let Some(body) = read_body(session, veritell_probe_build::MAX_SEALED_BYTES, self.body_timeout).await? else {
             self.side_event(EventKind::Probe, f, Vec::new(), probe::Refusal::TooLarge.as_str());
@@ -1402,8 +1402,16 @@ impl Gateway {
                 }
                 // A report that no copy of the script makes is evidence about
                 // the client that sent it: without this, sending one would
-                // leave the client exactly where it was.
-                let found = if why.is_forgery() {
+                // leave the client exactly where it was. Only when it names a
+                // nonce issued to this binding, though: a blind POST of junk
+                // from anyone sharing the binding's /24 and User-Agent would
+                // otherwise mark everyone on it.
+                let names_our_nonce = || {
+                    probe::outer_nonce(&body).is_some_and(|n| {
+                        veritell_probe::verify_nonce(&self.probe_key, &n, &binding.0, now).is_ok()
+                    })
+                };
+                let found = if why.is_forgery() && names_our_nonce() {
                     let found = vec![probe::forged(why)];
                     self.probes.put(binding.0, found.clone(), now.saturating_add(PROBE_RESULT_TTL_SECS), now);
                     found

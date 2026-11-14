@@ -218,8 +218,48 @@ async fn junk_reports_are_refused_with_their_reason() {
     let (status, _, _, _) = send(&g, &post(behavior::REPORT_PATH, "{}"), true).await;
     assert_eq!(status, 403);
     assert_eq!(outcomes(&ring), ["probe_malformed", "behavior_malformed"]);
-    // The forged probe report leaves evidence on the client (Refusal::is_forgery).
-    assert_eq!(ring.events()[0].detections.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), [probe::FORGED]);
+    // Junk that names no nonce of this client's leaves no evidence: anyone on
+    // the client's /24 with its User-Agent could have sent it.
+    assert!(ring.events()[0].detections.is_empty());
+}
+
+/// The string after `key` in a served probe script (`"nonce":"`, `{"id":"`).
+fn field_in(script: &str, key: &str) -> String {
+    let start = script.find(key).expect("the script carries the field") + key.len();
+    script[start..].split('"').next().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn a_forged_report_marks_the_client_only_under_its_own_nonce() {
+    let (g, ring) = gateway(Policy::default_shadow(), Vec::new());
+    // The same client as `post` (curl/8.7.1) fetches the script, and so gets a nonce.
+    let fetch = get(probe::SCRIPT_PATH).replace("User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", "User-Agent: curl/8.7.1");
+    let (_, _, script, _) = send(&g, &fetch, true).await;
+    let ours = field_in(&script, "\"nonce\":\"");
+    let build = field_in(&script, "{\"id\":\"");
+    // Another client's nonce (a different User-Agent, so a different binding).
+    let (_, _, other, _) = send(&g, &get(probe::SCRIPT_PATH), true).await;
+    let theirs = field_in(&other, "\"nonce\":\"");
+    // This build, any nonce, data that does not decrypt: probe_seal_invalid.
+    let sealed = |nonce: &str| format!(r#"{{"b":"{build}","n":"{nonce}","d":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}"#);
+    for (body, marked) in [(sealed("made-up"), false), (sealed(&theirs), false), (sealed(&ours), true)] {
+        let before = ring.events().len();
+        let (status, _, _, _) = send(&g, &post(probe::REPORT_PATH, &body), true).await;
+        assert_eq!(status, 403);
+        let event = &ring.events()[before];
+        assert_eq!(event.outcome, "probe_seal_invalid");
+        let ids: Vec<&str> = event.detections.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids == [probe::FORGED], marked, "{}: {ids:?}", event.outcome);
+    }
+}
+
+#[test]
+fn the_outer_nonce_is_read_without_opening() {
+    assert_eq!(probe::outer_nonce(br#"{"b":"x","n":"abc","d":""}"#).as_deref(), Some("abc"));
+    assert_eq!(probe::outer_nonce(b"not json"), None);
+    assert_eq!(probe::outer_nonce(br#"{"n":1}"#), None);
+    let long = format!(r#"{{"n":"{}"}}"#, "n".repeat(veritell_probe_build::MAX_NONCE_BYTES + 1));
+    assert_eq!(probe::outer_nonce(long.as_bytes()), None);
 }
 
 #[tokio::test]
