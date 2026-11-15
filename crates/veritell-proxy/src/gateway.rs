@@ -90,6 +90,11 @@ pub struct Gateway {
     pub token_budgets: Arc<MemoryBudgetStore>,
     pub used_challenges: Arc<MemoryBudgetStore>,
     pub throttle: Throttle,
+    /// `--flood-guard`: a ceiling on requests per network, before scoring.
+    pub flood: crate::flood::FloodGuard,
+    /// Page loads per network and per client, for `rate_net_high` and
+    /// `rate_client_high`.
+    pub page_rates: crate::flood::PageRates,
     /// Token budget per issued token (overridable for tests).
     pub token_budget: u32,
     pub probe_key: ProbeKey,
@@ -990,6 +995,11 @@ impl Gateway {
                 shared = Some((fingerprint.clone(), reported.is_some()));
                 detections.extend(reported);
             }
+            // Page loads only: a page's assets would count a person's one
+            // view as tens of requests.
+            if f.is_navigation() {
+                detections.extend(self.page_rates.observe(f.ip, self.binding(f).0, now));
+            }
             detections.extend(self.agg.observe(
                 &Observation {
                     fingerprint: &fingerprint,
@@ -1201,6 +1211,44 @@ impl Gateway {
             tcp: f.syn.as_ref().map(|s| s.signature.clone()).unwrap_or_default(),
             tcp_ttl: f.syn.as_ref().map_or(0, |s| s.ttl),
         });
+    }
+
+    /// The flood guard. True when the request was answered (429) and must
+    /// go no further. In `log` mode it only reports.
+    async fn flood_refuses(&self, session: &mut Session, f: &Facts, now: u64) -> Result<bool> {
+        use crate::flood::{GuardMode, GuardVerdict};
+        let verdict = self.flood.check(f.ip, now);
+        let (report, total) = match verdict {
+            GuardVerdict::Pass => return Ok(false),
+            GuardVerdict::Over { total, report } => (report, Some(total)),
+            // A full table is noted at most once a minute.
+            GuardVerdict::Full => {
+                note_full("flood guard");
+                (false, None)
+            }
+        };
+        let enforce = self.flood.mode == GuardMode::Enforce;
+        if report {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ts": now,
+                    "kind": "flood",
+                    "ip": self.addr.stored(crate::conn::ConnLimiter::network(f.ip), now),
+                    "requests": total,
+                    "window_secs": self.flood.retry_after(),
+                    "limit": self.flood.limit,
+                    "mode": self.flood.mode.as_str(),
+                })
+            );
+        }
+        if !enforce {
+            return Ok(false);
+        }
+        let retry = self.flood.retry_after().to_string();
+        self.respond(session, 429, "text/plain", b"too many requests".to_vec(), &[("retry-after", retry)])
+            .await?;
+        Ok(true)
     }
 
     async fn respond(
@@ -1856,6 +1904,9 @@ impl ProxyHttp for Gateway {
         ctx.peer_ip = session.client_addr().and_then(|a| a.as_inet()).map(|a| canonical(a.ip()));
         ctx.client_ip = Some(f.ip);
         ctx.behind_proxy = ctx.peer_ip.is_some_and(|p| self.trusted_proxies.contains(&p));
+        if self.flood_refuses(session, &f, now).await? {
+            return Ok(true);
+        }
         ctx.injection = crate::inject::Injection::for_request(
             self.inject_probe,
             &f.method,

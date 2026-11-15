@@ -14,7 +14,8 @@
 //!          [--wba-directory-allow ip:port[,ip:port]] [--wba-directory-ca roots.pem]
 //!          [--privacy-pass-issuer name=key[,name=key]] [--ip-mode full|truncated|keyed]
 //!          [--header-timeout 15] [--body-timeout 60] [--write-timeout 30]
-//!          [--max-conns-per-network 256]
+//!          [--max-conns-per-network 256] [--flood-guard off|log|enforce] [--flood-limit 1000]
+//!          [--rate-net-limit 120] [--rate-client-limit 60]
 //!          [--state-dir dir] [--state-flush 10] [--inject-probe on|off] [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity 200000]
 //!          [--share-export file] [--share-import file --share-import-key key[,key]] [--share-min-networks n] [--share-interval secs]
 //!          [--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]
@@ -39,6 +40,15 @@
 //! `--max-conns-per-network` caps the connections open at once from one
 //! IPv4 address or one IPv6 /64; peers in `--trusted-proxy` are not capped.
 //! Both are there for clients that hold connections open by sending slowly.
+//!
+//! `--flood-guard` is a ceiling on requests per IPv4 address or IPv6 /64:
+//! `--flood-limit` in any 10 seconds (1000 by default). It is checked before
+//! a request is scored and is apart from the policy mode: `log` (the
+//! default) lets everything through and reports each network past it once
+//! per window; `enforce` answers 429 with `Retry-After`; `off` counts
+//! nothing. `--rate-net-limit` and `--rate-client-limit` are page loads a
+//! minute past which a request gets `rate_net_high` (per network) or
+//! `rate_client_high` (per client); the policy decides what they do.
 //!
 //! `--source-url` is the link to the source code on the pages the gateway
 //! serves itself (the challenge page), as AGPL-3.0 section 13 asks of a
@@ -126,6 +136,7 @@ mod admin_auth;
 mod behavior;
 mod conn;
 mod directories;
+mod flood;
 mod gateway;
 mod inject;
 mod known;
@@ -171,7 +182,7 @@ const USAGE: &str = "usage: veritell --cert <pem> --key <pem> [--listen addr:por
 [--agg-fanout-min n] [--agg-strikes n] [--model file.json] [--sidecar-listen addr:port] \
 [--wba-directory-allow ip:port[,ip:port]] [--wba-directory-ca file.pem] \
 [--privacy-pass-issuer name=key[,name=key]] [--share-export file] [--share-import file --share-import-key key[,key]] \
-[--share-min-networks n] [--share-interval secs] [--ip-mode full|truncated|keyed] [--header-timeout secs] [--body-timeout secs] [--write-timeout secs] [--source-url url|off] [--max-conns-per-network n] [--state-dir dir] [--state-flush secs] [--inject-probe on|off] \
+[--share-min-networks n] [--share-interval secs] [--ip-mode full|truncated|keyed] [--header-timeout secs] [--body-timeout secs] [--write-timeout secs] [--source-url url|off] [--max-conns-per-network n] [--flood-guard off|log|enforce] [--flood-limit n] [--rate-net-limit n] [--rate-client-limit n] [--state-dir dir] [--state-flush secs] [--inject-probe on|off] \
 [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity n] \
 [--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]";
 
@@ -620,6 +631,27 @@ fn main() {
             .filter(|n| *n > 0)
             .unwrap_or_else(|| fail("--max-conns-per-network must be a positive number")),
     };
+    let positive = |name: &str, default: u32| -> u32 {
+        match args.get(name) {
+            None => default,
+            Some(raw) => raw
+                .parse()
+                .ok()
+                .filter(|n| *n > 0)
+                .unwrap_or_else(|| fail(format!("--{name} must be a positive number"))),
+        }
+    };
+    let flood_mode = match args.get("flood-guard").map(String::as_str) {
+        None => flood::GuardMode::Log,
+        Some(raw) => flood::GuardMode::parse(raw)
+            .unwrap_or_else(|| fail(format!("--flood-guard: {raw:?} is not off, log or enforce"))),
+    };
+    let flood_limit = positive("flood-limit", flood::FloodGuard::DEFAULT_LIMIT);
+    let rate_net_limit = positive("rate-net-limit", flood::PageRates::DEFAULT_NET_LIMIT);
+    let rate_client_limit = positive("rate-client-limit", flood::PageRates::DEFAULT_CLIENT_LIMIT);
+    if flood_mode != flood::GuardMode::Off {
+        eprintln!("veritell: flood guard {} at {flood_limit} requests per network in 10 s", flood_mode.as_str());
+    }
     // Stores that survive a restart when `--state-dir` is given.
     let quotas = Arc::new(
         veritell_quota::Quotas::new(veritell_quota::Config::default())
@@ -752,6 +784,8 @@ fn main() {
         token_budgets: Arc::clone(&token_budgets),
         used_challenges: Arc::clone(&used_challenges),
         throttle: Throttle::new(100_000),
+        flood: flood::FloodGuard::new(flood_mode, flood_limit, 100_000),
+        page_rates: flood::PageRates::new(rate_net_limit, rate_client_limit, 100_000),
         token_budget,
     };
 

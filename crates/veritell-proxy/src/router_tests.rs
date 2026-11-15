@@ -104,6 +104,8 @@ fn gateway(policy: Policy, trusted_proxies: Vec<IpAddr>) -> (Gateway, Arc<Memory
         token_budgets: Arc::new(MemoryBudgetStore::new(1000)),
         used_challenges: Arc::new(MemoryBudgetStore::new(1000)),
         throttle: Throttle::new(1000),
+        flood: crate::flood::FloodGuard::new(crate::flood::GuardMode::Log, crate::flood::FloodGuard::DEFAULT_LIMIT, 1000),
+        page_rates: crate::flood::PageRates::new(crate::flood::PageRates::DEFAULT_NET_LIMIT, crate::flood::PageRates::DEFAULT_CLIENT_LIMIT, 1000),
         token_budget: 500,
         probe_key: ProbeKey::from_secret(SECRET).unwrap(),
         probes: Arc::new(ProbeStore::new(1000)),
@@ -323,4 +325,43 @@ async fn http11_without_host_is_refused_and_http10_is_not() {
     assert!(ring.events().is_empty(), "not an assessed request");
     let (status, _, _, _) = send(&g, "GET / HTTP/1.0\r\nUser-Agent: curl/8.7.1\r\n\r\n", true).await;
     assert_ne!(status, 400, "HTTP/1.0 needs no Host");
+}
+
+#[tokio::test]
+async fn the_flood_guard_in_log_mode_lets_everything_through() {
+    let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
+    g.flood = crate::flood::FloodGuard::new(crate::flood::GuardMode::Log, 3, 100);
+    for _ in 0..6 {
+        let (status, head, _, _) = send(&g, &get("/"), true).await;
+        assert_eq!(status, 200, "{head}");
+    }
+    assert_eq!(outcomes(&ring).len(), 6, "every request is still assessed");
+}
+
+#[tokio::test]
+async fn the_flood_guard_in_enforce_mode_answers_429_past_its_limit() {
+    let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
+    g.flood = crate::flood::FloodGuard::new(crate::flood::GuardMode::Enforce, 3, 100);
+    for _ in 0..3 {
+        let (status, head, _, _) = send(&g, &get("/"), true).await;
+        assert_eq!(status, 200, "{head}");
+    }
+    let (status, head, body, handled) = send(&g, &get("/"), true).await;
+    assert!(handled);
+    assert_eq!(status, 429, "{head}");
+    assert!(head.contains("retry-after: 10"), "{head}");
+    assert_eq!(body, "too many requests");
+    assert_eq!(outcomes(&ring).len(), 3, "a refused request is not scored or sent on");
+}
+
+#[tokio::test]
+async fn page_loads_past_the_client_limit_carry_rate_client_high() {
+    let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
+    g.page_rates = crate::flood::PageRates::new(1000, 2, 100);
+    for _ in 0..3 {
+        send(&g, &get("/"), true).await;
+    }
+    let has = |i: usize| ring.events()[i].detections.iter().any(|d| d.id == "rate_client_high");
+    assert!(!has(1), "two page loads are under the limit");
+    assert!(has(2), "the third is past it");
 }
