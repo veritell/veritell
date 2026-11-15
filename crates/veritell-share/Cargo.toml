@@ -8,7 +8,6 @@ rust-version.workspace = true
 [dependencies]
 veritell-core.workspace = true
 veritell-feed.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 hmac = "0.12"

@@ -9,11 +9,13 @@
 //! anywhere.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use veritell_directory::{fetch_with, Cache, DirectoryUrl, FetchConfig, FetchError, Fetched, Transport};
 use veritell_feed::Live;
 use veritell_wba::{Ed25519Key, TrustedAgents};
+
+use crate::state::now_secs;
 
 /// Most agents with a fetched directory.
 pub const MAX_FETCHED_AGENTS: usize = 256;
@@ -147,10 +149,6 @@ pub fn build(config: &AgentsConfig, caches: &[Cache], now: u64) -> (TrustedAgent
         }
     }
     (trusted, problems)
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 /// Directory fetches in flight at once. Each is bounded by the fetch

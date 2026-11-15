@@ -36,6 +36,8 @@ skips=0
 # LibreSSL. Checks that need curl recognised by name run only with that curl.
 if curl --version | head -1 | grep -q LibreSSL; then CURL_KNOWN=1; else CURL_KNOWN=0; fi
 CURL_NOT_KNOWN="this curl isn't the LibreSSL build the truth table lists: $(curl --version | head -1 | grep -oE '(OpenSSL|LibreSSL|BoringSSL|GnuTLS|wolfSSL|mbedTLS|Schannel|SecureTransport)/[^ ]+' | head -1)"
+# status_of CURL-ARGS...: only the response's status code.
+status_of() { curl -o /dev/null -w '%{http_code}' "$@"; }
 wait_port() { for _ in $(seq 1 50); do nc -z 127.0.0.1 "$1" 2>/dev/null && return 0; sleep 0.1; done; echo "port $1 never opened"; exit 1; }
 stop_proxy() { kill -INT "$PROXY" 2>/dev/null; for _ in $(seq 1 30); do nc -z 127.0.0.1 "$PORT" 2>/dev/null || return 0; sleep 0.1; done; kill -9 "$PROXY" 2>/dev/null; sleep 0.2; }
 
@@ -90,7 +92,7 @@ build_of() { sed -n 's/.*{"id":"\([A-Za-z0-9_-]*\)".*/\1/p' | head -1; }
 plain() { sed -e "s/__NONCE__/$1/" -e "s|__UA__|$2|" scripts/e2e_report.json; }
 # sealed <nonce> <ua in the report> <build id> [nonce to seal under]
 sealed() { plain "$1" "$2" | "$SEAL" probe/probe.js "$VERITELL_SECRET" "$3" "${4:-$1}"; }
-post_report() { printf '%s' "$2" | curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$1" -H 'content-type: application/json' --data-binary @- "$URL/__veritell/probe"; }
+post_report() { printf '%s' "$2" | status_of -sk --http2 -A "$1" -H 'content-type: application/json' --data-binary @- "$URL/__veritell/probe"; }
 # fetch_probe <user agent> <file>: sets $nonce and $build from a fresh script.
 fetch_probe() { curl -sk --http2 -A "$1" -o "$2" "$URL/__veritell/probe.js"; nonce=$(nonce_of < "$2"); build=$(build_of < "$2"); }
 
@@ -103,7 +105,7 @@ refute "E10 config token was replaced"           "$(cat "$WORK/probe1.js")" '"__
 refute "E18 build token was replaced"            "$(cat "$WORK/probe1.js")" '"__VERITELL_BUILD__"'
 refute "E18 no template identifiers are left"    "$(cat "$WORK/probe1.js")" '\$\$'
 refute "E18 comments are stripped"               "$(cat "$WORK/probe1.js")" 'Veritell client probe'
-check "E10 POST on the script path is refused"   "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -X POST "$URL/__veritell/probe.js")" '405'
+check "E10 POST on the script path is refused"   "$(status_of -sk --http2 -X POST "$URL/__veritell/probe.js")" '405'
 sleep 1.6
 fetch_probe "probe-client/1" "$WORK/probe2.js"; nonce2=$nonce; build2=$build
 refute "E10 each fetch gets a new nonce"         "$nonce2" "^$nonce1\$"
@@ -118,8 +120,8 @@ fetch_probe "reject-client/1" "$WORK/reject.js"; rbuild=$build; rnonce=$nonce
 forged=$(printf 'A%.0s' $(seq 1 96))
 check "E11 forged nonce"                         "$(post_report "refused-client/1" "$(sealed "$forged" x "$rbuild")")" '403'
 check "E11 garbage body"                         "$(post_report "reject-client/1" 'not json')" '403'
-check "E11 oversized body"                       "$(head -c 70000 /dev/zero | tr '\0' 'a' | curl -sk --http2 -o /dev/null -w '%{http_code}' -A "reject-client/1" --data-binary @- "$URL/__veritell/probe")" '413'
-check "E11 GET on the report path is refused"    "$(curl -sk --http2 -o /dev/null -w '%{http_code}' "$URL/__veritell/probe")" '405'
+check "E11 oversized body"                       "$(head -c 70000 /dev/zero | tr '\0' 'a' | status_of -sk --http2 -A "reject-client/1" --data-binary @- "$URL/__veritell/probe")" '413'
+check "E11 GET on the report path is refused"    "$(status_of -sk --http2 "$URL/__veritell/probe")" '405'
 # E19: the seal itself.
 check "E19 plain report with a valid nonce"      "$(post_report "reject-client/1" "$(plain "$rnonce" x)")" '403'
 check "E19 sealed under a different nonce"       "$(post_report "reject-client/1" "$(sealed "$rnonce" x "$rbuild" "$forged" | sed "s/\"n\":\"$forged\"/\"n\":\"$rnonce\"/")")" '403'
@@ -231,8 +233,8 @@ check "E16 summary counts requests"              "$(curl -s "$ADMIN/api/summary"
 hdrs=$(curl -s -D - -o "$WORK/dash.html" "$ADMIN/")
 check "E16 page loads"                           "$(cat "$WORK/dash.html")" 'Veritell'
 check "E16 strict content security policy"       "$hdrs" "content-security-policy: default-src 'none'"
-check "E16 script loads"                         "$(curl -s -o /dev/null -w '%{http_code}' "$ADMIN/app.js")" '200'
-check "E16 POST refused"                         "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$ADMIN/api/events")" '405'
+check "E16 script loads"                         "$(status_of -s "$ADMIN/app.js")" '200'
+check "E16 POST refused"                         "$(status_of -s -X POST "$ADMIN/api/events")" '405'
 check "E16 dashboard is not on the public listener" "$(curl -sk --http2 "$URL/api/events")" '"score"'
 err=$(env -u VERITELL_ADMIN_TOKEN "$BIN" --cert "$CERT" --key "$KEY" --listen "127.0.0.1:$((PORT+1))" --admin "0.0.0.0:$((ADMIN_PORT+1))" 2>&1; echo "exit=$?")
 check "E16 non-loopback admin bind is refused without a token" "$err" 'a non-loopback address needs VERITELL_ADMIN_TOKEN'
@@ -280,13 +282,13 @@ refute "E9 client-supplied score is dropped"     "$r" '"x-veritell-score": "99"'
 refute "E9 unknown x-veritell header is dropped" "$r" 'x-veritell-evil'
 check "E9 origin sees the JA4"                   "$r" '"x-veritell-ja4": "t13d'
 
-code=$(curl -sk --http2 -o /dev/null -w '%{http_code}' --data-urlencode "challenge=$challenge" \
+code=$(status_of -sk --http2 --data-urlencode "challenge=$challenge" \
   --data-urlencode "counter=$counter" "$URL/__veritell/verify")
 check "E6 replayed solution rejected"            "$code" '403'
-code=$(curl -sk --http2 -o /dev/null -w '%{http_code}' --data-urlencode "challenge=$challenge" \
+code=$(status_of -sk --http2 --data-urlencode "challenge=$challenge" \
   --data-urlencode "counter=1" "$URL/__veritell/verify")
 check "E6 wrong counter rejected"                "$code" '403'
-code=$(curl -sk --http2 -o /dev/null -w '%{http_code}' -d 'challenge=garbage&counter=x' "$URL/__veritell/verify")
+code=$(status_of -sk --http2 -d 'challenge=garbage&counter=x' "$URL/__veritell/verify")
 check "E6 garbage rejected"                      "$code" '403'
 
 r=$(curl -sk --http2 -b "$WORK/jar" -A "curl/9.9.9" -o /dev/null -w '%{http_code}' "$URL/products")
@@ -301,7 +303,7 @@ check "E7 uses 2 and 3 pass, use 4 is challenged" "$a $b $c" '200 200 403'
 check "E7 logged as budget spent"                "$(cat "$WORK/enforce.log")" '"token":"budget_spent"'
 
 check "HTTP/1.1 clients are handled too"         "$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' "$URL/open/x")" '200'
-code=$(curl -sk --http2 -o /dev/null -w '%{http_code}' "$URL/__veritell/verify")
+code=$(status_of -sk --http2 "$URL/__veritell/verify")
 check "GET on the verify path is refused"        "$code" '405'
 
 # ---- Phase 2 wave B: behaviour summaries and population rules (E21, E22) ----
@@ -325,13 +327,13 @@ print(json.dumps(s), end="")
 PY
 }
 bnonce() { curl -sk --http2 -A "$1" "$URL/__veritell/behavior.js" | sed -n 's/.*"nonce":"\([A-Za-z0-9_-]*\)".*/\1/p' | head -1; }
-post_summary() { printf '%s' "$2" | curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$1" -H 'content-type: application/json' --data-binary @- "$URL/__veritell/behavior"; }
+post_summary() { printf '%s' "$2" | status_of -sk --http2 -A "$1" -H 'content-type: application/json' --data-binary @- "$URL/__veritell/behavior"; }
 
 hdrs=$(curl -sk --http2 -D - -o "$WORK/behavior.js" -A "quiet-client/1" "$URL/__veritell/behavior.js")
 check "E21 behaviour script served as JavaScript" "$hdrs" 'content-type: text/javascript'
 refute "E21 config token was replaced"           "$(cat "$WORK/behavior.js")" '"__VERITELL_BEHAVIOR__"'
-check "E21 POST on the script path is refused"   "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -X POST "$URL/__veritell/behavior.js")" '405'
-check "E21 GET on the report path is refused"    "$(curl -sk --http2 -o /dev/null -w '%{http_code}' "$URL/__veritell/behavior")" '405'
+check "E21 POST on the script path is refused"   "$(status_of -sk --http2 -X POST "$URL/__veritell/behavior.js")" '405'
+check "E21 GET on the report path is refused"    "$(status_of -sk --http2 "$URL/__veritell/behavior")" '405'
 
 # A page that was opened and saw nothing, then a form POST from the same client.
 n=$(bnonce "quiet-client/1")
@@ -379,7 +381,7 @@ check "E21 a probe nonce is not a behaviour nonce" "$(post_summary "forger/2" "$
 refute "E21 two rejections do not mark a client" "$(curl -sk --http2 -A "forger/2" "$URL/")" 'client_rejections'
 n=$(bnonce "forger/2")
 check "E21 a field outside the schema"           "$(post_summary "forger/2" "$(summary "$n" extra=1)")" '403'
-check "E21 oversized summary"                    "$(head -c 5000 /dev/zero | tr '\0' ' ' | curl -sk --http2 -o /dev/null -w '%{http_code}' -A "forger/2" --data-binary @- "$URL/__veritell/behavior")" '413'
+check "E21 oversized summary"                    "$(head -c 5000 /dev/zero | tr '\0' ' ' | status_of -sk --http2 -A "forger/2" --data-binary @- "$URL/__veritell/behavior")" '413'
 log=$(cat "$WORK/waveb.log")
 check "E21 logged: other client"                 "$log" '"outcome":"behavior_nonce_other_client"'
 check "E21 logged: malformed"                    "$log" '"outcome":"behavior_malformed"'
@@ -455,12 +457,12 @@ check "E24 no client address is a 400"           "$(authz -H 'x-original-uri: /o
 check "E24 a URI that is not a path is a 400"    "$(authz -H 'x-original-uri: http://evil.example/' -H 'x-forwarded-for: 198.51.100.7' "$SC/__veritell/authz")" '^HTTP/1.1 400'
 check "E24 a look-alike path is not the endpoint" "$(authz -H 'x-forwarded-for: 198.51.100.7' "$SC/__veritell/authzx")" '^HTTP/1.1 404'
 # On the main listener the path is nothing special, and the model changes no action.
-r=$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H 'x-original-uri: /open/x' -H 'x-forwarded-for: 198.51.100.7' "$URL/__veritell/authz")
+r=$(status_of -sk --http2 -H 'x-original-uri: /open/x' -H 'x-forwarded-for: 198.51.100.7' "$URL/__veritell/authz")
 check "E24 on the main listener it is an ordinary path" "$r" '403'
 r=$(curl -sk --http2 -H 'x-forwarded-for: 198.51.100.20' "$URL/open/x")
 check "E23 the self-report carries the model"    "$r" '"model": {'
 check "E23 it names a feature"                   "$r" '"feature": "[a-z_]*"'
-check "E23 actions are the rules', not the model's" "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H 'x-forwarded-for: 198.51.100.20' "$URL/open/x") $(curl -sk --http2 -o /dev/null -w '%{http_code}' -H 'x-forwarded-for: 198.51.100.20' "$URL/products")" '200 403'
+check "E23 actions are the rules', not the model's" "$(status_of -sk --http2 -H 'x-forwarded-for: 198.51.100.20' "$URL/open/x") $(status_of -sk --http2 -H 'x-forwarded-for: 198.51.100.20' "$URL/products")" '200 403'
 # The challenge page on request, for a proxy that was told to challenge.
 page=$(curl -sk --http2 -H 'x-forwarded-for: 198.51.100.8' "$URL/__veritell/challenge?return_to=/products%3Fa%3D1")
 check "E24 challenge page on request"            "$page" 'data-probe'
@@ -541,7 +543,7 @@ check "E26 third request, third address: throttled" "$r" '^HTTP/2 429'
 check "E26 with a retry-after"                   "$r" '^retry-after: 60'
 check "E26 another agent has its own allowance"  "$(agent other "$DIR/keys.json" -H 'x-forwarded-for: 198.51.100.51' "$URL/rate")" '^HTTP/2 200'
 check "E26 an unsigned client on those addresses is not caught by it" \
-  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$CHROME_UA" -H 'x-forwarded-for: 198.51.100.51' "$URL/rate")" '200'
+  "$(status_of -sk --http2 -A "$CHROME_UA" -H 'x-forwarded-for: 198.51.100.51' "$URL/rate")" '200'
 check "E26 logged as throttled"                  "$(cat "$WORK/wavea.log")" '"outcome":"throttled"'
 
 # E28: a price for agents, the next rule for everyone else.
@@ -553,9 +555,9 @@ check "E28 as application/json"                  "$r" '^content-type: applicatio
 refute "E28 the origin was not reached"          "$r" '"origin": true'
 r2=$(agent other "$DIR/keys.json" -H 'x-forwarded-for: 198.51.100.55' "$URL/paid/x")
 check "E28 the answer is the same for another agent" "$(printf '%s\n' "$r2" | grep -c -e '^veritell-offer: offer="crawl"' -e '^{"offer":"crawl"')" '^2$'
-check "E28 an unsigned client gets the next rule" "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$CHROME_UA" -H 'x-forwarded-for: 198.51.100.54' "$URL/paid/x")" '403'
+check "E28 an unsigned client gets the next rule" "$(status_of -sk --http2 -A "$CHROME_UA" -H 'x-forwarded-for: 198.51.100.54' "$URL/paid/x")" '403'
 check "E28 a Signature-Agent header alone is not an identity" \
-  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$CHROME_UA" -H "signature-agent: sig1=\"$DIR/keys.json\"" -H 'x-forwarded-for: 198.51.100.56' "$URL/paid/x")" '403'
+  "$(status_of -sk --http2 -A "$CHROME_UA" -H "signature-agent: sig1=\"$DIR/keys.json\"" -H 'x-forwarded-for: 198.51.100.56' "$URL/paid/x")" '403'
 check "E28 logged with the offer"                "$(cat "$WORK/wavea.log")" '"offer":"crawl","outcome":"charged"'
 r=$(agent rfc "" -H 'x-forwarded-for: 198.51.100.54' "$URL/receipt/x")
 check "E28 an offer that takes receipts still asks first" "$r" '^HTTP/2 402'
@@ -565,7 +567,7 @@ check "E28 marked as unverified"                 "$r" '"x-veritell-receipt": "un
 check "E28 with the receipt itself"              "$r" '"payment-receipt": "opaque-value-1"'
 check "E28 logged as a receipt claim"            "$(cat "$WORK/wavea.log")" '"outcome":"charge_receipt"'
 check "E28 a receipt from an unsigned client buys nothing" \
-  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$CHROME_UA" -H 'payment-receipt: x' -H 'x-forwarded-for: 198.51.100.57' "$URL/receipt/x")" '200'
+  "$(status_of -sk --http2 -A "$CHROME_UA" -H 'payment-receipt: x' -H 'x-forwarded-for: 198.51.100.57' "$URL/receipt/x")" '200'
 
 # E47: a write request proves an agent only when its signature binds the
 # method and path; an @authority-only signature could be replayed to any.
@@ -638,7 +640,7 @@ sess=$(sed 's/^#HttpOnly_//' "$WORK/passjar" | awk -F'\t' 'NF>=7 && $6=="__Host-
 check "E31 the session also counts in a second cookie field (HTTP/2 may split them)" \
   "$(curl -sk --http2 -H 'cookie: unrelated=1' -H "cookie: $sess" "$URL/products?id=7")" '"origin": true'
 
-code=$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $tok" "$URL/products?id=7")
+code=$(status_of -sk --http2 -H "authorization: $tok" "$URL/products?id=7")
 check "E31 the same token a second time is refused" "$code $(last_outcome)" '^401 token_replayed$'
 
 # E31: on a page load in Safari the page waits for the token before leaving.
@@ -654,11 +656,11 @@ r=$(curl -sk --http2 -H "authorization: $tok2" -H 'sec-fetch-mode: cors' "$URL/p
 check "E31 a script's request with a token reaches the origin" "$r" '"origin": true'
 check "E31 the origin is told a token let it through" "$r" '"x-veritell-token": "privacy-pass"'
 check "E31 logged as passed on a token"          "$(last_outcome)" '^token_passed$'
-check "E31 that token is spent"                  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $tok2" -H 'sec-fetch-mode: cors' "$URL/products?id=7") $(last_outcome)" '^401 token_replayed$'
+check "E31 that token is spent"                  "$(status_of -sk --http2 -H "authorization: $tok2" -H 'sec-fetch-mode: cors' "$URL/products?id=7") $(last_outcome)" '^401 token_replayed$'
 refute "E31 a client cannot claim it"            "$(curl -sk --http2 -H 'x-veritell-token: privacy-pass' -H 'sec-fetch-mode: cors' -A "$CHROME_UA" "$URL/open/x")" '"x-veritell-token"'
 tok3=$("$MKTOK" token "$ch" < "$WORK/issuer.der")
 check "E31 a page load with a token still gets the light page" \
-  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $tok3" -H 'sec-fetch-mode: navigate' "$URL/products?id=7") $(last_outcome)" '^403 token_redeemed$'
+  "$(status_of -sk --http2 -H "authorization: $tok3" -H 'sec-fetch-mode: navigate' "$URL/products?id=7") $(last_outcome)" '^403 token_redeemed$'
 
 # E32: tokens that must not be taken. Each gets the full challenge again.
 refused() { # name, expected outcome, authorization value
@@ -675,8 +677,8 @@ refused "a token cut short"                      token_invalid "$(printf '%s' "$
 refused "a token that is not base64"             token_invalid 'PrivateToken token="!!!!"'
 refused "the scheme with no token"               token_invalid 'PrivateToken realm="x"'
 refused "another scheme is not looked at"        challenged 'Basic dXNlcjpwYXNz'
-check "E32 the unchanged token is still good"    "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $fresh" "$URL/products?id=7") $(last_outcome)" '^403 token_redeemed$'
-check "E32 a route with no challenge is untouched" "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $tok" "$URL/open/x")" '200'
+check "E32 the unchanged token is still good"    "$(status_of -sk --http2 -H "authorization: $fresh" "$URL/products?id=7") $(last_outcome)" '^403 token_redeemed$'
+check "E32 a route with no challenge is untouched" "$(status_of -sk --http2 -H "authorization: $tok" "$URL/open/x")" '200'
 
 # ---- Phase 3 wave C: sharing between two gateways (E33, E34), the admin token (E35) ----
 stop_proxy
@@ -758,13 +760,13 @@ fi
 ADMIN="http://127.0.0.1:$ADMIN_PORT"
 codes=""
 for path in / /api/events /api/summary /api/events?limit=1 /nothing-here; do
-  codes="$codes $(curl -s -o /dev/null -w '%{http_code}' "$ADMIN$path")"
+  codes="$codes $(status_of -s "$ADMIN$path")"
 done
 check "E35 every path refuses without the token" "$codes" '^ 401 401 401 401 401$'
 check "E35 the refusal asks for Basic"           "$(curl -s -D - -o /dev/null "$ADMIN/" | tr -d '\r')" '^www-authenticate: Basic realm="veritell admin"'
-check "E35 a wrong token is refused"             "$(curl -s -o /dev/null -w '%{http_code}' -H 'authorization: Bearer wrong-token-0123456789' "$ADMIN/api/events")" '401'
-check "E35 the token as a bearer is accepted"    "$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $ADMIN_TOKEN" "$ADMIN/api/events")" '200'
-check "E35 and as a Basic password"              "$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$ADMIN_TOKEN" "$ADMIN/")" '200'
+check "E35 a wrong token is refused"             "$(status_of -s -H 'authorization: Bearer wrong-token-0123456789' "$ADMIN/api/events")" '401'
+check "E35 the token as a bearer is accepted"    "$(status_of -s -H "authorization: Bearer $ADMIN_TOKEN" "$ADMIN/api/events")" '200'
+check "E35 and as a Basic password"              "$(status_of -s -u "admin:$ADMIN_TOKEN" "$ADMIN/")" '200'
 check "E35 the start-up line says so"            "$(cat "$WORK/sharea.err")" 'dashboard on http://127.0.0.1:[0-9]* (token required)'
 refute "E35 the token is never logged"           "$(cat "$WORK/sharea.log" "$WORK/sharea.err")" "$ADMIN_TOKEN"
 check "E35 a token that is too short stops start-up" \
@@ -778,11 +780,11 @@ VERITELL_ADMIN_TOKEN="$ADMIN_TOKEN" "$BIN" --cert "$CERT" --key "$KEY" --listen 
 ANYGW=$!; PIDS+=("$ANYGW"); wait_port "$ANY_ADMIN_PORT"
 ANY="http://127.0.0.1:$ANY_ADMIN_PORT"
 check "E35 all-addresses bind starts with a token" "$(cat "$WORK/anyadmin.err")" 'dashboard on http://0.0.0.0:[0-9]* (token required) (not loopback'
-check "E35 and still refuses without the token"   "$(curl -s -o /dev/null -w '%{http_code}' "$ANY/api/events")" '401'
-check "E35 and answers with it on 127.0.0.1"      "$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$ADMIN_TOKEN" "$ANY/")" '200'
-check "E35 and on localhost"                      "$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$ADMIN_TOKEN" "http://localhost:$ANY_ADMIN_PORT/api/summary")" '200'
-check "E35 another Host is misdirected"           "$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$ADMIN_TOKEN" -H "host: attacker.example:$ANY_ADMIN_PORT" "$ANY/")" '421'
-check "E35 so is 0.0.0.0 as a Host"               "$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$ADMIN_TOKEN" -H "host: 0.0.0.0:$ANY_ADMIN_PORT" "$ANY/")" '421'
+check "E35 and still refuses without the token"   "$(status_of -s "$ANY/api/events")" '401'
+check "E35 and answers with it on 127.0.0.1"      "$(status_of -s -u "admin:$ADMIN_TOKEN" "$ANY/")" '200'
+check "E35 and on localhost"                      "$(status_of -s -u "admin:$ADMIN_TOKEN" "http://localhost:$ANY_ADMIN_PORT/api/summary")" '200'
+check "E35 another Host is misdirected"           "$(status_of -s -u "admin:$ADMIN_TOKEN" -H "host: attacker.example:$ANY_ADMIN_PORT" "$ANY/")" '421'
+check "E35 so is 0.0.0.0 as a Host"               "$(status_of -s -u "admin:$ADMIN_TOKEN" -H "host: 0.0.0.0:$ANY_ADMIN_PORT" "$ANY/")" '421'
 refute "E35 the token is not logged there either" "$(cat "$WORK/anyadmin.log" "$WORK/anyadmin.err")" "$ADMIN_TOKEN"
 kill -INT "$ANYGW" 2>/dev/null; for _ in $(seq 1 30); do nc -z 127.0.0.1 "$ANY_ADMIN_PORT" 2>/dev/null || break; sleep 0.1; done
 
@@ -845,7 +847,7 @@ stop3() { kill -9 "$GW3" 2>/dev/null; wait "$GW3" 2>/dev/null; for _ in $(seq 1 
 agent3() {
   local hs=() line
   while IFS= read -r line; do hs+=(-H "$line"); done < <("$SIGN" "localhost:$PORT3" "$(date +%s)" rfc)
-  curl -sk --http2 -o /dev/null -w '%{http_code}' "${hs[@]}" -H 'x-forwarded-for: 198.51.100.70' "$@"
+  status_of -sk --http2 "${hs[@]}" -H 'x-forwarded-for: 198.51.100.70' "$@"
 }
 # --ip-mode keyed, as the rollout kit runs it: the saved dashboard events
 # (events.state) then hold keyed values. With `full` they hold addresses,
@@ -875,17 +877,17 @@ PARGS=(--policy scripts/e2e_policy.yaml --privacy-pass-issuer "issuer.e2e.test=$
 start3 pass1 "${PARGS[@]}"
 ch3=$(curl -sk --http2 -D - -o /dev/null "$U3/products?id=7" | challenge_of)
 tok3a=$("$MKTOK" token "$ch3" < "$WORK/issuer.der")
-check "E37 a token is redeemed"                  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $tok3a" "$U3/products?id=7") $(tail -1 "$WORK/pass1.log" | sed -n 's/.*"outcome":"\([a-z_]*\)".*/\1/p')" '^403 token_redeemed$'
+check "E37 a token is redeemed"                  "$(status_of -sk --http2 -H "authorization: $tok3a" "$U3/products?id=7") $(tail -1 "$WORK/pass1.log" | sed -n 's/.*"outcome":"\([a-z_]*\)".*/\1/p')" '^403 token_redeemed$'
 sleep 1.5
 kill -INT "$GW3"; stop3
 check "E37 the periodic save wrote the token store" "$(ls "$STATE_B")" 'used-tokens.state'
 start3 pass2 "${PARGS[@]}"
 check "E37 loaded at start"                      "$(cat "$WORK/pass2.err")" 'state used-tokens loaded: 1 entries'
 check "E37 the same token after the restart is refused" \
-  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $tok3a" "$U3/products?id=7") $(tail -1 "$WORK/pass2.log" | sed -n 's/.*"outcome":"\([a-z_]*\)".*/\1/p')" '^401 token_replayed$'
+  "$(status_of -sk --http2 -H "authorization: $tok3a" "$U3/products?id=7") $(tail -1 "$WORK/pass2.log" | sed -n 's/.*"outcome":"\([a-z_]*\)".*/\1/p')" '^401 token_replayed$'
 tok3b=$("$MKTOK" token "$ch3" < "$WORK/issuer.der")
 check "E37 a new token for the same challenge is taken" \
-  "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -H "authorization: $tok3b" "$U3/products?id=7") $(tail -1 "$WORK/pass2.log" | sed -n 's/.*"outcome":"\([a-z_]*\)".*/\1/p')" '^403 token_redeemed$'
+  "$(status_of -sk --http2 -H "authorization: $tok3b" "$U3/products?id=7") $(tail -1 "$WORK/pass2.log" | sed -n 's/.*"outcome":"\([a-z_]*\)".*/\1/p')" '^403 token_redeemed$'
 stop3
 
 # E38: a torn file and a changed file.
@@ -894,7 +896,7 @@ python3 -c 'import sys; p=sys.argv[1]; b=bytearray(open(p,"rb").read()); b[-1]^=
 start3 torn "${QARGS[@]}"
 check "E38 a torn file is refused and the store starts empty" "$(cat "$WORK/torn.err")" 'state quota refused (state file refused: .*); starting empty, the file is kept as .refused'
 check "E38 the file is kept aside"               "$(ls "$STATE_A")" 'quota.state.refused'
-check "E38 the gateway serves"                   "$(curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$CHROME_UA" "$U3/open/x")" '^200$'
+check "E38 the gateway serves"                   "$(status_of -sk --http2 -A "$CHROME_UA" "$U3/open/x")" '^200$'
 check "E38 with a fresh day for the agent"       "$(agent3 "$U3/quota/9"; grep -o '"quota_left":[0-9]*' "$WORK/torn.log" | tail -1)" '"quota_left":7'
 stop3
 start3 changed "${PARGS[@]}"
@@ -1018,7 +1020,7 @@ refute "E44 no panics"                           "$(cat "$WORK/inject.err" "$WOR
 # 2026-11-12).
 start3 full --single-use-capacity 2
 bn3() { curl -sk --http2 -A "$1" "$U3/__veritell/behavior.js" | sed -n 's/.*"nonce":"\([A-Za-z0-9_-]*\)".*/\1/p' | head -1; }
-ps3() { printf '%s' "$2" | curl -sk --http2 -o /dev/null -w '%{http_code}' -A "$1" -H 'content-type: application/json' --data-binary @- "$U3/__veritell/behavior"; }
+ps3() { printf '%s' "$2" | status_of -sk --http2 -A "$1" -H 'content-type: application/json' --data-binary @- "$U3/__veritell/behavior"; }
 check  "E45 the first summary fills a place"     "$(ps3 filler/1 "$(summary "$(bn3 filler/1)")")" '^204$'
 n2=$(bn3 filler/2)
 check  "E45 the second fills the store"          "$(ps3 filler/2 "$(summary "$n2")")" '^204$'
@@ -1048,11 +1050,11 @@ check  "E46 so is Googlebot-Image (a hyphenated variant)"         "$(line 'Googl
 refute "E46 and it is not scored a person"                         "$(line 'Googlebot-Image')" '"class":"human"'
 check  "E46 a self-declared crawler too"                           "$(line 'MyCrawler')" 'bot_unverified'
 check  "E46 the dashboard answers its own name" \
-  "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$IP_ADMIN46/api/events")" '^200$'
+  "$(status_of -s "http://127.0.0.1:$IP_ADMIN46/api/events")" '^200$'
 check  "E46 and localhost" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -H "host: localhost:$IP_ADMIN46" "http://127.0.0.1:$IP_ADMIN46/api/events")" '^200$'
+  "$(status_of -s -H "host: localhost:$IP_ADMIN46" "http://127.0.0.1:$IP_ADMIN46/api/events")" '^200$'
 check  "E46 a rebinding page's name is refused, even without a token" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -H "host: rebind.example:$IP_ADMIN46" "http://127.0.0.1:$IP_ADMIN46/api/events")" '^421$'
+  "$(status_of -s -H "host: rebind.example:$IP_ADMIN46" "http://127.0.0.1:$IP_ADMIN46/api/events")" '^421$'
 stop3
 
 refute "no panics in the proxy log"              "$(cat "$WORK/enforce.err" "$WORK/shadow.err" "$WORK/waveb.err" "$WORK/wavec.err" "$WORK/stranger.err" "$WORK/wavea.err" "$WORK/pass.err" "$WORK/sharea.err" "$WORK/shareb.err")" 'panicked'

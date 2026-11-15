@@ -3,23 +3,18 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use veritell_feed::{FeedKey, Live};
 use veritell_probe::EngineTruth;
 use veritell_probe_build::{Build, Builder};
 use veritell_ua::TruthTable;
 
+use crate::state::now_secs;
+
 /// Names of the files a bundle may carry.
 pub const FEED_TRUTH: &str = "truth_v1.json";
 pub const FEED_ENGINE: &str = "engine_v1.json";
-
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
 
 /// The data a feed can replace while the gateway runs.
 pub struct LiveData {

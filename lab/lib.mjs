@@ -2,7 +2,7 @@
 import { randomBytes } from "node:crypto";
 import http from "node:http";
 import net from "node:net";
-import { spawn, execFile, execFileSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, openSync, closeSync, existsSync, readFileSync, copyFileSync, mkdirSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
@@ -219,4 +219,4 @@ export function saveLog(from, name, dir) {
   mkdirSync(dir, { recursive: true });
   try { copyFileSync(from, join(dir, `${name}.log`)); } catch { /* ignore */ }
 }
-export { execFile, existsSync };
+export { existsSync };

@@ -12,6 +12,8 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
+use crate::admin_auth::constant_time_eq;
+
 pub const ENROL_PREFIX: &str = "/__veritell/known/";
 /// `__Host-`: only over HTTPS, for this host, path `/`.
 pub const COOKIE: &str = "__Host-veritell-known";
@@ -25,11 +27,6 @@ pub struct KnownKey(Vec<u8>);
 fn valid_label(label: &str) -> bool {
     (1..=32).contains(&label.len())
         && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-}
-
-/// Compares without stopping at the first difference.
-fn same(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 impl KnownKey {
@@ -62,7 +59,7 @@ impl KnownKey {
     }
 
     fn check<'a>(&self, label: &'a str, mac: &str) -> Option<&'a str> {
-        (valid_label(label) && same(self.mac(label).as_bytes(), mac.as_bytes())).then_some(label)
+        (valid_label(label) && constant_time_eq(self.mac(label).as_bytes(), mac.as_bytes())).then_some(label)
     }
 
     /// The label of a valid enrolment path.

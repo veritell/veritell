@@ -5,11 +5,13 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use veritell_core::{Class, Detection};
 use veritell_feed::{FeedKey, Live};
 use veritell_share::{Imported, Ledger, ShareKey};
+
+use crate::state::now_secs;
 
 /// An exported bundle is good for this long.
 const EXPORT_LIFETIME_SECS: u64 = 86_400;
@@ -59,10 +61,6 @@ pub struct ExportTo {
 pub struct ImportFrom {
     pub path: PathBuf,
     pub keys: Vec<FeedKey>,
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 /// Writes the export bundle beside its final name, then renames it, so a

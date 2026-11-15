@@ -57,7 +57,7 @@ if ! docker exec veritell-clickhouse clickhouse-client --user veritell --passwor
 fi
 [ -s "$work/export.cms" ] && [ -s "$work/count" ] || { log "the export is empty or incomplete; nothing was changed in $KIT/exports"; exit 1; }
 events=$(cat "$work/count")
-if command -v sha256sum >/dev/null; then hash=$(sha256sum "$work/export.cms" | cut -d' ' -f1); else hash=$(shasum -a 256 "$work/export.cms" | cut -d' ' -f1); fi
+hash=$(_sha256 "$work/export.cms")
 
 {
   echo "Veritell export, made $(date -u +%Y-%m-%dT%H:%M:%SZ) for $SITE_HOST"

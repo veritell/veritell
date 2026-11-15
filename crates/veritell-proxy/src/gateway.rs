@@ -28,6 +28,7 @@ use crate::conn::conn_info;
 use crate::maintenance::{LiveData, ProbeBuilds};
 use crate::pass::{PrivacyPass, Redemption};
 use crate::probe::{self, ProbeStore};
+use crate::state::now_secs;
 use crate::util::{cookie_value, parse_form, SystemResolver, Throttle};
 
 /// `__Host-`: browsers keep it only when Secure, on Path=/ and without Domain.
@@ -276,13 +277,6 @@ pub struct Ctx {
     /// When the request's headers were in: its body must follow within
     /// `--body-timeout`.
     request_started: Option<std::time::Instant>,
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 fn now_millis() -> u64 {

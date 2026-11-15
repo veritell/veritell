@@ -2758,7 +2758,6 @@ version = "0.2.0"
 dependencies = [
  "base64",
  "rustls",
- "rustls-pki-types",
  "serde_json",
  "ureq",
  "veritell-wba",
@@ -2784,7 +2783,6 @@ version = "0.2.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
- "serde",
  "serde_json",
  "sha2",
 ]
@@ -2923,7 +2921,6 @@ version = "0.2.0"
 dependencies = [
  "base64",
  "hmac",
- "serde",
  "serde_json",
  "sha2",
  "veritell-core",
@@ -2954,7 +2951,6 @@ version = "0.2.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
- "serde",
  "serde_json",
  "sha2",
  "veritell-core",
