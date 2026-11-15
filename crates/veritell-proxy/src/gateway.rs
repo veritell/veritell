@@ -249,6 +249,9 @@ impl Gateway {
 /// Carried from the request filter to the upstream filter.
 #[derive(Default)]
 pub struct Ctx {
+    /// Network address and client binding to count an HTML response
+    /// against, for the page rates. `None` for a proven identity.
+    page_key: Option<(IpAddr, [u8; 16])>,
     upstream_headers: Vec<(&'static str, String)>,
     /// The address of the connection's peer, appended to `x-forwarded-for`
     /// for the origin, as nginx's `$proxy_add_x_forwarded_for` does.
@@ -995,11 +998,10 @@ impl Gateway {
                 shared = Some((fingerprint.clone(), reported.is_some()));
                 detections.extend(reported);
             }
-            // Page loads only: a page's assets would count a person's one
-            // view as tens of requests.
-            if f.is_navigation() {
-                detections.extend(self.page_rates.observe(f.ip, self.binding(f).0, now));
-            }
+            // Pages already served to this client (counted in
+            // `response_filter`), so a scraper is not let off by claiming
+            // its requests are not page loads.
+            detections.extend(self.page_rates.detections(f.ip, self.binding(f).0, now));
             detections.extend(self.agg.observe(
                 &Observation {
                     fingerprint: &fingerprint,
@@ -1999,6 +2001,9 @@ impl ProxyHttp for Gateway {
 
         // A challenge is satisfied by a valid token.
         let effective = self.effective(&f, &a, &d, now);
+        if !matches!(a.verdict.class, Class::VerifiedBot | Class::SignedAgent) {
+            ctx.page_key = Some((f.ip, self.binding(&f).0));
+        }
 
         match effective {
             Action::Pass => {
@@ -2178,6 +2183,12 @@ impl ProxyHttp for Gateway {
         let (status, content_type, encoding) =
             (upstream_response.status.as_u16(), value("content-type"), value("content-encoding"));
         let etag = value("etag").map(crate::inject::weaken_etag);
+        let html = content_type.is_some_and(|t| {
+            t.split(';').next().is_some_and(|m| m.trim().eq_ignore_ascii_case("text/html"))
+        });
+        if let (true, Some((ip, client))) = (html, ctx.page_key) {
+            self.page_rates.record(ip, client, now_secs());
+        }
         if ctx.injection.on_response(status, content_type, encoding) {
             // The body changes: its length goes, and a strong validator
             // would now be false. Over HTTP/1.1 it is sent chunked, said in

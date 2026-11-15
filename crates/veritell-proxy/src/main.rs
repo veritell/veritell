@@ -46,9 +46,10 @@
 //! a request is scored and is apart from the policy mode: `log` (the
 //! default) lets everything through and reports each network past it once
 //! per window; `enforce` answers 429 with `Retry-After`; `off` counts
-//! nothing. `--rate-net-limit` and `--rate-client-limit` are page loads a
-//! minute past which a request gets `rate_net_high` (per network) or
-//! `rate_client_high` (per client); the policy decides what they do.
+//! nothing. `--rate-net-limit` and `--rate-client-limit` are pages a minute
+//! (responses from the origin with `text/html`) past which a request gets
+//! `rate_net_high` (per network) or `rate_client_high` (per client); the
+//! policy decides what they do.
 //!
 //! `--source-url` is the link to the source code on the pages the gateway
 //! serves itself (the challenge page), as AGPL-3.0 section 13 asks of a

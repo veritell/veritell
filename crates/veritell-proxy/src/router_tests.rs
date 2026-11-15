@@ -355,13 +355,18 @@ async fn the_flood_guard_in_enforce_mode_answers_429_past_its_limit() {
 }
 
 #[tokio::test]
-async fn page_loads_past_the_client_limit_carry_rate_client_high() {
+async fn pages_served_past_the_network_limit_carry_rate_net_high() {
     let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
-    g.page_rates = crate::flood::PageRates::new(1000, 2, 100);
+    g.page_rates = crate::flood::PageRates::new(2, 1000, 100);
+    send(&g, &get("/"), true).await;
+    let has = |i: usize| ring.events()[i].detections.iter().any(|d| d.id == "rate_net_high");
+    assert!(!has(0));
+    // Pages are counted as the origin's HTML goes out; there is no origin
+    // here, so count them for the client's address directly.
+    let ip: IpAddr = ring.events()[0].ip.parse().unwrap();
     for _ in 0..3 {
-        send(&g, &get("/"), true).await;
+        g.page_rates.record(ip, [0u8; 16], now_secs());
     }
-    let has = |i: usize| ring.events()[i].detections.iter().any(|d| d.id == "rate_client_high");
-    assert!(!has(1), "two page loads are under the limit");
-    assert!(has(2), "the third is past it");
+    send(&g, &get("/"), true).await;
+    assert!(has(1), "past the limit: {:?}", ring.events()[1].detections);
 }

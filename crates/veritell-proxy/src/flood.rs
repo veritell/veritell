@@ -7,8 +7,11 @@
 //! above what a person can send: `off`, `log` (count and report, let
 //! everything through) or `enforce` (answer 429).
 //!
-//! The same windows count page loads per network and per client, which the
-//! gateway turns into the `rate_net_high` and `rate_client_high` detections.
+//! The same windows count pages served per network and per client, which
+//! the gateway turns into the `rate_net_high` and `rate_client_high`
+//! detections. A page is what the origin answered with HTML, counted when
+//! the response goes out: never what the client says it asked for, since
+//! `sec-fetch-mode` and the like are the client's to write.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -123,6 +126,20 @@ impl<K: Hash + Eq + Clone> Window<K> {
         Some((Hit { total }, first))
     }
 
+    /// Requests from `key` in the window at `now`, without counting one.
+    pub fn peek(&self, key: &K, now: u64) -> u32 {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = (now / self.slot_secs).max(inner.latest_slot);
+        inner.latest_slot = slot;
+        let slots = u64::from(self.slots);
+        let Some(e) = inner.map.get(key) else { return 0 };
+        let start = slot.saturating_sub(slots - 1);
+        if e.last_slot < start {
+            return 0;
+        }
+        (start..=e.last_slot).fold(0u32, |a, s| a.saturating_add(e.counts[(s % slots) as usize]))
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.inner.lock().unwrap().map.len()
@@ -207,7 +224,7 @@ impl FloodGuard {
     }
 }
 
-/// Page loads per network and per client over one minute, for the
+/// Pages served per network and per client over one minute, for the
 /// `rate_net_high` and `rate_client_high` detections.
 pub struct PageRates {
     pub net_limit: u32,
@@ -217,8 +234,8 @@ pub struct PageRates {
 }
 
 impl PageRates {
-    /// Defaults: past 120 page loads a minute from one network, or 60 from
-    /// one client (its handshake, User-Agent and address prefix). A person
+    /// Defaults: past 120 pages a minute to one network, or 60 to one
+    /// client (its handshake, User-Agent and address prefix). A person
     /// reading pages loads a few a minute.
     pub const DEFAULT_NET_LIMIT: u32 = 120;
     pub const DEFAULT_CLIENT_LIMIT: u32 = 60;
@@ -232,36 +249,29 @@ impl PageRates {
         }
     }
 
-    /// Counts one page load and returns the detections it earns.
-    pub fn observe(&self, ip: IpAddr, client: [u8; 16], now: u64) -> Vec<veritell_core::Detection> {
+    /// Counts one page served to this client.
+    pub fn record(&self, ip: IpAddr, client: [u8; 16], now: u64) {
+        self.nets.hit(&crate::conn::ConnLimiter::network(ip), now);
+        self.clients.hit(&client, now);
+    }
+
+    /// The detections this client's pages in the last minute earn.
+    pub fn detections(&self, ip: IpAddr, client: [u8; 16], now: u64) -> Vec<veritell_core::Detection> {
         use veritell_core::{Class, Detection, Layer};
         let mut found = Vec::new();
-        let network = crate::conn::ConnLimiter::network(ip);
-        if let Some(hit) = self.nets.hit(&network, now) {
-            if hit.total > self.net_limit {
-                found.push(
-                    Detection::new(
-                        "rate_net_high",
-                        Layer::Network,
-                        20,
-                        format!("{} page loads in a minute from this network", hit.total),
-                    )
+        let net = self.nets.peek(&crate::conn::ConnLimiter::network(ip), now);
+        if net > self.net_limit {
+            found.push(
+                Detection::new("rate_net_high", Layer::Network, 20, format!("{net} pages in a minute to this network"))
                     .with_class(Class::Automated),
-                );
-            }
+            );
         }
-        if let Some(hit) = self.clients.hit(&client, now) {
-            if hit.total > self.client_limit {
-                found.push(
-                    Detection::new(
-                        "rate_client_high",
-                        Layer::Behavior,
-                        30,
-                        format!("{} page loads in a minute from this client", hit.total),
-                    )
+        let own = self.clients.peek(&client, now);
+        if own > self.client_limit {
+            found.push(
+                Detection::new("rate_client_high", Layer::Behavior, 30, format!("{own} pages in a minute to this client"))
                     .with_class(Class::Automated),
-                );
-            }
+            );
         }
         found
     }
@@ -364,19 +374,32 @@ mod tests {
     }
 
     #[test]
+    fn peek_counts_nothing_and_slides_with_the_window() {
+        let w: Window<u32> = Window::new(1, 10, 10);
+        assert_eq!(w.peek(&1, 100), 0);
+        w.hit(&1, 100);
+        w.hit(&1, 105);
+        assert_eq!(w.peek(&1, 105), 2);
+        assert_eq!(w.peek(&1, 105), 2, "peeking counts nothing");
+        assert_eq!(w.peek(&1, 110), 1, "the slot of 100 has left");
+        assert_eq!(w.peek(&1, 200), 0);
+    }
+
+    #[test]
     fn page_rates_fire_past_their_limits() {
         let r = PageRates::new(3, 2, 100);
-        let client = [7u8; 16];
-        let mut last = Vec::new();
-        for _ in 0..3 {
-            last = r.observe(ip("192.0.2.1"), client, 100);
+        let a = [7u8; 16];
+        for _ in 0..2 {
+            r.record(ip("192.0.2.1"), a, 100);
         }
-        let ids: Vec<_> = last.iter().map(|d| d.id.as_str()).collect();
-        assert_eq!(ids, ["rate_client_high"]);
-        let last = r.observe(ip("192.0.2.1"), [8u8; 16], 100);
-        let ids: Vec<_> = last.iter().map(|d| d.id.as_str()).collect();
-        assert_eq!(ids, ["rate_net_high"]);
+        assert!(r.detections(ip("192.0.2.1"), a, 100).is_empty(), "two pages: at the limit");
+        r.record(ip("192.0.2.1"), a, 100);
+        let ids = |d: Vec<veritell_core::Detection>| d.into_iter().map(|d| d.id).collect::<Vec<_>>();
+        assert_eq!(ids(r.detections(ip("192.0.2.1"), a, 100)), ["rate_client_high"]);
+        // Another client on the same network: only the network's count is past.
+        r.record(ip("192.0.2.1"), [8u8; 16], 100);
+        assert_eq!(ids(r.detections(ip("192.0.2.1"), [8u8; 16], 100)), ["rate_net_high"]);
         // A minute later, both are under again.
-        assert!(r.observe(ip("192.0.2.1"), client, 200).is_empty());
+        assert!(r.detections(ip("192.0.2.1"), a, 200).is_empty());
     }
 }
