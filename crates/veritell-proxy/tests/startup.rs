@@ -158,6 +158,7 @@ fn bad_configurations_are_refused_before_anything_starts() {
         (with(&["--rate-client-limit", "0"]), "--rate-client-limit must be a positive number"),
         (with(&["--shed", "maybe"]), "--shed: \"maybe\" is not off, log or enforce"),
         (with(&["--max-in-flight", "0"]), "--max-in-flight must be a positive number"),
+        (with(&["--fp-surge-min", "0"]), "--fp-surge-min must be a positive number"),
         (with(&["--state-dir", &missing]), "--state-dir:"),
         (with(&["--ip-mode", "partial"]), "--ip-mode: \"partial\" is not full, truncated or keyed"),
         (with(&["--inject-probe", "maybe"]), "--inject-probe: \"maybe\" is not on or off"),

@@ -94,6 +94,8 @@ pub struct Gateway {
     pub flood: crate::flood::FloodGuard,
     /// `--shed`: a cap on requests in flight to the origin, after scoring.
     pub shed: crate::shed::Shedder,
+    /// Pages per fingerprint across networks, for `fp_page_surge`.
+    pub fp_surge: crate::flood::FpSurge,
     /// Page loads per network and per client, for `rate_net_high` and
     /// `rate_client_high`.
     pub page_rates: crate::flood::PageRates,
@@ -257,6 +259,9 @@ pub struct Ctx {
     /// Network address and client binding to count an HTML response
     /// against, for the page rates. `None` for a proven identity.
     page_key: Option<(IpAddr, [u8; 16])>,
+    /// Fingerprint counter key, for `fp_page_surge`. `None` for a proven
+    /// identity, as `page_key`.
+    fp_key: Option<u64>,
     upstream_headers: Vec<(&'static str, String)>,
     /// The address of the connection's peer, appended to `x-forwarded-for`
     /// for the origin, as nginx's `$proxy_add_x_forwarded_for` does.
@@ -760,6 +765,17 @@ fn crawler_from_another_network(detections: &mut Vec<Detection>, claimed: &str, 
 /// The visitor's network: AS number, class as stored (`hosting`, `other`, or
 /// `unknown` when the address is in no routed range or there is no database),
 /// and the network detection a request gets for it, if any.
+/// What the population layer, sharing and `fp_page_surge` count a client
+/// as: its handshake, HTTP/2 settings and User-Agent.
+fn fingerprint_of(f: &Facts) -> String {
+    format!(
+        "{}|{}|{}",
+        f.ja4.as_deref().unwrap_or(""),
+        f.h2.as_deref().unwrap_or(""),
+        f.user_agent.as_deref().unwrap_or("")
+    )
+}
+
 fn network_of(db: &AsnDb, ip: IpAddr) -> (u32, &'static str, Option<Detection>) {
     match db.lookup(ip) {
         Some(info) => {
@@ -996,12 +1012,7 @@ impl Gateway {
         // crawler is one fingerprint on many networks by design.
         let mut shared: Option<(String, bool)> = None;
         if verified_bot.is_none() && signed_agent.is_none() {
-            let fingerprint = format!(
-                "{}|{}|{}",
-                f.ja4.as_deref().unwrap_or(""),
-                f.h2.as_deref().unwrap_or(""),
-                f.user_agent.as_deref().unwrap_or("")
-            );
+            let fingerprint = fingerprint_of(f);
             // What another install reported about this fingerprint: a hint.
             // Only with a handshake of the client's own: behind a trusted
             // proxy the fingerprint is the User-Agent alone, which every
@@ -1015,6 +1026,7 @@ impl Gateway {
             // `response_filter`), so a scraper is not let off by claiming
             // its requests are not page loads.
             detections.extend(self.page_rates.detections(f.ip, self.binding(f).0, now));
+            detections.extend(self.fp_surge.detection(self.fp_surge.key(&fingerprint), now));
             // Every page carried the probe, and this client never ran it. A
             // token holder without a report already has `probe_missing`.
             if self.inject_probe && !probe_reported && !token.is_valid() {
@@ -2046,6 +2058,7 @@ impl ProxyHttp for Gateway {
         let effective = self.effective(&f, &a, &d, now);
         if !matches!(a.verdict.class, Class::VerifiedBot | Class::SignedAgent) {
             ctx.page_key = Some((f.ip, self.binding(&f).0));
+            ctx.fp_key = Some(self.fp_surge.key(&fingerprint_of(&f)));
         }
 
         match effective {
@@ -2242,6 +2255,9 @@ impl ProxyHttp for Gateway {
         });
         if let (true, Some((ip, client))) = (html, ctx.page_key) {
             self.page_rates.record(ip, client, now_secs());
+        }
+        if let (true, Some(key)) = (html, ctx.fp_key) {
+            self.fp_surge.record(key, now_secs());
         }
         if ctx.injection.on_response(status, content_type, encoding) {
             // The body changes: its length goes, and a strong validator

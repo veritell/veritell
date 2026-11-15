@@ -309,6 +309,81 @@ impl PageRates {
     }
 }
 
+/// Pages per fingerprint (handshake, HTTP/2 settings and User-Agent),
+/// across every network, for `fp_page_surge`: one fingerprint's pages in
+/// the last minute at least `min_pages` and at least `growth` times its
+/// average minute over the ten before. A campaign starting from many
+/// addresses with one tool jumps from nothing; a fingerprint many people
+/// share grows with the day, not fourfold in a minute.
+///
+/// Not before `WARMUP_SECS` after the first page counted: until then there
+/// is no ten minutes to compare with.
+pub struct FpSurge {
+    pub min_pages: u32,
+    pub growth: u32,
+    started: std::sync::atomic::AtomicU64,
+    minute: Window<u64>,
+    eleven: Window<u64>,
+    hasher: std::collections::hash_map::RandomState,
+}
+
+impl FpSurge {
+    pub const DEFAULT_MIN_PAGES: u32 = 120;
+    pub const DEFAULT_GROWTH: u32 = 4;
+    pub const WARMUP_SECS: u64 = 660;
+    /// Fingerprints longer than this are cut before hashing.
+    const MAX_KEY_BYTES: usize = 512;
+
+    pub fn new(min_pages: u32, growth: u32, max_keys: usize) -> Self {
+        FpSurge {
+            min_pages,
+            growth: growth.max(1),
+            started: std::sync::atomic::AtomicU64::new(0),
+            minute: Window::new(10, 6, max_keys),
+            eleven: Window::new(60, 11, max_keys),
+            hasher: std::collections::hash_map::RandomState::new(),
+        }
+    }
+
+    /// The counter key of a fingerprint (a keyed hash, drawn per process).
+    pub fn key(&self, fingerprint: &str) -> u64 {
+        use std::hash::BuildHasher;
+        let bytes = fingerprint.as_bytes();
+        self.hasher.hash_one(&bytes[..bytes.len().min(Self::MAX_KEY_BYTES)])
+    }
+
+    /// Counts one page served to this fingerprint.
+    pub fn record(&self, key: u64, now: u64) {
+        use std::sync::atomic::Ordering;
+        let _ = self.started.compare_exchange(0, now.max(1), Ordering::AcqRel, Ordering::Acquire);
+        self.minute.hit(&key, now);
+        self.eleven.hit(&key, now);
+    }
+
+    pub fn detection(&self, key: u64, now: u64) -> Option<veritell_core::Detection> {
+        use std::sync::atomic::Ordering;
+        use veritell_core::{Class, Detection, Layer};
+        let started = self.started.load(Ordering::Acquire);
+        if started == 0 || now.saturating_sub(started) < Self::WARMUP_SECS {
+            return None;
+        }
+        let current = self.minute.peek(&key, now);
+        if current < self.min_pages {
+            return None;
+        }
+        let before = self.eleven.peek(&key, now).saturating_sub(current) / 10;
+        (u64::from(current) >= u64::from(self.growth) * u64::from(before.max(1))).then(|| {
+            Detection::new(
+                "fp_page_surge",
+                Layer::Population,
+                20,
+                format!("{current} pages in a minute to this fingerprint, against {before} a minute before"),
+            )
+            .with_class(Class::Automated)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,6 +492,41 @@ mod tests {
         assert_eq!(r.no_probe(c, 1_120).map(|d| d.id), Some("pages_no_probe".to_string()));
         // Ten minutes after the first, it has left the window.
         assert!(r.no_probe(c, 1_000 + 600).is_none());
+    }
+
+    #[test]
+    fn fp_surge_waits_for_its_warmup_then_fires_on_a_jump() {
+        let s = FpSurge::new(10, 4, 100);
+        let k = s.key("t13d_x|h2|tool/1.0");
+        let t0 = 10_000;
+        s.record(s.key("other"), t0);
+        // A burst before the warmup ends is not a surge yet.
+        for _ in 0..50 {
+            s.record(k, t0 + 60);
+        }
+        assert!(s.detection(k, t0 + 60).is_none(), "warming up");
+        // Quiet for the next ten minutes, then a jump.
+        let t = t0 + 60 + 700;
+        for _ in 0..12 {
+            s.record(k, t);
+        }
+        assert_eq!(s.detection(k, t).map(|d| d.id), Some("fp_page_surge".to_string()));
+    }
+
+    #[test]
+    fn fp_surge_ignores_a_steady_popular_fingerprint() {
+        let s = FpSurge::new(10, 4, 100);
+        let k = s.key("t13d_safari|h2|iPhone");
+        let t0 = 20_000;
+        // 30 pages a minute, every minute, for 20 minutes.
+        for m in 0..20u64 {
+            for i in 0..30u64 {
+                s.record(k, t0 + m * 60 + i * 2);
+            }
+        }
+        let now = t0 + 19 * 60 + 58;
+        assert!(s.detection(k, now).is_none(), "steady: no jump");
+        assert!(s.detection(s.key("never seen"), now).is_none());
     }
 
     #[test]

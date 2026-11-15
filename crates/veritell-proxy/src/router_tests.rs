@@ -107,6 +107,7 @@ fn gateway(policy: Policy, trusted_proxies: Vec<IpAddr>) -> (Gateway, Arc<Memory
         flood: crate::flood::FloodGuard::new(crate::flood::GuardMode::Log, crate::flood::FloodGuard::DEFAULT_LIMIT, 1000),
         page_rates: crate::flood::PageRates::new(crate::flood::PageRates::DEFAULT_NET_LIMIT, crate::flood::PageRates::DEFAULT_CLIENT_LIMIT, crate::flood::PageRates::DEFAULT_NO_PROBE_PAGES, 1000),
         shed: crate::shed::Shedder::new(crate::flood::GuardMode::Log, crate::shed::Shedder::DEFAULT_CAP),
+        fp_surge: crate::flood::FpSurge::new(crate::flood::FpSurge::DEFAULT_MIN_PAGES, crate::flood::FpSurge::DEFAULT_GROWTH, 1000),
         token_budget: 500,
         probe_key: ProbeKey::from_secret(SECRET).unwrap(),
         probes: Arc::new(ProbeStore::new(1000)),

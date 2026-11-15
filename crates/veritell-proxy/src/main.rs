@@ -16,7 +16,7 @@
 //!          [--header-timeout 15] [--body-timeout 60] [--write-timeout 30]
 //!          [--max-conns-per-network 256] [--flood-guard off|log|enforce] [--flood-limit 1000]
 //!          [--rate-net-limit 120] [--rate-client-limit 60] [--no-probe-pages 20]
-//!          [--shed off|log|enforce] [--max-in-flight 256]
+//!          [--shed off|log|enforce] [--max-in-flight 256] [--fp-surge-min 120] [--fp-surge-growth 4]
 //!          [--state-dir dir] [--state-flush 10] [--inject-probe on|off] [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity 200000]
 //!          [--share-export file] [--share-import file --share-import-key key[,key]] [--share-min-networks n] [--share-interval secs]
 //!          [--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]
@@ -53,7 +53,10 @@
 //! `rate_net_high` (per network) or `rate_client_high` (per client); the
 //! policy decides what they do. With `--inject-probe on`, a client served
 //! `--no-probe-pages` (20) pages in ten minutes that never sent a probe
-//! report gets `pages_no_probe`.
+//! report gets `pages_no_probe`. `fp_page_surge`: one fingerprint's pages
+//! in a minute, across every network, at least `--fp-surge-min` (120) and
+//! `--fp-surge-growth` (4) times its average minute over the ten before;
+//! not in the first 11 minutes after the first page.
 //!
 //! `--shed` caps requests in flight to the origin at `--max-in-flight`
 //! (256). Past three quarters of it, a request of an automated, malicious
@@ -196,7 +199,7 @@ const USAGE: &str = "usage: veritell --cert <pem> --key <pem> [--listen addr:por
 [--agg-fanout-min n] [--agg-strikes n] [--model file.json] [--sidecar-listen addr:port] \
 [--wba-directory-allow ip:port[,ip:port]] [--wba-directory-ca file.pem] \
 [--privacy-pass-issuer name=key[,name=key]] [--share-export file] [--share-import file --share-import-key key[,key]] \
-[--share-min-networks n] [--share-interval secs] [--ip-mode full|truncated|keyed] [--header-timeout secs] [--body-timeout secs] [--write-timeout secs] [--source-url url|off] [--max-conns-per-network n] [--flood-guard off|log|enforce] [--flood-limit n] [--rate-net-limit n] [--rate-client-limit n] [--no-probe-pages n] [--shed off|log|enforce] [--max-in-flight n] [--state-dir dir] [--state-flush secs] [--inject-probe on|off] \
+[--share-min-networks n] [--share-interval secs] [--ip-mode full|truncated|keyed] [--header-timeout secs] [--body-timeout secs] [--write-timeout secs] [--source-url url|off] [--max-conns-per-network n] [--flood-guard off|log|enforce] [--flood-limit n] [--rate-net-limit n] [--rate-client-limit n] [--no-probe-pages n] [--fp-surge-min n] [--fp-surge-growth n] [--shed off|log|enforce] [--max-in-flight n] [--state-dir dir] [--state-flush secs] [--inject-probe on|off] \
 [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity n] \
 [--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]";
 
@@ -664,6 +667,8 @@ fn main() {
     let rate_net_limit = positive("rate-net-limit", flood::PageRates::DEFAULT_NET_LIMIT);
     let rate_client_limit = positive("rate-client-limit", flood::PageRates::DEFAULT_CLIENT_LIMIT);
     let no_probe_pages = positive("no-probe-pages", flood::PageRates::DEFAULT_NO_PROBE_PAGES);
+    let fp_surge_min = positive("fp-surge-min", flood::FpSurge::DEFAULT_MIN_PAGES);
+    let fp_surge_growth = positive("fp-surge-growth", flood::FpSurge::DEFAULT_GROWTH);
     let shed_mode = match args.get("shed").map(String::as_str) {
         None => flood::GuardMode::Log,
         Some(raw) => flood::GuardMode::parse(raw)
@@ -811,6 +816,7 @@ fn main() {
         flood: flood::FloodGuard::new(flood_mode, flood_limit, 100_000),
         page_rates: flood::PageRates::new(rate_net_limit, rate_client_limit, no_probe_pages, 100_000),
         shed: shed::Shedder::new(shed_mode, max_in_flight),
+        fp_surge: flood::FpSurge::new(fp_surge_min, fp_surge_growth, 100_000),
         token_budget,
     };
 
