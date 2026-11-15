@@ -37,6 +37,19 @@ node lab/run.mjs                            # see lab/README.md (Chrome, Firefox
 scripts/fuzz.sh 120                         # cargo-fuzz, seconds per target
 ```
 
+Checks outside `./test.sh` and `scripts/e2e.sh`; run them by hand when you change what they cover:
+
+| Script | What it checks, and what it needs |
+|---|---|
+| `scripts/e2e_upstream_tls.sh` | The gateway in front of an HTTPS origin (`scripts/tls_origin.py`): certificate checks against a test CA, SNI, and the probe injected into compressed pages. Release build, curl, openssl, python3. Also run by the `e2e` workflow |
+| `scripts/e2e_sni.sh` | Several sites behind one gateway: a certificate per name (`--sni-dir`) and an upstream per name (`--upstream-host`). Release build, curl, openssl, python3 |
+| `scripts/clickhouse_check.sh` | The events sink against a real ClickHouse in a throwaway Docker container, and the table's TTL. Release build, Docker |
+| `scripts/latency.sh [requests] [concurrency]` | The gateway's own handling time in shadow mode with no upstream; prints the latency distribution. Release build, `hey` |
+| `node probe/test/behavior_run.mjs <chromium\|firefox>` | `probe/behavior.js` in a real browser driven with trusted input by Playwright; validates each summary it sends. `npm install` in `lab/` first; `CHROME_BIN` / `FIREFOX_BIN` override the browser paths |
+| `node probe/test/behavior_gecko.mjs` | `probe/behavior.js` in a stock Firefox with no driver: the page sends itself synthetic events, so it shows the script loads, counts and sends on hide, not trusted input. Firefox (`FIREFOX_BIN`) |
+| `sudo scripts/r3_vm_check.sh` | In a throwaway Debian VM: installs the kit behind nginx in redirect mode, sends traffic from a few clients (headless Chromium among them), and builds the weekly report. The kit in `/opt/veritell-src` and the test CA from `scripts/r1_vm_check.sh` |
+| `sudo scripts/compose_vm_rehearsal.sh <old kit> <new kit>` | In a throwaway Debian VM: compose mode on a stand-in Docker Compose site, updating from an old kit to a new one, with IPv4 and IPv6 visitors. Both kits from `deploy/build.sh`, the test CA from `scripts/r1_vm_check.sh` |
+
 ## Rules
 
 - Files in `.acceptance.sha256` are fixed contracts. Don't edit them.

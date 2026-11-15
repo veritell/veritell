@@ -89,6 +89,11 @@ motion.
 | `probe/` | The probe and behaviour scripts injected into pages |
 | `deploy/` | The rollout kit |
 | `lab/` | Bot clients used to test detection |
+| `scripts/` | End-to-end checks (`e2e.sh` and others), fuzzing, soak and latency runs, VM rehearsals of the rollout kit |
+| `sidecar/` | Example nginx, Caddy, Envoy and Traefik configurations for running beside an existing proxy, and a script that checks them |
+| `fuzz/` | cargo-fuzz targets for the parsers, run by `scripts/fuzz.sh` |
+| `tools/` | Small helpers: making known-person links, opening an encrypted export |
+| `docs/` | Images used by this README |
 
 ## Licence
 
