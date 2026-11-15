@@ -4,18 +4,22 @@
 //! Output follows the widely used "Akamai" layout:
 //! `settings|window_update|priority_frames|pseudo_header_order`
 
-const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+/// The client connection preface (RFC 9113 section 3.4).
+pub const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-const FRAME_HEADERS: u8 = 0x1;
-const FRAME_PRIORITY: u8 = 0x2;
-const FRAME_SETTINGS: u8 = 0x4;
-const FRAME_WINDOW_UPDATE: u8 = 0x8;
-const FRAME_CONTINUATION: u8 = 0x9;
+// Frame types and flags (RFC 9113 section 6).
+pub const FRAME_DATA: u8 = 0x0;
+pub const FRAME_HEADERS: u8 = 0x1;
+pub const FRAME_PRIORITY: u8 = 0x2;
+pub const FRAME_SETTINGS: u8 = 0x4;
+pub const FRAME_PUSH_PROMISE: u8 = 0x5;
+pub const FRAME_WINDOW_UPDATE: u8 = 0x8;
+pub const FRAME_CONTINUATION: u8 = 0x9;
 
-const FLAG_ACK: u8 = 0x1;
-const FLAG_END_HEADERS: u8 = 0x4;
-const FLAG_PADDED: u8 = 0x8;
-const FLAG_PRIORITY: u8 = 0x20;
+pub const FLAG_ACK: u8 = 0x1;
+pub const FLAG_END_HEADERS: u8 = 0x4;
+pub const FLAG_PADDED: u8 = 0x8;
+pub const FLAG_PRIORITY: u8 = 0x20;
 
 #[derive(Clone, Debug, Default)]
 pub struct Priority {

@@ -157,13 +157,6 @@ impl H1Guard {
     }
 }
 
-const H2_PREFACE_LEN: usize = 24;
-const H2_DATA: u8 = 0x0;
-const H2_HEADERS: u8 = 0x1;
-const H2_PUSH_PROMISE: u8 = 0x5;
-const H2_CONTINUATION: u8 = 0x9;
-const H2_END_HEADERS: u8 = 0x4;
-
 /// HTTP/2: every frame must arrive whole within a time limit from its first
 /// byte (`header` for control and header frames, the longer `body` for DATA,
 /// which a slow link may carry slowly), and every header block, from its
@@ -193,7 +186,7 @@ impl H2Guard {
             header,
             body,
             sleep: Box::pin(tokio::time::sleep_until(now + header)),
-            preface_left: H2_PREFACE_LEN,
+            preface_left: h2fp::PREFACE.len(),
             head: [0; 9],
             head_len: 0,
             payload_left: 0,
@@ -228,12 +221,12 @@ impl H2Guard {
                 }
                 self.payload_left = usize::from(self.head[0]) << 16 | usize::from(self.head[1]) << 8 | usize::from(self.head[2]);
                 self.frame_type = self.head[3];
-                let end_headers = self.head[4] & H2_END_HEADERS != 0;
+                let end_headers = self.head[4] & h2fp::FLAG_END_HEADERS != 0;
                 match self.frame_type {
-                    H2_HEADERS | H2_PUSH_PROMISE if !end_headers => {
+                    h2fp::FRAME_HEADERS | h2fp::FRAME_PUSH_PROMISE if !end_headers => {
                         self.block_since.get_or_insert(self.frame_since.unwrap_or(now));
                     }
-                    H2_CONTINUATION if end_headers => self.block_since = None,
+                    h2fp::FRAME_CONTINUATION if end_headers => self.block_since = None,
                     _ => {}
                 }
             }
@@ -250,7 +243,7 @@ impl H2Guard {
 
     /// The earliest moment something in progress runs out of time.
     fn due(&self) -> Option<Instant> {
-        let frame_limit = if self.preface_left == 0 && self.head_len == 9 && self.frame_type == H2_DATA {
+        let frame_limit = if self.preface_left == 0 && self.head_len == 9 && self.frame_type == h2fp::FRAME_DATA {
             self.body
         } else {
             self.header
