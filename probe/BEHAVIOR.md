@@ -58,7 +58,7 @@ fields are refused by the server. The body is at most 1024 bytes.
 | `strokes` | 1,000,000 | Strokes, defined below |
 | `straight` | ≤ `strokes` | Strokes that are straight |
 | `steady` | ≤ `strokes` | Strokes at constant speed |
-| `clicks` | 1,000,000 | Mouse clicks: `click` events with no `touchstart` in the previous 700 ms, with `pointerType` `"mouse"` where `click` is a `PointerEvent`, and with `detail >= 1`. The touch check applies in every browser: Safari on iOS reports a tap as `pointerType` `"mouse"` (seen in a recorded session, 2026-11-10) |
+| `clicks` | 1,000,000 | Mouse clicks: `click` events with no `touchstart` in the previous 700 ms, with `pointerType` `"mouse"` where `click` is a `PointerEvent`, and with `detail >= 1`. The touch check applies in every browser: Safari on iOS can report a tap as `pointerType` `"mouse"` |
 | `sized` | ≤ `clicks` | Mouse clicks whose target's bounding box is at least 24 by 24 CSS pixels |
 | `centered` | ≤ `sized` | Of those, clicks within 1 pixel of the box centre on both axes |
 | `teleport` | ≤ `clicks` | Mouse clicks where the pointer jumped, defined below |
