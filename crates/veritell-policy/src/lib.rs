@@ -198,6 +198,46 @@ impl std::fmt::Display for PolicyError {
 
 impl std::error::Error for PolicyError {}
 
+/// How policy YAML is read. A key given twice is refused in a struct and
+/// the last one kept in a map, and `<<` is an ordinary key (so an unknown
+/// field), as the earlier parser did.
+fn yaml_options() -> serde_saphyr::Options {
+    serde_saphyr::options! {
+        duplicate_keys: serde_saphyr::options::DuplicateKeyPolicy::PassThrough,
+        merge_keys: serde_saphyr::options::MergeKeyPolicy::AsOrdinary,
+        underscored_numbers_as_strings: true,
+    }
+}
+
+/// A list written with no entries (`routes:`) is an empty list.
+fn empty_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Vec<T>, D::Error> {
+    Ok(Option::<Vec<T>>::deserialize(d)?.unwrap_or_default())
+}
+
+/// A quota: a YAML integer that fits in a `u32`. Not a quoted string, nor
+/// `1_000`: the parser would read both as numbers when asked for one, but
+/// they are strings in YAML 1.2.
+struct Count(u32);
+
+impl<'de> Deserialize<'de> for Count {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Count, D::Error> {
+        struct V;
+        impl serde::de::Visitor<'_> for V {
+            type Value = Count;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an integer from 0 to 4294967295")
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Count, E> {
+                u32::try_from(v).map(Count).map_err(|_| E::invalid_value(serde::de::Unexpected::Unsigned(v), &self))
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Count, E> {
+                u32::try_from(v).map(Count).map_err(|_| E::invalid_value(serde::de::Unexpected::Signed(v), &self))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct RawPolicy {
@@ -205,15 +245,15 @@ struct RawPolicy {
     default_action: Option<String>,
     quotas: Option<RawQuotas>,
     offers: Option<BTreeMap<String, RawOffer>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "empty_if_null")]
     routes: Vec<RawRoute>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawQuotas {
-    default: Option<u32>,
-    identities: Option<BTreeMap<String, u32>>,
+    default: Option<Count>,
+    identities: Option<BTreeMap<String, Count>>,
 }
 
 #[derive(Deserialize)]
@@ -232,7 +272,7 @@ struct RawRoute {
     name: Option<String>,
     #[serde(rename = "match")]
     match_: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "empty_if_null")]
     rules: Vec<RawRule>,
 }
 
@@ -407,7 +447,7 @@ impl Policy {
     /// so a typo fails at load time rather than on a live request.
     pub fn from_yaml(yaml: &str) -> Result<Policy, PolicyError> {
         let raw: Option<RawPolicy> =
-            serde_yaml_ng::from_str(yaml).map_err(|e| PolicyError::Yaml(e.to_string()))?;
+            serde_saphyr::from_str_with_options(yaml, yaml_options()).map_err(|e| PolicyError::Yaml(e.to_string()))?;
         let raw = raw.unwrap_or_default();
 
         let mode = match raw.mode.as_deref() {
@@ -448,7 +488,7 @@ impl Policy {
                         "a quota identity must be 1 to {MAX_IDENTITY_LEN} bytes"
                     )));
                 }
-                (q.default, ids)
+                (q.default.map(|c| c.0), ids.into_iter().map(|(k, c)| (k, c.0)).collect())
             }
         };
 
@@ -743,6 +783,27 @@ mod tests {
             assert!(matches!(ok(bad), Err(PolicyError::Action { .. })), "{bad}");
         }
         assert!(Policy::from_yaml(&format!("default_action: charge(o)\n{y}")).is_err());
+    }
+
+    #[test]
+    fn yaml_is_read_as_the_earlier_parser_read_it() {
+        // An empty list is a list; a key given twice in a struct is refused,
+        // in a map the last one counts; `<<` is not a merge.
+        assert!(Policy::from_yaml("routes:\n").is_ok());
+        assert!(Policy::from_yaml("routes:\n  - name: a\n    rules:\n").is_ok());
+        assert!(Policy::from_yaml("mode: shadow\nmode: enforce\n").is_err());
+        let p = Policy::from_yaml("quotas:\n  identities:\n    a: 1\n    a: 2\n").unwrap();
+        assert_eq!(p.quota_for("a"), Some(2));
+        assert!(Policy::from_yaml("routes:\n  - <<: {name: n}\n    rules: []\n").is_err());
+        assert!(Policy::from_yaml("mode: enforce\n---\nmode: shadow\n").is_err());
+        // A quota is an integer, not a string that looks like one.
+        for bad in ["'3'", "\"3\"", "1_000", "3.0", "-1", "4294967296", "true"] {
+            assert!(Policy::from_yaml(&format!("quotas:\n  default: {bad}\n")).is_err(), "{bad}");
+        }
+        for (ok, n) in [("3", 3), ("0x10", 16), ("0o10", 8), ("4294967295", u32::MAX)] {
+            let p = Policy::from_yaml(&format!("quotas:\n  default: {ok}\n")).unwrap();
+            assert_eq!(p.quota_for("any"), Some(n), "{ok}");
+        }
     }
 
     #[test]
