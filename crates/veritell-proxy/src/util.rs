@@ -25,36 +25,21 @@ pub fn parse_form(body: &[u8]) -> HashMap<String, String> {
     out
 }
 
-fn hex_val(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
-}
-
+/// One form component, decoded by `veritell_dash::percent_decode`. That
+/// takes text, so a byte that is not ASCII goes in as its own `%XX` escape
+/// and comes out as the same byte: the result is the same as decoding the
+/// raw bytes, with invalid UTF-8 replaced only at the end.
 fn percent_decode(input: &[u8]) -> String {
-    let mut out = Vec::with_capacity(input.len());
-    let mut i = 0;
-    while let Some(&b) = input.get(i) {
-        match b {
-            b'+' => out.push(b' '),
-            b'%' => {
-                let hi = input.get(i + 1).copied().and_then(hex_val);
-                let lo = input.get(i + 2).copied().and_then(hex_val);
-                if let (Some(hi), Some(lo)) = (hi, lo) {
-                    out.push(hi << 4 | lo);
-                    i += 2;
-                } else {
-                    out.push(b'%');
-                }
-            }
-            _ => out.push(b),
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(input.len());
+    for &b in input {
+        if b.is_ascii() {
+            text.push(char::from(b));
+        } else {
+            let _ = write!(text, "%{b:02X}");
         }
-        i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    veritell_dash::percent_decode(&text)
 }
 
 /// Finds one cookie value in a `Cookie` header.
@@ -242,6 +227,16 @@ mod tests {
         assert_eq!(f["c"], "%4");
         assert_eq!(f["d"], "");
         assert!(parse_form(b"").is_empty());
+    }
+
+    #[test]
+    fn form_decoding_keeps_raw_bytes_until_the_end() {
+        // A raw byte and an escape that together make one character.
+        assert_eq!(parse_form(b"e=\xc3%A9")["e"], "\u{e9}");
+        // Stray bytes are replaced; an escape after a lone % still decodes.
+        assert_eq!(parse_form(b"x=\xff")["x"], "\u{fffd}");
+        assert_eq!(parse_form(b"y=%\x80%41")["y"], "%\u{fffd}A");
+        assert_eq!(parse_form(b"z=%4\xc3%A9")["z"], "%4\u{e9}");
     }
 
     #[test]

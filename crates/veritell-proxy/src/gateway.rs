@@ -525,18 +525,12 @@ fn forwarded_for(req: &RequestHeader) -> Option<IpAddr> {
     last_forwarded(req.headers.get_all("x-forwarded-for").iter().map(|v| v.to_str().ok()))
 }
 
-/// An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`, what a dual-stack listener
-/// reports for an IPv4 client) as the IPv4 address it is. Every address the
-/// gateway compares, counts or looks up goes through this once, where it
-/// enters: otherwise `--trusted-proxy 10.0.0.1` would not match the peer
-/// `::ffff:10.0.0.1`, and a real crawler's address would not be found among
-/// the IPv4 addresses its name resolves to.
-pub fn canonical(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-        IpAddr::V4(_) => ip,
-    }
-}
+/// An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) as the IPv4 address it
+/// is. Every address the gateway compares, counts or looks up goes through
+/// this once, where it enters: otherwise `--trusted-proxy 10.0.0.1` would not
+/// match the peer `::ffff:10.0.0.1`, and a real crawler's address would not
+/// be found among the IPv4 addresses its name resolves to.
+pub use veritell_identity::canonical;
 
 fn gather(session: &Session, trusted_proxies: &[IpAddr]) -> Facts {
     let req = session.req_header();

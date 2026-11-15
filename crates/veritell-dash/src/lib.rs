@@ -193,9 +193,10 @@ fn summary_api(params: &[(String, String)], events: &dyn EventQuery, now_ms: u64
     }
 }
 
-/// Percent-decodes a query component: `+` is a space, `%XX` is a byte,
-/// an invalid escape is kept literally. Never panics.
-fn percent_decode(raw: &str) -> String {
+/// Percent-decodes a query or form component: `+` is a space, `%XX` is a
+/// byte, an invalid escape is kept literally, and decoded bytes that are not
+/// UTF-8 are replaced with U+FFFD. Never panics.
+pub fn percent_decode(raw: &str) -> String {
     let bytes = raw.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i: usize = 0;

@@ -397,8 +397,10 @@ enum Parsed {
     V6(Span<u128>),
 }
 
-/// Maps an IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) to its IPv4 form.
-fn canonical(ip: IpAddr) -> IpAddr {
+/// Maps an IPv4-mapped IPv6 address (`::ffff:a.b.c.d`, what a dual-stack
+/// listener reports for an IPv4 client) to its IPv4 form; any other address
+/// is returned unchanged.
+pub fn canonical(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
         IpAddr::V4(_) => ip,
