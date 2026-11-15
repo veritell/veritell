@@ -27,12 +27,12 @@ veritell-agg.workspace = true
 veritell-model.workspace = true
 veritell-quota.workspace = true
 veritell-persist.workspace = true
-hmac = "0.12"
+hmac.workspace = true
 sha2.workspace = true
 veritell-directory.workspace = true
 veritell-privacypass.workspace = true
 veritell-share.workspace = true
-base64 = "0.22"
+base64.workspace = true
 http = "1"
 pingora = { version = "0.9.1", features = ["boringssl", "proxy"] }
 boring = "5"
@@ -42,7 +42,7 @@ bytes = "1"
 serde_json.workspace = true
 serde.workspace = true
 dns-lookup = "4"
-getrandom = "0.4"
+getrandom.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["time", "rt", "macros", "test-util", "io-util"] }

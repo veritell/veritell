@@ -10,5 +10,5 @@ veritell-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-hmac = "0.12"
-getrandom = "0.4"
+hmac.workspace = true
+getrandom.workspace = true

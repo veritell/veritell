@@ -7,5 +7,5 @@ rust-version.workspace = true
 
 [dependencies]
 sha2.workspace = true
-hmac = "0.12"
-getrandom = "0.4.3"
+hmac.workspace = true
+getrandom.workspace = true

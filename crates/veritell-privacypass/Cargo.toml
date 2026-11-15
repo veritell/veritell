@@ -7,6 +7,6 @@ rust-version.workspace = true
 
 [dependencies]
 sha2.workspace = true
-hmac = "0.12"
-base64 = "0.22"
+hmac.workspace = true
+base64.workspace = true
 ring = "0.17"

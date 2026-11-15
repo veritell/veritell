@@ -6,5 +6,5 @@ version.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-getrandom = "0.4"
+getrandom.workspace = true
 siphasher = "1"

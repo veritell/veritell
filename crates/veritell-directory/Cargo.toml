@@ -13,4 +13,4 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "0.26"
 
 [dev-dependencies]
-base64 = "0.22"
+base64.workspace = true
