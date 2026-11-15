@@ -205,7 +205,7 @@ cases = {
     "googlebot": (googlebot, curl_ja4, "", "host\nuser-agent\naccept"),
     "firefox": ("Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0", cja4, ch2, chrome_headers),
     "safari": ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", cja4, "", chrome_headers),
-    "headless": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36", cja4, ch2, chrome_headers),
+    "headless": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/142.0.0.0 Safari/537.36", cja4, ch2, chrome_headers),
     "curl": ("curl/8.7.1", curl_ja4, "", "host\nuser-agent\naccept"),
     "ios_system_fetcher": ("NetworkingExtension/8620.1.16.10.11 Network/4277.0.1 iOS/18.0", curl_ja4, "", "host\nuser-agent"),
     "made_up_bot": ("ExampleBot/1.0 (+https://example.test/bot)", curl_ja4, "", "host\nuser-agent"),

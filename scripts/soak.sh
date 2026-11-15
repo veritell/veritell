@@ -30,9 +30,9 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 for _ in $(seq 1 50); do nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 0.1; done
-kill -0 $PID 2>/dev/null || { echo "gateway failed to start"; cat "$OUT/gateway.err"; exit 1; }
+nc -z 127.0.0.1 "$PORT" 2>/dev/null || { echo "gateway failed to start: port $PORT never opened"; cat "$OUT/gateway.err"; exit 1; }
 
-UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 DUR=$((MIN * 60))
 BASE="https://localhost:$PORT"
 

@@ -43,7 +43,8 @@ VERITELL_CLICKHOUSE_PASSWORD="$PASSWORD" target/release/veritell --cert "$CERT" 
   >"$WORK/gw.log" 2>"$WORK/gw.err" &
 GW=$!
 for _ in $(seq 1 50); do nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 0.1; done
-UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+nc -z 127.0.0.1 "$PORT" 2>/dev/null || { echo "the gateway never opened port $PORT"; cat "$WORK/gw.err"; exit 1; }
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 for i in $(seq 1 20); do curl -sk --http2 -o /dev/null -A "$UA" "https://localhost:$PORT/page/$i"; done
 curl -sk --http2 -o /dev/null -A "python-requests/2.32" "https://localhost:$PORT/it's%20\"quoted\"%5C"
 printf 'garbage' | curl -sk --http2 -o /dev/null --data-binary @- "https://localhost:$PORT/__veritell/probe"
