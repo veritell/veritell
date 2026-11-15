@@ -105,7 +105,8 @@ fn gateway(policy: Policy, trusted_proxies: Vec<IpAddr>) -> (Gateway, Arc<Memory
         used_challenges: Arc::new(MemoryBudgetStore::new(1000)),
         throttle: Throttle::new(1000),
         flood: crate::flood::FloodGuard::new(crate::flood::GuardMode::Log, crate::flood::FloodGuard::DEFAULT_LIMIT, 1000),
-        page_rates: crate::flood::PageRates::new(crate::flood::PageRates::DEFAULT_NET_LIMIT, crate::flood::PageRates::DEFAULT_CLIENT_LIMIT, 1000),
+        page_rates: crate::flood::PageRates::new(crate::flood::PageRates::DEFAULT_NET_LIMIT, crate::flood::PageRates::DEFAULT_CLIENT_LIMIT, crate::flood::PageRates::DEFAULT_NO_PROBE_PAGES, 1000),
+        shed: crate::shed::Shedder::new(crate::flood::GuardMode::Log, crate::shed::Shedder::DEFAULT_CAP),
         token_budget: 500,
         probe_key: ProbeKey::from_secret(SECRET).unwrap(),
         probes: Arc::new(ProbeStore::new(1000)),
@@ -369,7 +370,7 @@ async fn the_flood_guard_in_enforce_mode_answers_429_past_its_limit() {
 #[tokio::test]
 async fn pages_served_past_the_network_limit_carry_rate_net_high() {
     let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
-    g.page_rates = crate::flood::PageRates::new(2, 1000, 100);
+    g.page_rates = crate::flood::PageRates::new(2, 1000, 20, 100);
     send(&g, &get("/"), true).await;
     let has = |i: usize| ring.events()[i].detections.iter().any(|d| d.id == "rate_net_high");
     assert!(!has(0));
@@ -381,4 +382,29 @@ async fn pages_served_past_the_network_limit_carry_rate_net_high() {
     }
     send(&g, &get("/"), true).await;
     assert!(has(1), "past the limit: {:?}", ring.events()[1].detections);
+}
+
+#[tokio::test]
+async fn a_busy_origin_sheds_low_trust_requests_in_enforce() {
+    let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
+    g.shed = crate::shed::Shedder::new(crate::flood::GuardMode::Enforce, 4);
+    let held: Vec<_> = (0..4).map(|_| g.shed.enter()).collect();
+    let (status, head, _, handled) = send(&g, &get("/"), true).await;
+    assert!(handled);
+    assert_eq!(status, 503, "{head}");
+    assert!(head.contains("retry-after: 5"), "{head}");
+    assert_eq!(outcomes(&ring), ["shed"]);
+    drop(held);
+    let (status, _, _, _) = send(&g, &get("/"), true).await;
+    assert_eq!(status, 200, "places given back: admitted again");
+    assert_eq!(g.shed.in_flight(), 0, "the request's place is given back with its context");
+}
+
+#[tokio::test]
+async fn shedding_in_log_mode_lets_everything_through() {
+    let (mut g, _) = gateway(Policy::default_shadow(), Vec::new());
+    g.shed = crate::shed::Shedder::new(crate::flood::GuardMode::Log, 1);
+    let _held = g.shed.enter();
+    let (status, _, _, _) = send(&g, &get("/"), true).await;
+    assert_eq!(status, 200);
 }

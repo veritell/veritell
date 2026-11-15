@@ -229,8 +229,13 @@ impl FloodGuard {
 pub struct PageRates {
     pub net_limit: u32,
     pub client_limit: u32,
+    /// Pages in ten minutes past which a client that never sent a probe
+    /// report gets `pages_no_probe` (when the probe is injected).
+    pub no_probe_pages: u32,
     nets: Window<IpAddr>,
     clients: Window<[u8; 16]>,
+    /// Pages per client over ten minutes.
+    clients_long: Window<[u8; 16]>,
 }
 
 impl PageRates {
@@ -239,20 +244,47 @@ impl PageRates {
     /// reading pages loads a few a minute.
     pub const DEFAULT_NET_LIMIT: u32 = 120;
     pub const DEFAULT_CLIENT_LIMIT: u32 = 60;
+    /// A browser runs the injected probe on its first page; twenty pages
+    /// in ten minutes with no report at all is not a browser.
+    pub const DEFAULT_NO_PROBE_PAGES: u32 = 20;
 
-    pub fn new(net_limit: u32, client_limit: u32, max_keys: usize) -> Self {
+    pub fn new(net_limit: u32, client_limit: u32, no_probe_pages: u32, max_keys: usize) -> Self {
         PageRates {
             net_limit,
             client_limit,
+            no_probe_pages,
             nets: Window::new(10, 6, max_keys),
             clients: Window::new(10, 6, max_keys),
+            clients_long: Window::new(60, 10, max_keys),
         }
+    }
+
+    /// Pages served to this client in the last ten minutes.
+    pub fn pages_10m(&self, client: [u8; 16], now: u64) -> u32 {
+        self.clients_long.peek(&client, now)
+    }
+
+    /// `pages_no_probe`, for a client that has not reported (the caller
+    /// knows whether it has, and whether the probe is injected at all).
+    pub fn no_probe(&self, client: [u8; 16], now: u64) -> Option<veritell_core::Detection> {
+        use veritell_core::{Class, Detection, Layer};
+        let pages = self.pages_10m(client, now);
+        (pages >= self.no_probe_pages).then(|| {
+            Detection::new(
+                "pages_no_probe",
+                Layer::Client,
+                30,
+                format!("{pages} pages in ten minutes, every one with the probe, and no probe report"),
+            )
+            .with_class(Class::Automated)
+        })
     }
 
     /// Counts one page served to this client.
     pub fn record(&self, ip: IpAddr, client: [u8; 16], now: u64) {
         self.nets.hit(&crate::conn::ConnLimiter::network(ip), now);
         self.clients.hit(&client, now);
+        self.clients_long.hit(&client, now);
     }
 
     /// The detections this client's pages in the last minute earn.
@@ -374,6 +406,20 @@ mod tests {
     }
 
     #[test]
+    fn no_probe_fires_at_its_page_count_over_ten_minutes() {
+        let r = PageRates::new(1000, 1000, 3, 100);
+        let c = [9u8; 16];
+        // One page a minute: under the minute rates, counted over ten.
+        r.record(ip("192.0.2.1"), c, 1_000);
+        r.record(ip("192.0.2.1"), c, 1_060);
+        assert!(r.no_probe(c, 1_060).is_none());
+        r.record(ip("192.0.2.1"), c, 1_120);
+        assert_eq!(r.no_probe(c, 1_120).map(|d| d.id), Some("pages_no_probe".to_string()));
+        // Ten minutes after the first, it has left the window.
+        assert!(r.no_probe(c, 1_000 + 600).is_none());
+    }
+
+    #[test]
     fn peek_counts_nothing_and_slides_with_the_window() {
         let w: Window<u32> = Window::new(1, 10, 10);
         assert_eq!(w.peek(&1, 100), 0);
@@ -387,7 +433,7 @@ mod tests {
 
     #[test]
     fn page_rates_fire_past_their_limits() {
-        let r = PageRates::new(3, 2, 100);
+        let r = PageRates::new(3, 2, 20, 100);
         let a = [7u8; 16];
         for _ in 0..2 {
             r.record(ip("192.0.2.1"), a, 100);

@@ -92,6 +92,8 @@ pub struct Gateway {
     pub throttle: Throttle,
     /// `--flood-guard`: a ceiling on requests per network, before scoring.
     pub flood: crate::flood::FloodGuard,
+    /// `--shed`: a cap on requests in flight to the origin, after scoring.
+    pub shed: crate::shed::Shedder,
     /// Page loads per network and per client, for `rate_net_high` and
     /// `rate_client_high`.
     pub page_rates: crate::flood::PageRates,
@@ -249,6 +251,9 @@ impl Gateway {
 /// Carried from the request filter to the upstream filter.
 #[derive(Default)]
 pub struct Ctx {
+    /// This request's place among those in flight to the origin, given
+    /// back when the context is dropped.
+    in_flight: Option<crate::shed::InFlight>,
     /// Network address and client binding to count an HTML response
     /// against, for the page rates. `None` for a proven identity.
     page_key: Option<(IpAddr, [u8; 16])>,
@@ -949,7 +954,9 @@ impl Gateway {
         };
 
         // What this client's browser reported about itself, if it has.
-        match self.probes.get(&self.binding(f).0, now) {
+        let probe_record = self.probes.get(&self.binding(f).0, now);
+        let probe_reported = probe_record.is_some();
+        match probe_record {
             Some(found) => detections.extend(found),
             // Every challenge page runs the probe, so a client that holds a
             // token and never reported skipped or blocked the script.
@@ -1008,6 +1015,11 @@ impl Gateway {
             // `response_filter`), so a scraper is not let off by claiming
             // its requests are not page loads.
             detections.extend(self.page_rates.detections(f.ip, self.binding(f).0, now));
+            // Every page carried the probe, and this client never ran it. A
+            // token holder without a report already has `probe_missing`.
+            if self.inject_probe && !probe_reported && !token.is_valid() {
+                detections.extend(self.page_rates.no_probe(self.binding(f).0, now));
+            }
             detections.extend(self.agg.observe(
                 &Observation {
                     fingerprint: &fingerprint,
@@ -1222,6 +1234,21 @@ impl Gateway {
             tcp: f.syn.as_ref().map(|s| s.signature.clone()).unwrap_or_default(),
             tcp_ttl: f.syn.as_ref().map_or(0, |s| s.ttl),
         });
+    }
+
+    /// How much load shedding trusts a request (see `shed.rs`).
+    fn trust(f: &Facts, a: &Assessment) -> crate::shed::Trust {
+        use crate::shed::Trust;
+        if a.token.is_valid() || !f.known.is_empty() || a.identity.is_some() {
+            Trust::Kept
+        } else if matches!(a.verdict.class, Class::Automated | Class::Malicious | Class::UnverifiedAgent)
+            || a.net_class == "hosting"
+            || a.verdict.score < 60
+        {
+            Trust::Low
+        } else {
+            Trust::Plain
+        }
     }
 
     /// The flood guard. `None` when the request was answered (429) and
@@ -2023,6 +2050,17 @@ impl ProxyHttp for Gateway {
 
         match effective {
             Action::Pass => {
+                let (shed, line) = self.shed.check(Self::trust(&f, &a), now);
+                if let Some(line) = line {
+                    println!("{line}");
+                }
+                if shed == crate::shed::ShedVerdict::Shed {
+                    self.log(&f, &a, &d, "shed", now);
+                    self.respond(session, 503, "text/plain", b"busy, try again shortly".to_vec(), &[("retry-after", "5".to_string())])
+                        .await?;
+                    return Ok(true);
+                }
+                ctx.in_flight = Some(self.shed.enter());
                 let receipt = Self::claims_receipt(&f, &d);
                 self.log(&f, &a, &d, if receipt { "charge_receipt" } else { "passed" }, now);
                 if self.upstream.is_none() {

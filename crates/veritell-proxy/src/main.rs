@@ -15,7 +15,8 @@
 //!          [--privacy-pass-issuer name=key[,name=key]] [--ip-mode full|truncated|keyed]
 //!          [--header-timeout 15] [--body-timeout 60] [--write-timeout 30]
 //!          [--max-conns-per-network 256] [--flood-guard off|log|enforce] [--flood-limit 1000]
-//!          [--rate-net-limit 120] [--rate-client-limit 60]
+//!          [--rate-net-limit 120] [--rate-client-limit 60] [--no-probe-pages 20]
+//!          [--shed off|log|enforce] [--max-in-flight 256]
 //!          [--state-dir dir] [--state-flush 10] [--inject-probe on|off] [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity 200000]
 //!          [--share-export file] [--share-import file --share-import-key key[,key]] [--share-min-networks n] [--share-interval secs]
 //!          [--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]
@@ -50,7 +51,17 @@
 //! `Retry-After`; `off` counts nothing. `--rate-net-limit` and `--rate-client-limit` are pages a minute
 //! (responses from the origin with `text/html`) past which a request gets
 //! `rate_net_high` (per network) or `rate_client_high` (per client); the
-//! policy decides what they do.
+//! policy decides what they do. With `--inject-probe on`, a client served
+//! `--no-probe-pages` (20) pages in ten minutes that never sent a probe
+//! report gets `pages_no_probe`.
+//!
+//! `--shed` caps requests in flight to the origin at `--max-in-flight`
+//! (256). Past three quarters of it, a request of an automated, malicious
+//! or unverified-agent class, from a hosting network, or scoring under 60
+//! is refused; past the cap, every request without a session token, a
+//! known-person mark or a proven identity. `log` (the default) lets them
+//! through and writes a `shed` line each second it would have refused
+//! some; `enforce` answers 503 with `Retry-After: 5`.
 //!
 //! `--source-url` is the link to the source code on the pages the gateway
 //! serves itself (the challenge page), as AGPL-3.0 section 13 asks of a
@@ -146,6 +157,7 @@ mod maintenance;
 mod pass;
 mod probe;
 mod share;
+mod shed;
 mod sni;
 mod state;
 mod syn;
@@ -184,7 +196,7 @@ const USAGE: &str = "usage: veritell --cert <pem> --key <pem> [--listen addr:por
 [--agg-fanout-min n] [--agg-strikes n] [--model file.json] [--sidecar-listen addr:port] \
 [--wba-directory-allow ip:port[,ip:port]] [--wba-directory-ca file.pem] \
 [--privacy-pass-issuer name=key[,name=key]] [--share-export file] [--share-import file --share-import-key key[,key]] \
-[--share-min-networks n] [--share-interval secs] [--ip-mode full|truncated|keyed] [--header-timeout secs] [--body-timeout secs] [--write-timeout secs] [--source-url url|off] [--max-conns-per-network n] [--flood-guard off|log|enforce] [--flood-limit n] [--rate-net-limit n] [--rate-client-limit n] [--state-dir dir] [--state-flush secs] [--inject-probe on|off] \
+[--share-min-networks n] [--share-interval secs] [--ip-mode full|truncated|keyed] [--header-timeout secs] [--body-timeout secs] [--write-timeout secs] [--source-url url|off] [--max-conns-per-network n] [--flood-guard off|log|enforce] [--flood-limit n] [--rate-net-limit n] [--rate-client-limit n] [--no-probe-pages n] [--shed off|log|enforce] [--max-in-flight n] [--state-dir dir] [--state-flush secs] [--inject-probe on|off] \
 [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity n] \
 [--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]";
 
@@ -651,6 +663,16 @@ fn main() {
     let flood_limit = positive("flood-limit", flood::FloodGuard::DEFAULT_LIMIT);
     let rate_net_limit = positive("rate-net-limit", flood::PageRates::DEFAULT_NET_LIMIT);
     let rate_client_limit = positive("rate-client-limit", flood::PageRates::DEFAULT_CLIENT_LIMIT);
+    let no_probe_pages = positive("no-probe-pages", flood::PageRates::DEFAULT_NO_PROBE_PAGES);
+    let shed_mode = match args.get("shed").map(String::as_str) {
+        None => flood::GuardMode::Log,
+        Some(raw) => flood::GuardMode::parse(raw)
+            .unwrap_or_else(|| fail(format!("--shed: {raw:?} is not off, log or enforce"))),
+    };
+    let max_in_flight = positive("max-in-flight", shed::Shedder::DEFAULT_CAP);
+    if shed_mode != flood::GuardMode::Off {
+        eprintln!("veritell: load shedding {} at {max_in_flight} requests in flight", shed_mode.as_str());
+    }
     if flood_mode != flood::GuardMode::Off {
         eprintln!("veritell: flood guard {} at {flood_limit} requests per network in 10 s", flood_mode.as_str());
     }
@@ -787,7 +809,8 @@ fn main() {
         used_challenges: Arc::clone(&used_challenges),
         throttle: Throttle::new(100_000),
         flood: flood::FloodGuard::new(flood_mode, flood_limit, 100_000),
-        page_rates: flood::PageRates::new(rate_net_limit, rate_client_limit, 100_000),
+        page_rates: flood::PageRates::new(rate_net_limit, rate_client_limit, no_probe_pages, 100_000),
+        shed: shed::Shedder::new(shed_mode, max_in_flight),
         token_budget,
     };
 
