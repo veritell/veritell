@@ -335,7 +335,19 @@ async fn the_flood_guard_in_log_mode_lets_everything_through() {
         let (status, head, _, _) = send(&g, &get("/"), true).await;
         assert_eq!(status, 200, "{head}");
     }
-    assert_eq!(outcomes(&ring).len(), 6, "every request is still assessed");
+    // Past the ceiling, 1 in 100 is kept: the first past it (the 4th).
+    assert_eq!(outcomes(&ring).len(), 4, "3 under the ceiling and the first past it");
+}
+
+#[tokio::test]
+async fn a_flood_in_log_mode_keeps_one_event_in_a_hundred() {
+    let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
+    g.flood = crate::flood::FloodGuard::new(crate::flood::GuardMode::Log, 3, 100);
+    for _ in 0..3 + 250 {
+        send(&g, &get("/"), true).await;
+    }
+    // 3 under the ceiling; of the 250 past it, the 1st, 101st and 201st.
+    assert_eq!(outcomes(&ring).len(), 6);
 }
 
 #[tokio::test]

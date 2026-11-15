@@ -44,9 +44,10 @@
 //! `--flood-guard` is a ceiling on requests per IPv4 address or IPv6 /64:
 //! `--flood-limit` in any 10 seconds (1000 by default). It is checked before
 //! a request is scored and is apart from the policy mode: `log` (the
-//! default) lets everything through and reports each network past it once
-//! per window; `enforce` answers 429 with `Retry-After`; `off` counts
-//! nothing. `--rate-net-limit` and `--rate-client-limit` are pages a minute
+//! default) lets everything through, reports each network past it once
+//! per window and keeps 1 in 100 of its requests past the ceiling in the
+//! request log and the event store; `enforce` answers 429 with
+//! `Retry-After`; `off` counts nothing. `--rate-net-limit` and `--rate-client-limit` are pages a minute
 //! (responses from the origin with `text/html`) past which a request gets
 //! `rate_net_high` (per network) or `rate_client_high` (per client); the
 //! policy decides what they do.

@@ -485,6 +485,11 @@ struct Facts {
     /// The client's TCP SYN, where it was measured. Logged and stored only:
     /// nothing that scores or decides reads it.
     syn: Option<crate::syn::SynSeen>,
+    /// The network is past the flood guard's ceiling (in `log` mode) and
+    /// this request is not one of the 1 in 100 kept: no request line and no
+    /// event, so a flood cannot fill the event store's disk. The `flood`
+    /// line counts what was left out.
+    quiet: bool,
 }
 
 impl Facts {
@@ -582,6 +587,7 @@ fn gather(session: &Session, trusted_proxies: &[IpAddr]) -> Facts {
         authorization: header(req, "authorization").map(str::to_owned),
         fetch_mode: header(req, "sec-fetch-mode").map(str::to_owned),
         known: String::new(),
+        quiet: false,
         signed_headers: if req.headers.contains_key("signature-input") {
             req.headers
                 .iter()
@@ -1102,6 +1108,9 @@ impl Gateway {
     }
 
     fn log(&self, f: &Facts, a: &Assessment, d: &Decision, outcome: &str, now: u64) {
+        if f.quiet {
+            return;
+        }
         let line = serde_json::json!({
             "ts": now,
             "ip": self.stored_ip(f.ip),
@@ -1215,13 +1224,14 @@ impl Gateway {
         });
     }
 
-    /// The flood guard. True when the request was answered (429) and must
-    /// go no further. In `log` mode it only reports.
-    async fn flood_refuses(&self, session: &mut Session, f: &Facts, now: u64) -> Result<bool> {
+    /// The flood guard. `None` when the request was answered (429) and
+    /// must go no further; otherwise whether it goes on quietly (see
+    /// `Facts::quiet`). In `log` mode it only reports and samples.
+    async fn flood_check(&self, session: &mut Session, f: &Facts, now: u64) -> Result<Option<bool>> {
         use crate::flood::{GuardMode, GuardVerdict};
         let verdict = self.flood.check(f.ip, now);
         let (report, total) = match verdict {
-            GuardVerdict::Pass => return Ok(false),
+            GuardVerdict::Pass => return Ok(Some(false)),
             GuardVerdict::Over { total, report } => (report, Some(total)),
             // A full table is noted at most once a minute.
             GuardVerdict::Full => {
@@ -1241,16 +1251,20 @@ impl Gateway {
                     "window_secs": self.flood.retry_after(),
                     "limit": self.flood.limit,
                     "mode": self.flood.mode.as_str(),
+                    // In `log`, events past the ceiling are kept 1 in 100.
+                    "events_kept": if enforce { "none past the limit" } else { "1 in 100 past the limit" },
                 })
             );
         }
         if !enforce {
-            return Ok(false);
+            // Keep 1 in 100 of the requests past the ceiling.
+            let quiet = total.is_some_and(|t| t.saturating_sub(self.flood.limit) % 100 != 1);
+            return Ok(Some(quiet));
         }
         let retry = self.flood.retry_after().to_string();
         self.respond(session, 429, "text/plain", b"too many requests".to_vec(), &[("retry-after", retry)])
             .await?;
-        Ok(true)
+        Ok(None)
     }
 
     async fn respond(
@@ -1752,6 +1766,7 @@ impl Gateway {
             authorization: None,
             fetch_mode: None,
             known: String::new(),
+            quiet: false,
             signed_headers: if req.headers.contains_key("signature-input") {
                 req.headers
                     .iter()
@@ -1906,8 +1921,9 @@ impl ProxyHttp for Gateway {
         ctx.peer_ip = session.client_addr().and_then(|a| a.as_inet()).map(|a| canonical(a.ip()));
         ctx.client_ip = Some(f.ip);
         ctx.behind_proxy = ctx.peer_ip.is_some_and(|p| self.trusted_proxies.contains(&p));
-        if self.flood_refuses(session, &f, now).await? {
-            return Ok(true);
+        match self.flood_check(session, &f, now).await? {
+            None => return Ok(true),
+            Some(quiet) => f.quiet = quiet,
         }
         ctx.injection = crate::inject::Injection::for_request(
             self.inject_probe,
