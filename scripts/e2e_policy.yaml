@@ -3,6 +3,11 @@ routes:
   - name: open
     match: path.startsWith("/open")
     rules: []
+  - name: decoy
+    match: path.startsWith("/decoy")
+    rules:
+      - when: score < 101
+        action: decoy
   - name: everything-else
     rules:
       - when: class == "malicious"

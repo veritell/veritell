@@ -460,6 +460,13 @@ check "E24 no original URI is a 400"             "$(authz -H 'x-forwarded-for: 1
 check "E24 no client address is a 400"           "$(authz -H 'x-original-uri: /open/x' "$SC/__veritell/authz")" '^HTTP/1.1 400'
 check "E24 a URI that is not a path is a 400"    "$(authz -H 'x-original-uri: http://evil.example/' -H 'x-forwarded-for: 198.51.100.7' "$SC/__veritell/authz")" '^HTTP/1.1 400'
 check "E24 a look-alike path is not the endpoint" "$(authz -H 'x-forwarded-for: 198.51.100.7' "$SC/__veritell/authzx")" '^HTTP/1.1 404'
+# A decoy is the ordinary not-found on both paths, with nothing to tell it apart.
+r=$(authz -A "$CHROME_UA" -H 'x-original-uri: /decoy/x' -H 'x-forwarded-for: 198.51.100.7' "$SC/__veritell/authz")
+check "E24 a decoy is a 404 on the sidecar path" "$r" '^HTTP/1.1 404'
+refute "E24 with no verdict headers"             "$r" 'x-veritell'
+check "E24 and the not-found body"               "$(curl -s -H 'x-original-uri: /decoy/x' -H 'x-forwarded-for: 198.51.100.7' "$SC/__veritell/authz")" '^not found$'
+check "E24 a decoy in-line is the same 404"      "$(curl -sk --http2 -w ' %{http_code}' -H 'x-forwarded-for: 198.51.100.7' "$URL/decoy/x")" '^not found 404$'
+check "E24 both logged as decoyed"               "$(grep -c '"outcome":"decoyed"' "$WORK/wavec.log")" '^3$'
 # On the main listener the path is nothing special, and the model changes no action.
 r=$(status_of -sk --http2 -H 'x-original-uri: /open/x' -H 'x-forwarded-for: 198.51.100.7' "$URL/__veritell/authz")
 check "E24 on the main listener it is an ordinary path" "$r" '403'

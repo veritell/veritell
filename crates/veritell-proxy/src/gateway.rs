@@ -1300,6 +1300,12 @@ impl Gateway {
         Ok(None)
     }
 
+    /// The gateway's ordinary not-found. A decoyed request gets exactly this
+    /// answer, on either path, so it looks like any page that is not there.
+    async fn not_found(&self, session: &mut Session) -> Result<()> {
+        self.respond(session, 404, "text/plain", b"not found".to_vec(), &[]).await
+    }
+
     async fn respond(
         &self,
         session: &mut Session,
@@ -1727,11 +1733,7 @@ impl Gateway {
                     .unwrap_or(rest)
                     .to_string(),
             ),
-            _ => {
-                return self
-                    .respond(session, 404, "text/plain", b"not found".to_vec(), &[])
-                    .await
-            }
+            _ => return self.not_found(session).await,
         };
         // Nothing a stranger sends here is believed, and a stranger is not
         // told what score an address would get.
@@ -1851,7 +1853,13 @@ impl Gateway {
             Action::Throttle { .. } => (429, "throttled"),
             // A proxy waiting on this answer is not made to wait longer.
             Action::Tarpit => (429, "tarpitted"),
-            Action::Decoy => (403, "decoyed"),
+            // A decoy is the ordinary not-found, with none of the headers
+            // above: a proxy that passes the answer on shows the client a
+            // page that is not there, not a refusal.
+            Action::Decoy => {
+                self.log(&f, &a, &d, "decoyed", now);
+                return self.not_found(session).await;
+            }
             Action::Block => (403, "blocked"),
         };
         self.log(&f, &a, &d, outcome, now);
@@ -2163,11 +2171,11 @@ impl ProxyHttp for Gateway {
                     .await?;
                 Ok(true)
             }
-            // Phase 0 placeholder: a generic not-found instead of real decoy content.
+            // The same not-found the sidecar path answers: the client cannot
+            // tell it was caught, or which way the gateway is deployed.
             Action::Decoy => {
                 self.log(&f, &a, &d, "decoyed", now);
-                self.respond(session, 404, "text/plain", b"not found".to_vec(), &[])
-                    .await?;
+                self.not_found(session).await?;
                 Ok(true)
             }
             Action::Charge => {

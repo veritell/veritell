@@ -409,3 +409,35 @@ async fn shedding_in_log_mode_lets_everything_through() {
     let (status, _, _, _) = send(&g, &get("/"), true).await;
     assert_eq!(status, 200);
 }
+
+#[tokio::test]
+async fn a_decoy_is_the_ordinary_not_found_on_both_paths() {
+    // The head without the date, which differs from one answer to the next.
+    fn shape(answer: (u16, String, String, bool)) -> (u16, Vec<String>, String) {
+        let (status, head, body, _) = answer;
+        let lines = head.lines().skip(1).filter(|l| !l.starts_with("date:")).map(str::to_string).collect();
+        (status, lines, body)
+    }
+    let policy = Policy::from_yaml(
+        "mode: enforce\nroutes:\n  - name: trap\n    match: path.startsWith(\"/trap\")\n    rules:\n      - when: score < 101\n        action: decoy\n",
+    )
+    .unwrap();
+    let trusted = vec!["203.0.113.9".parse().unwrap()];
+    let (g, ring) = gateway(policy, trusted);
+
+    // What any path the gateway does not serve gets.
+    let normal = shape(send(&g, &get("/not-here"), false).await);
+    assert_eq!((normal.0, normal.2.as_str()), (404, "not found"));
+
+    let inline = send(&g, &get("/trap/x"), true).await;
+    assert!(inline.3, "answered by the gateway");
+    assert_eq!(shape(inline), normal, "in-line");
+
+    let request = format!(
+        "GET {AUTHZ_PATH} HTTP/1.1\r\nHost: shop.test\r\nX-Original-URI: /trap/x\r\nX-Forwarded-For: 198.51.100.4\r\nUser-Agent: curl/8.7.1\r\nConnection: close\r\n\r\n"
+    );
+    let sidecar = shape(send(&g, &request, false).await);
+    assert_eq!(sidecar, normal, "sidecar");
+    assert!(sidecar.1.iter().all(|l| !l.starts_with("x-veritell")), "{:?}", sidecar.1);
+    assert_eq!(outcomes(&ring), ["decoyed", "decoyed"]);
+}

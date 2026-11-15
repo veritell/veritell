@@ -4,7 +4,7 @@
 #
 # Usage: sidecar/check.sh
 #   Gateway first, with the end-to-end test policy (it passes everything under
-#   /open and challenges a low score elsewhere):
+#   /open, decoys everything under /decoy and challenges a low score elsewhere):
 #     veritell --cert cert.pem --key key.pem --policy scripts/e2e_policy.yaml \
 #       --sidecar-listen 127.0.0.1:9191 --trusted-proxy 127.0.0.1
 #   Upstream answering on 127.0.0.1:8080 and echoing the request headers it
@@ -88,7 +88,7 @@ start_and_check() {
   local name="$1"
   local log="$TMP/$name.log"
   local url="http://127.0.0.1:$PROXY_PORT/"
-  local s_browser s_curl s_probe body echoed
+  local s_browser s_curl s_decoy s_probe body echoed
 
   if [ "$(http_status "$url")" != "000" ]; then
     result_fail "$name: port $PROXY_PORT is already in use; not started"
@@ -141,6 +141,20 @@ EOF
     result_pass "$name: a refused request gets 403 and does not reach the upstream"
   else
     result_fail "$name: a refused request got $s_curl, expected 403"
+  fi
+
+  # (b1) A decoyed request gets a 404, like any page that is not there, and
+  # is not sent on: the upstream would answer 200.
+  s_decoy="$(http_status -A "$BROWSER_UA" "${url}decoy/x")"
+  if [ "$s_decoy" = "404" ]; then
+    result_pass "$name: a decoyed request gets 404 and does not reach the upstream"
+  else
+    result_fail "$name: a decoyed request got $s_decoy, expected 404"
+  fi
+  if curl -s -m 3 -D - -o /dev/null -A "$BROWSER_UA" "${url}decoy/x" | grep -qi '^x-veritell'; then
+    result_fail "$name: a decoyed request is shown X-Veritell-* headers"
+  else
+    result_pass "$name: a decoyed request is shown no X-Veritell-* headers"
   fi
 
   # (b2) The gateway's own pages are routed to its main listener, unchecked.
