@@ -3,7 +3,7 @@ certs/
 *.pem
 __pycache__/
 dist/
-.claude/settings.local.json
+.claude/
 /work/
 /data/
 /runs/
