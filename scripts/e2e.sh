@@ -13,6 +13,7 @@ CH_PORT=${CH_PORT:-9097}
 URL="https://localhost:$PORT"
 WORK=$(mktemp -d)
 CHROME_UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+SAFARI_UA="Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1"
 GOOGLEBOT_UA="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 export VERITELL_SECRET="e2e-test-secret-0123456789abcdef0123456789"
 fails=0
@@ -39,7 +40,10 @@ CURL_NOT_KNOWN="this curl isn't the LibreSSL build the truth table lists: $(curl
 # status_of CURL-ARGS...: only the response's status code.
 status_of() { curl -o /dev/null -w '%{http_code}' "$@"; }
 wait_port() { for _ in $(seq 1 50); do nc -z 127.0.0.1 "$1" 2>/dev/null && return 0; sleep 0.1; done; echo "port $1 never opened"; exit 1; }
-stop_proxy() { kill -INT "$PROXY" 2>/dev/null; for _ in $(seq 1 30); do nc -z 127.0.0.1 "$PORT" 2>/dev/null || return 0; sleep 0.1; done; kill -9 "$PROXY" 2>/dev/null; sleep 0.2; }
+wait_closed() { for _ in $(seq 1 30); do nc -z 127.0.0.1 "$1" 2>/dev/null || return 0; sleep 0.1; done; return 1; }
+# stop_gw PID PORT: a fast shutdown, then a kill if the port stays open.
+stop_gw() { kill -INT "$1" 2>/dev/null; wait_closed "$2" && return 0; kill -9 "$1" 2>/dev/null; sleep 0.2; }
+stop_proxy() { stop_gw "$PROXY" "$PORT"; }
 
 # A throwaway self-signed certificate when none is supplied.
 if [ ! -f "$CERT" ] || [ ! -f "$KEY" ]; then
@@ -77,7 +81,7 @@ fi
 check "E2 missing client hints"                  "$r" '"id": "missing_client_hints"'
 check "E2 HTTP/2 mismatch"                       "$r" '"id": "h2_pseudo_order_mismatch"'
 # A client claiming Safari is checked against what WebKit was seen to send.
-r=$(curl -sk --http2 -A "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1" "$URL/")
+r=$(curl -sk --http2 -A "$SAFARI_UA" "$URL/")
 check "E2 fake Safari UA: HTTP/2 settings are not WebKit's" "$r" '"id": "h2_settings_mismatch"'
 check "E2 fake Safari UA: class automated"       "$r" '"class": "automated"'
 
@@ -257,7 +261,7 @@ page=$(cat "$WORK/page.html")
 check "E4 low score is challenged (403)"         "$code" '403'
 check "E4 challenge page served"                 "$page" 'Checking your browser'
 refute "E31 without a token issuer the page never waits" \
-  "$(curl -sk --http2 -A 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1' -H 'sec-fetch-mode: navigate' "$URL/products?id=7")" 'data-probe data-wait='
+  "$(curl -sk --http2 -A "$SAFARI_UA" -H 'sec-fetch-mode: navigate' "$URL/products?id=7")" 'data-probe data-wait='
 check "E4 challenge page runs the probe"         "$page" '<script src="/__veritell/probe.js" async></script>'
 check "E48 challenge page links to the source"   "$page" '<a href="https://github.com/veritell/veritell">Source code</a> (AGPL-3.0)'
 check "E48 and says what it is"                  "$page" 'Powered by <a href="https://veritell.io">Veritell</a>'
@@ -644,7 +648,6 @@ code=$(status_of -sk --http2 -H "authorization: $tok" "$URL/products?id=7")
 check "E31 the same token a second time is refused" "$code $(last_outcome)" '^401 token_replayed$'
 
 # E31: on a page load in Safari the page waits for the token before leaving.
-SAFARI_UA="Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1"
 check "E31 Safari loading a page: the page waits for a token" \
   "$(curl -sk --http2 -A "$SAFARI_UA" -H 'sec-fetch-mode: navigate' "$URL/products?id=7")" 'data-probe data-wait="1500"'
 refute "E31 Chrome loading a page: no wait"      "$(curl -sk --http2 -A "$CHROME_UA" -H 'sec-fetch-mode: navigate' "$URL/products?id=7")" 'data-probe data-wait='
@@ -748,7 +751,7 @@ if [ "$aliases" = yes ]; then
   for _ in $(seq 1 40); do grep -q 'share bundle refused' "$WORK/shareb.err" && break; sleep 0.1; done
   check "E33 a bundle from an unknown key is refused" "$(cat "$WORK/shareb.err")" 'share bundle refused, keeping version'
   check "E33 and the report is still there"        "$(curl -sk --http2 "https://localhost:$PORT2/")" 'shared_fp_reported'
-  kill -INT "$PROXY2" 2>/dev/null
+  stop_gw "$PROXY2" "$PORT2"
 else
   echo "SKIP  E33 E34 sharing across networks: no loopback aliases 127.0.100-105.1 and 127.0.110-111.1"
   sleep 1.5
@@ -786,7 +789,7 @@ check "E35 and on localhost"                      "$(status_of -s -u "admin:$ADM
 check "E35 another Host is misdirected"           "$(status_of -s -u "admin:$ADMIN_TOKEN" -H "host: attacker.example:$ANY_ADMIN_PORT" "$ANY/")" '421'
 check "E35 so is 0.0.0.0 as a Host"               "$(status_of -s -u "admin:$ADMIN_TOKEN" -H "host: 0.0.0.0:$ANY_ADMIN_PORT" "$ANY/")" '421'
 refute "E35 the token is not logged there either" "$(cat "$WORK/anyadmin.log" "$WORK/anyadmin.err")" "$ADMIN_TOKEN"
-kill -INT "$ANYGW" 2>/dev/null; for _ in $(seq 1 30); do nc -z 127.0.0.1 "$ANY_ADMIN_PORT" 2>/dev/null || break; sleep 0.1; done
+stop_gw "$ANYGW" "$ANY_ADMIN_PORT"
 
 # E39: what is written for an address (--ip-mode). Scoring is unchanged.
 PORT3=${PORT3:-8445}; IP_ADMIN_PORT=${IP_ADMIN_PORT:-9089}
@@ -799,7 +802,7 @@ for mode in keyed truncated; do
   printf 'not a report' | curl -sk --http2 -o /dev/null -A "$CHROME_UA" --data-binary @- "https://localhost:$PORT3/__veritell/probe"
   sleep 0.3
   curl -s "http://127.0.0.1:$IP_ADMIN_PORT/api/events?limit=50" >"$WORK/ip_$mode.api"
-  kill -INT "$IPGW" 2>/dev/null; for _ in $(seq 1 30); do nc -z 127.0.0.1 "$PORT3" 2>/dev/null || break; sleep 0.1; done
+  stop_gw "$IPGW" "$PORT3"
 done
 check  "E39 keyed: log lines carry a keyed address"   "$(cat "$WORK/ip_keyed.log")" '"ip":"k:[0-9a-f]\{32\}"'
 check  "E39 keyed: one address, one value in a day"   "$(grep -o '"ip":"[^"]*"' "$WORK/ip_keyed.log" | sort -u | wc -l | tr -d ' ')" '^1$'
@@ -812,7 +815,6 @@ check  "E39 truncated: the /24 is written"            "$(cat "$WORK/ip_truncated
 refute "E39 truncated: the address is not"            "$(cat "$WORK/ip_truncated.log") $(cat "$WORK/ip_truncated.api")" '127\.0\.0\.1'
 check  "E39 an unknown mode stops start-up" \
   "$("$BIN" --cert "$CERT" --key "$KEY" --listen "127.0.0.1:$PORT3" --ip-mode hashed 2>&1 >/dev/null; echo "exit $?")" '--ip-mode: "hashed" is not full, truncated or keyed'
-refute "E39 no panics"                                "$(cat "$WORK/ip_keyed.err" "$WORK/ip_truncated.err")" 'panicked'
 
 # E41: clients that hold connections by sending slowly.
 "$BIN" --cert "$CERT" --key "$KEY" --listen "127.0.0.1:$PORT3" --header-timeout 3 --max-conns-per-network 3 \
@@ -828,8 +830,7 @@ check  "E41 places are given back"               "$(curl -sk -o /dev/null -w '%{
 check  "E41 HTTP/2 is unaffected"                "$(curl -sk -o /dev/null -w '%{http_code}' --http2 -A "$CHROME_UA" "https://localhost:$PORT3/")" '^200$'
 check  "E41 a keep-alive connection serves a second request" \
   "$(curl -sk -o /dev/null -o /dev/null -w '%{http_code}\n' --http1.1 -A "$CHROME_UA" "https://localhost:$PORT3/a" "https://localhost:$PORT3/b" | tr '\n' ' ')" '^200 200 $'
-refute "E41 no panics"                           "$(cat "$WORK/slow.err")" 'panicked'
-kill -INT "$SLOWGW" 2>/dev/null; for _ in $(seq 1 30); do nc -z 127.0.0.1 "$PORT3" 2>/dev/null || break; sleep 0.1; done
+stop_gw "$SLOWGW" "$PORT3"
 
 # ---- Phase 4 wave A: state that survives a restart (E36 to E38) ----
 U3="https://localhost:$PORT3"
@@ -843,7 +844,7 @@ start3() { # log name, then extra arguments
     >"$WORK/$name.log" 2>"$WORK/$name.err" &
   GW3=$!; PIDS+=("$GW3"); wait_port "$PORT3"
 }
-stop3() { kill -9 "$GW3" 2>/dev/null; wait "$GW3" 2>/dev/null; for _ in $(seq 1 30); do nc -z 127.0.0.1 "$PORT3" 2>/dev/null || break; sleep 0.1; done; }
+stop3() { kill -9 "$GW3" 2>/dev/null; wait "$GW3" 2>/dev/null; wait_closed "$PORT3"; }
 agent3() {
   local hs=() line
   while IFS= read -r line; do hs+=(-H "$line"); done < <("$SIGN" "localhost:$PORT3" "$(date +%s)" rfc)
@@ -904,7 +905,6 @@ check "E38 a changed file is refused"            "$(cat "$WORK/changed.err")" 's
 stop3
 check "E38 an unwritable state directory stops start-up" \
   "$("$BIN" --cert "$CERT" --key "$KEY" --listen "127.0.0.1:$PORT3" --state-dir "$WORK/no-such-dir" 2>&1 >/dev/null; echo "exit $?")" '--state-dir: .* is not a directory'
-refute "E36-E38 no panics"                      "$(cat "$WORK"/quota1.err "$WORK"/quota2.err "$WORK"/pass1.err "$WORK"/pass2.err "$WORK"/torn.err "$WORK"/changed.err)" 'panicked'
 
 # ---- Phase 4: known-person marks (E42, gate G18) ----
 export VERITELL_KNOWN_KEY="e2e-known-key-0123456789abcdef0123456789"
@@ -951,7 +951,6 @@ stop3
 unset VERITELL_KNOWN_KEY
 check  "E42 a short key stops start-up" \
   "$(VERITELL_KNOWN_KEY=short "$BIN" --cert "$CERT" --key "$KEY" --listen "127.0.0.1:$PORT3" 2>&1 >/dev/null; echo "exit $?")" 'VERITELL_KNOWN_KEY must be at least 32 bytes'
-refute "E42 no panics"                           "$(cat "$WORK/known.err")" 'panicked'
 
 # E43: the origin is told who connected.
 start3 xff --policy scripts/e2e_policy.yaml
@@ -1012,7 +1011,6 @@ refute "E48 off: no name either"                 "$nosrc" 'Powered by'
 stop3
 check  "E48 a URL that isn't plain http(s) stops start-up" \
   "$("$BIN" --cert "$CERT" --key "$KEY" --listen "127.0.0.1:$PORT3" --source-url 'javascript:alert(1)' 2>&1 >/dev/null; echo "exit $?")" 'is not a plain http(s) URL'
-refute "E44 no panics"                           "$(cat "$WORK/inject.err" "$WORK/noinject.err")" 'panicked'
 
 # ---- Audit of Phases 0-3: a full single-use store is not the client's fault (E45) ----
 # Not its fault, so no strike; but refused, because a full store can't tell a
@@ -1057,7 +1055,9 @@ check  "E46 a rebinding page's name is refused, even without a token" \
   "$(status_of -s -H "host: rebind.example:$IP_ADMIN46" "http://127.0.0.1:$IP_ADMIN46/api/events")" '^421$'
 stop3
 
-refute "no panics in the proxy log"              "$(cat "$WORK/enforce.err" "$WORK/shadow.err" "$WORK/waveb.err" "$WORK/wavec.err" "$WORK/stranger.err" "$WORK/wavea.err" "$WORK/pass.err" "$WORK/sharea.err" "$WORK/shareb.err")" 'panicked'
+# Every gateway started above wrote its stderr to a .err file.
+panicked=$(grep -l 'panicked' "$WORK"/*.err 2>/dev/null | sed 's|.*/||' | tr '\n' ' ')
+check "no panics in any gateway log"             "${panicked:-none}" '^none$'
 
 echo
 [ "$skips" -gt 0 ] && echo "$skips skipped: see the SKIP lines for why"
