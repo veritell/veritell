@@ -26,6 +26,7 @@ jobs:
       - name: Build tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake clang libclang-dev netcat-openbsd
       - name: Build gateway
+        id: build
         run: cargo build --release --locked -p veritell-proxy
       - name: Test certificate
         run: |
@@ -34,3 +35,9 @@ jobs:
             -keyout certs/key.pem -out certs/cert.pem -days 2 -subj /CN=localhost
       - name: e2e.sh
         run: scripts/e2e.sh
+      # The gateway in front of an HTTPS origin (scripts/tls_origin.py, which
+      # needs only the python3 the runner has) with its own test CA. Runs
+      # even when e2e.sh failed, so one run reports both.
+      - name: e2e_upstream_tls.sh
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: scripts/e2e_upstream_tls.sh
