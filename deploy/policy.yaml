@@ -3,8 +3,15 @@
 # are the gateway's defaults until a threshold review of your own
 # traffic says otherwise.
 mode: shadow
+# Requests a day for each verified crawler or signed agent. Past it, the
+# last rule below slows it down; nothing else changes for it.
+quotas:
+  default: 10000
 routes:
   - name: everything
+    # The first rule that matches decides, so the throttles come after the
+    # blocks and challenges: a fast client that scores low is still
+    # challenged.
     rules:
       - when: class == "malicious"
         action: block
@@ -12,3 +19,9 @@ routes:
         action: block
       - when: score < 60
         action: challenge(pow)
+      # Past the page rates (`--rate-net-limit`, `--rate-client-limit`):
+      # slowed per address, not stopped.
+      - when: '"rate_client_high" in detections || "rate_net_high" in detections'
+        action: throttle(30/min)
+      - when: identity != "" && quota_left == 0
+        action: throttle(10/min)
