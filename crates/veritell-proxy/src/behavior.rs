@@ -1,10 +1,9 @@
 //! Behaviour plumbing: the script and report endpoints, and what each
 //! client's summaries have shown so far.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use veritell_core::Detection;
+
+use crate::probe::{add_detections, BindingStore};
 
 pub const SCRIPT_PATH: &str = "/__veritell/behavior.js";
 pub const REPORT_PATH: &str = "/__veritell/behavior";
@@ -83,68 +82,16 @@ pub struct Seen {
     pub any_input: bool,
 }
 
-struct Record {
-    seen: Seen,
-    expires_at: u64,
-}
-
-/// Behaviour results per client binding. Bounded and in process memory.
-/// Evidence accumulates, as in the probe store: a later clean summary does
-/// not erase an earlier detection.
-pub struct BehaviorStore {
-    records: Mutex<HashMap<[u8; 16], Record>>,
-    max_entries: usize,
-}
+/// Behaviour results per client binding, kept by the same rules as the
+/// probe results.
+pub type BehaviorStore = BindingStore<Seen>;
 
 impl BehaviorStore {
-    pub fn new(max_entries: usize) -> Self {
-        BehaviorStore {
-            records: Mutex::new(HashMap::new()),
-            max_entries: max_entries.max(1),
-        }
-    }
-
-    /// `None` when this client has sent no summary.
-    pub fn get(&self, binding: &[u8; 16], now: u64) -> Option<Seen> {
-        let map = self.records.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(binding)
-            .filter(|r| r.expires_at >= now)
-            .map(|r| r.seen.clone())
-    }
-
-    pub fn put(
-        &self,
-        binding: [u8; 16],
-        detections: Vec<Detection>,
-        has_input: bool,
-        expires_at: u64,
-        now: u64,
-    ) {
-        let mut map = self.records.lock().unwrap_or_else(|e| e.into_inner());
-        if map.len() >= self.max_entries && !map.contains_key(&binding) {
-            map.retain(|_, r| r.expires_at >= now);
-            if map.len() >= self.max_entries {
-                // Still full of live records: forget one rather than grow.
-                if let Some(key) = map.keys().next().copied() {
-                    map.remove(&key);
-                }
-            }
-        }
-        let record = map.entry(binding).or_insert(Record {
-            seen: Seen::default(),
-            expires_at,
+    pub fn put(&self, binding: [u8; 16], detections: Vec<Detection>, has_input: bool, expires_at: u64, now: u64) {
+        self.update(binding, expires_at, now, |seen| {
+            seen.any_input |= has_input;
+            add_detections(&mut seen.detections, detections, MAX_DETECTIONS);
         });
-        if record.expires_at < now {
-            record.seen = Seen::default();
-        }
-        record.expires_at = expires_at;
-        record.seen.any_input |= has_input;
-        for d in detections {
-            let known = record.seen.detections.iter().any(|k| k.id == d.id);
-            if !known && record.seen.detections.len() < MAX_DETECTIONS {
-                record.seen.detections.push(d);
-            }
-        }
     }
 }
 
@@ -191,10 +138,33 @@ mod tests {
         for i in 0..50u8 {
             s.put([i; 16], vec![], false, 100, 0);
         }
-        assert!(s.records.lock().unwrap().len() <= 3);
+        assert!(s.len() <= 3);
         let many: Vec<Detection> = (0..100).map(|i| det(&format!("d{i}"))).collect();
         s.put([9; 16], many, false, 100, 0);
         assert_eq!(s.get(&[9; 16], 0).unwrap().detections.len(), MAX_DETECTIONS);
+    }
+
+    #[test]
+    fn a_full_store_forgets_the_record_nearest_its_end() {
+        let s = BehaviorStore::new(2);
+        s.put([1; 16], vec![det("a")], true, 500, 10);
+        s.put([2; 16], vec![], false, 100, 10);
+        s.put([3; 16], vec![], false, 900, 10);
+        assert!(s.get(&[2; 16], 10).is_none(), "the one ending soonest went");
+        let kept = s.get(&[1; 16], 10).unwrap();
+        assert_eq!((kept.detections.len(), kept.any_input), (1, true), "the others are untouched");
+        assert!(s.get(&[3; 16], 10).is_some());
+    }
+
+    #[test]
+    fn a_shorter_result_does_not_cut_the_record_short() {
+        let s = BehaviorStore::new(10);
+        let b = [1u8; 16];
+        s.put(b, vec![det("a")], false, 500, 0);
+        s.put(b, vec![], true, 100, 10);
+        let seen = s.get(&b, 400).expect("still on record past the shorter expiry");
+        assert_eq!((seen.detections.len(), seen.any_input), (1, true));
+        assert!(s.get(&b, 501).is_none());
     }
 
     #[test]

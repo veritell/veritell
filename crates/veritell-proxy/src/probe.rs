@@ -205,45 +205,44 @@ fn page_keys(report_json: &[u8]) -> Option<Vec<String>> {
     serde_json::from_slice::<Top>(report_json).ok()?.0
 }
 
-struct Record {
-    detections: Vec<Detection>,
+struct Record<T> {
+    value: T,
     expires_at: u64,
 }
 
-/// Analysed probe results per client binding. Bounded and in process memory.
+/// Results per client binding, bounded and in process memory: the probe
+/// store ([`ProbeStore`]) and the behaviour store
+/// (`crate::behavior::BehaviorStore`).
 ///
-/// Evidence accumulates: a later clean report does not erase what an earlier
-/// one showed, so a client cannot wash a bad result by sending a forged one.
-pub struct ProbeStore {
-    records: Mutex<HashMap<[u8; 16], Record>>,
+/// Evidence accumulates: a later clean result does not erase what an
+/// earlier one showed, so a client cannot wash a bad result by sending a
+/// forged one.
+pub struct BindingStore<T> {
+    records: Mutex<HashMap<[u8; 16], Record<T>>>,
     max_entries: usize,
 }
 
-impl ProbeStore {
+impl<T: Clone + Default> BindingStore<T> {
     pub fn new(max_entries: usize) -> Self {
-        ProbeStore {
+        BindingStore {
             records: Mutex::new(HashMap::new()),
             max_entries: max_entries.max(1),
         }
     }
 
-    /// Detections on record for this client, or `None` if it has not reported.
-    pub fn get(&self, binding: &[u8; 16], now: u64) -> Option<Vec<Detection>> {
-        let map = self.records.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(binding)
-            .filter(|r| r.expires_at >= now)
-            .map(|r| r.detections.clone())
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<[u8; 16], Record<T>>> {
+        self.records.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Merges a new result into the record and returns what is now on record.
-    pub fn put(
-        &self,
-        binding: [u8; 16],
-        detections: Vec<Detection>,
-        expires_at: u64,
-        now: u64,
-    ) -> Vec<Detection> {
-        let mut map = self.records.lock().unwrap_or_else(|e| e.into_inner());
+    /// What is on record for this client, or `None` if it has sent nothing.
+    pub fn get(&self, binding: &[u8; 16], now: u64) -> Option<T> {
+        self.lock().get(binding).filter(|r| r.expires_at >= now).map(|r| r.value.clone())
+    }
+
+    /// Merges a new result into the record with `merge` and returns what is
+    /// now on record. A record past its expiry starts again from empty.
+    pub(crate) fn update(&self, binding: [u8; 16], expires_at: u64, now: u64, merge: impl FnOnce(&mut T)) -> T {
+        let mut map = self.lock();
         if map.len() >= self.max_entries && !map.contains_key(&binding) {
             map.retain(|_, r| r.expires_at >= now);
             if map.len() >= self.max_entries {
@@ -256,29 +255,45 @@ impl ProbeStore {
                 }
             }
         }
-        let record = map.entry(binding).or_insert(Record {
-            detections: Vec::new(),
-            expires_at,
-        });
+        let record = map.entry(binding).or_insert(Record { value: T::default(), expires_at });
         if record.expires_at < now {
-            record.detections.clear();
+            record.value = T::default();
         }
         // A shorter result never cuts short what is already on record.
         record.expires_at = record.expires_at.max(expires_at);
-        for d in detections {
-            let known = record.detections.iter().any(|k| k.id == d.id);
-            if !known && record.detections.len() < MAX_DETECTIONS {
-                record.detections.push(d);
-            }
+        merge(&mut record.value);
+        record.value.clone()
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.lock().len()
+    }
+}
+
+/// Adds the detections not already on record (by id), up to `max`.
+pub fn add_detections(on_record: &mut Vec<Detection>, new: Vec<Detection>, max: usize) {
+    for d in new {
+        if on_record.len() < max && !on_record.iter().any(|k| k.id == d.id) {
+            on_record.push(d);
         }
-        record.detections.clone()
+    }
+}
+
+/// Analysed probe results per client binding.
+pub type ProbeStore = BindingStore<Vec<Detection>>;
+
+impl ProbeStore {
+    /// Merges a new result into the record and returns what is now on record.
+    pub fn put(&self, binding: [u8; 16], detections: Vec<Detection>, expires_at: u64, now: u64) -> Vec<Detection> {
+        self.update(binding, expires_at, now, |on_record| add_detections(on_record, detections, MAX_DETECTIONS))
     }
 
     /// The live records as JSON, for `--state-dir`: without them a restart
     /// would mark every client holding a token `probe_missing` until its
     /// token expired, although it did run the probe.
     pub fn export(&self, now: u64) -> Vec<u8> {
-        let map = self.records.lock().unwrap_or_else(|e| e.into_inner());
+        let map = self.lock();
         let rows: Vec<serde_json::Value> = map
             .iter()
             .filter(|(_, r)| r.expires_at >= now)
@@ -286,7 +301,7 @@ impl ProbeStore {
                 serde_json::json!({
                     "b": b.iter().map(|x| format!("{x:02x}")).collect::<String>(),
                     "e": r.expires_at,
-                    "d": r.detections,
+                    "d": r.value,
                 })
             })
             .collect();
@@ -318,13 +333,13 @@ impl ProbeStore {
             }
             parsed.push((binding, row.e, row.d));
         }
-        let mut map = self.records.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.lock();
         let mut loaded = 0;
         for (binding, expires_at, detections) in parsed {
             if expires_at < now || (map.len() >= self.max_entries && !map.contains_key(&binding)) {
                 continue;
             }
-            map.insert(binding, Record { detections, expires_at });
+            map.insert(binding, Record { value: detections, expires_at });
             loaded += 1;
         }
         Ok(loaded)
@@ -379,7 +394,8 @@ mod tests {
         assert_eq!(s.get(&b, 200).map(|d| d.len()), Some(2));
         assert!(s.get(&b, 201).is_none());
         // After expiry a new report starts a fresh record.
-        assert_eq!(s.put(b, vec![], 400, 300).len(), 0);        // A result with a shorter life does not cut the record short.
+        assert_eq!(s.put(b, vec![], 400, 300).len(), 0);
+        // A result with a shorter life does not cut the record short.
         s.put(b, vec![det("c")], 350, 310);
         assert_eq!(s.get(&b, 380).map(|d| d.len()), Some(1));
     }
@@ -390,7 +406,7 @@ mod tests {
         for i in 0..50u8 {
             s.put([i; 16], vec![], 100, 0);
         }
-        assert!(s.records.lock().unwrap().len() <= 3);
+        assert!(s.len() <= 3);
         let many: Vec<Detection> = (0..100).map(|i| det(&format!("d{i}"))).collect();
         assert_eq!(s.put([9; 16], many, 100, 0).len(), MAX_DETECTIONS);
     }
