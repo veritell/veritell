@@ -19,6 +19,10 @@ routes:
         action: block
       - when: score < 60
         action: challenge(pow)
+      # Many pages, each with the probe, and never a report: a silent
+      # challenge runs the probe; a browser passes it at once.
+      - when: '"pages_no_probe" in detections'
+        action: challenge(silent)
       # Past the page rates (`--rate-net-limit`, `--rate-client-limit`):
       # slowed per address, not stopped.
       - when: '"rate_client_high" in detections || "rate_net_high" in detections'

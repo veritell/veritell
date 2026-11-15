@@ -63,6 +63,15 @@ fn the_throttles_do_not_hide_the_blocks_and_challenges() {
 }
 
 #[test]
+fn pages_without_a_probe_report_get_a_silent_challenge() {
+    let p = policy();
+    let found = ids(&["pages_no_probe"]);
+    assert_eq!(p.evaluate(&input(65, Class::Automated, &found)).action, Action::Challenge(ChallengeKind::Silent));
+    // A low score still decides first.
+    assert_eq!(p.evaluate(&input(50, Class::Automated, &found)).action, Action::Challenge(ChallengeKind::Pow));
+}
+
+#[test]
 fn a_proven_identity_past_its_quota_is_throttled() {
     let p = policy();
     assert_eq!(p.quota_for("googlebot"), Some(10_000));
