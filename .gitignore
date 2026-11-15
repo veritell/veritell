@@ -4,6 +4,6 @@ certs/
 __pycache__/
 dist/
 .claude/settings.local.json
-work/
-data/
-runs/
+/work/
+/data/
+/runs/
