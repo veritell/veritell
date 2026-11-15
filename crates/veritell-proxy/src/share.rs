@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use veritell_core::{Class, Detection};
 use veritell_feed::{FeedKey, Live};
-use veritell_share::{Imported, Ledger, ShareKey};
+use veritell_share::{Entry, Imported, Ledger, ShareError, ShareKey, FILE_NAME};
 
 use crate::state::now_secs;
 
@@ -80,9 +80,11 @@ fn write_export(sharing: &Sharing, to: &ExportTo, now: u64) -> Result<usize, Str
 }
 
 /// One look at the import file. Takes it if its modification time changed
-/// since `last_seen` (`None` when there is nothing new to try). A bundle is
-/// tried once per change, taken or refused. On success returns the version
-/// and how many fingerprints are now imported, and `version` becomes it.
+/// since `last_seen` (`None` when there is nothing new to try). A file that
+/// could not be read is tried again on the next look; one that was read
+/// (taken or refused) waits until it changes. On success returns the
+/// version and how many fingerprints are now imported, and `version`
+/// becomes it.
 fn check_import(
     sharing: &Sharing,
     from: &ImportFrom,
@@ -94,14 +96,12 @@ fn check_import(
     if modified.is_none() || modified == *last_seen {
         return None;
     }
+    let bytes = match std::fs::read(&from.path) {
+        Ok(bytes) => bytes,
+        Err(e) => return Some(Err(format!("cannot read: {e}"))),
+    };
     *last_seen = modified;
-    let outcome = std::fs::read(&from.path).map_err(|e| format!("cannot read: {e}")).and_then(|bytes| {
-        let (v, entries) = veritell_share::open_bundle(&bytes, &from.keys, now, *version).map_err(|e| e.to_string())?;
-        // The same bytes, already verified: only for the expiry.
-        let expires = veritell_feed::open(&bytes, &from.keys, now, 0).map_err(|e| e.to_string())?.expires;
-        Ok((v, expires, entries))
-    });
-    Some(outcome.map(|(v, expires, entries)| {
+    Some(open_import(&bytes, &from.keys, now, *version).map(|(v, expires, entries)| {
         *version = v;
         let imported = Imported::new(&entries);
         let count = imported.len();
@@ -109,6 +109,18 @@ fn check_import(
         sharing.imported_until.store(expires, Ordering::Relaxed);
         (v, count)
     }))
+}
+
+/// What `veritell_share::open_bundle` does, opening the bundle once and
+/// keeping its expiry as well: the version, the expiry and the entries.
+fn open_import(bytes: &[u8], keys: &[FeedKey], now: u64, min_version: u64) -> Result<(u64, u64, Vec<Entry>), String> {
+    let bundle = veritell_feed::open(bytes, keys, now, min_version).map_err(|e| ShareError::Bundle(e).to_string())?;
+    let file = match (bundle.names().as_slice(), bundle.file(FILE_NAME)) {
+        ([name], Some(file)) if *name == FILE_NAME => file,
+        _ => return Err(ShareError::Files.to_string()),
+    };
+    let entries = veritell_share::decode(file).map_err(|e| e.to_string())?;
+    Ok((bundle.version, bundle.expires, entries))
 }
 
 /// Runs forever on its own thread.
@@ -145,7 +157,6 @@ pub fn run(sharing: Arc<Sharing>, export: Option<ExportTo>, import: Option<Impor
 #[cfg(test)]
 mod tests {
     use super::*;
-    use veritell_share::Entry;
 
     #[test]
     fn imported_hints_stop_at_the_bundles_expiry() {
@@ -237,6 +248,36 @@ mod tests {
         assert!(importer.reported_at("bot-fp", NOW).is_some());
         assert!(importer.reported_at("bot-fp", NOW + EXPORT_LIFETIME_SECS).is_none(), "gone at expiry");
         assert_eq!(check_import(&importer, &from, &mut last_seen, &mut version, NOW), None, "unchanged");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_bundle_that_could_not_be_read_is_tried_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("unreadable");
+        let path = dir.join("share.json");
+        let entry = Entry { hash: ShareKey::new(SECRET).unwrap().hash("bot-fp"), class: Class::Automated };
+        std::fs::write(&path, veritell_share::seal_bundle(&[entry], 7, NOW, NOW + 60, &SEED).unwrap()).unwrap();
+        // Unreadable, without touching the modification time.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&path).is_ok() {
+            // Running as root: permissions do not stop the read.
+            std::fs::remove_dir_all(dir).unwrap();
+            return;
+        }
+        let importer = sharing(None);
+        let from = ImportFrom { path: path.clone(), keys: vec![veritell_feed::public_key(&SEED)] };
+        let (mut last_seen, mut version) = (None, 0u64);
+        let failed = check_import(&importer, &from, &mut last_seen, &mut version, NOW).unwrap().unwrap_err();
+        assert!(failed.starts_with("cannot read"), "{failed}");
+        assert_eq!((last_seen, version), (None, 0), "not marked as seen");
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(check_import(&importer, &from, &mut last_seen, &mut version, NOW), Some(Ok((7, 1))), "taken on a later look");
+        assert_eq!(importer.imported_until.load(Ordering::Relaxed), NOW + 60);
+        assert!(importer.reported_at("bot-fp", NOW).is_some());
+        assert_eq!(check_import(&importer, &from, &mut last_seen, &mut version, NOW), None, "and then seen");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
