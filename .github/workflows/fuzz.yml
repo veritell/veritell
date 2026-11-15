@@ -4,7 +4,9 @@
 # directories).
 name: fuzz
 on:
+  # Pushes to main; a pull request's branch runs through pull_request only.
   push:
+    branches: [main]
     paths:
       - "crates/**"
       - "fuzz/**"

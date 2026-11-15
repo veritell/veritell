@@ -1,8 +1,10 @@
-# The fast suite (./test.sh: fixed contracts, cargo test, rollout-kit tests)
-# and the probe checks that need no browser. Browser-driven runs are in lab.yml.
+# The fast suite (./test.sh: fixed contracts, cargo test, the probe checks
+# that need no browser, rollout-kit tests). Browser-driven runs are in lab.yml.
 name: test
 on:
+  # Pushes to main; a pull request's branch runs through pull_request only.
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -27,12 +29,3 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake clang libclang-dev
       - name: test.sh
         run: ./test.sh
-      - name: Probe scripts parse
-        run: |
-          node --check probe/probe.js
-          node --check probe/behavior.js
-      - name: Probe reports match the schema
-        run: |
-          for f in probe/test/captured-*.json; do
-            node probe/validate.mjs "$f"
-          done
