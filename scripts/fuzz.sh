@@ -20,7 +20,7 @@ if [ "$toolchain" = "stable" ]; then
   export RUSTC_BOOTSTRAP=1
 fi
 
-python3 "$root/crates/veritell-fp/fuzz/make_seeds.py" >/dev/null 2>&1 || true
+python3 -I "$root/crates/veritell-fp/fuzz/make_seeds.py" >/dev/null 2>&1 || true
 python3 -I "$root/fuzz/make_seeds.py" >/dev/null 2>&1 || true
 
 fail=0

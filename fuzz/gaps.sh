@@ -19,10 +19,12 @@ dirs=("$@")
 cd "$root"
 rm -rf "fuzz/coverage/$t"
 cargo +nightly fuzz coverage "$t" "${dirs[@]}" >/dev/null 2>&1 || cargo +nightly fuzz coverage "$t" "${dirs[@]}"
-bin="$(rustc +nightly --print sysroot)/lib/rustlib/x86_64-unknown-linux-gnu/bin"
+# The host triple: cargo fuzz builds for it, and llvm-tools installs under it.
+host="$(rustc +nightly -vV | sed -n 's/^host: //p')"
+bin="$(rustc +nightly --print sysroot)/lib/rustlib/$host/bin"
 exe=""
 for d in fuzz/target target; do
-  c="$d/x86_64-unknown-linux-gnu/coverage/x86_64-unknown-linux-gnu/release/$t"
+  c="$d/$host/coverage/$host/release/$t"
   [ -x "$c" ] && { exe="$c"; break; }
 done
 [ -n "$exe" ] || { echo "coverage build of $t not found" >&2; exit 1; }
