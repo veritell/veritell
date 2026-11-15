@@ -92,6 +92,39 @@ impl TlsAccept for TlsCallbacks {
 pub struct ConnLimiter {
     max_per_network: u32,
     open: Mutex<HashMap<IpAddr, u32>>,
+    stats: Mutex<ConnStats>,
+}
+
+/// What one hour of connections looked like, without any address: the most
+/// any one network held open at once, how often a network reached each
+/// level, and how many connections the cap refused. Written as a
+/// `conn_peak` line when the first connection of the next hour arrives, so
+/// a cap can be chosen from what real clients do.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ConnStats {
+    /// The hour (Unix seconds / 3600) these counts belong to.
+    hour: u64,
+    pub peak: u32,
+    /// Times a network's open connections reached 16, 32, 64 and 128.
+    pub reached: [u32; 4],
+    pub refused: u32,
+}
+
+const LEVELS: [u32; 4] = [16, 32, 64, 128];
+
+impl ConnStats {
+    fn line(&self) -> serde_json::Value {
+        serde_json::json!({
+            "kind": "conn_peak",
+            "hour_start": self.hour * 3600,
+            "peak": self.peak,
+            "reached_16": self.reached[0],
+            "reached_32": self.reached[1],
+            "reached_64": self.reached[2],
+            "reached_128": self.reached[3],
+            "refused": self.refused,
+        })
+    }
 }
 
 /// Held for the life of a connection; gives its place back when dropped.
@@ -102,7 +135,11 @@ pub struct ConnGuard {
 
 impl ConnLimiter {
     pub fn new(max_per_network: u32) -> Arc<ConnLimiter> {
-        Arc::new(ConnLimiter { max_per_network, open: Mutex::new(HashMap::new()) })
+        Arc::new(ConnLimiter {
+            max_per_network,
+            open: Mutex::new(HashMap::new()),
+            stats: Mutex::new(ConnStats::default()),
+        })
     }
 
     pub fn network(ip: IpAddr) -> IpAddr {
@@ -121,14 +158,52 @@ impl ConnLimiter {
     /// A place for one more connection from `ip`, or `None` when its network
     /// already has the maximum open.
     pub fn acquire(self: &Arc<Self>, ip: IpAddr) -> Option<ConnGuard> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let (guard, finished) = self.acquire_at(ip, now);
+        if let Some(stats) = finished {
+            println!("{}", stats.line());
+        }
+        guard
+    }
+
+    /// As [`ConnLimiter::acquire`] at `now`; also returns the last hour's
+    /// counts when this is the first connection of a new hour.
+    fn acquire_at(self: &Arc<Self>, ip: IpAddr, now: u64) -> (Option<ConnGuard>, Option<ConnStats>) {
         let network = Self::network(ip);
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
         let count = open.entry(network).or_insert(0);
-        if *count >= self.max_per_network {
-            return None;
+        let admitted = *count < self.max_per_network;
+        if admitted {
+            *count += 1;
         }
-        *count += 1;
-        Some(ConnGuard { limiter: Arc::clone(self), network })
+        let held = *count;
+        drop(open);
+
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
+        let hour = now / 3600;
+        let mut finished = None;
+        if hour > stats.hour {
+            let old = std::mem::take(&mut *stats);
+            // Nothing to report for the first hour seen, or an empty one.
+            if old.hour != 0 && old.peak != 0 {
+                finished = Some(old);
+            }
+            stats.hour = hour;
+        }
+        if admitted {
+            stats.peak = stats.peak.max(held);
+            if let Some(i) = LEVELS.iter().position(|&l| l == held) {
+                stats.reached[i] = stats.reached[i].saturating_add(1);
+            }
+        } else {
+            stats.refused = stats.refused.saturating_add(1);
+        }
+        drop(stats);
+
+        let guard = admitted.then(|| ConnGuard { limiter: Arc::clone(self), network });
+        (guard, finished)
     }
 
     #[cfg(test)]
@@ -263,6 +338,27 @@ mod tests {
         drop(b);
         assert_eq!(l.open_for(ip("203.0.113.9")), 0);
         assert!(l.open.lock().unwrap().is_empty(), "no entry is left for a network with nothing open");
+    }
+
+    #[test]
+    fn an_hour_of_connections_is_reported_without_addresses() {
+        let l = ConnLimiter::new(17);
+        let t = 3600 * 500_000;
+        let mut held = Vec::new();
+        for _ in 0..17 {
+            held.push(l.acquire_at(ip("203.0.113.9"), t).0.unwrap());
+        }
+        let (refused, none) = l.acquire_at(ip("203.0.113.9"), t + 10);
+        assert!(refused.is_none() && none.is_none(), "same hour: nothing reported yet");
+        let (_, report) = l.acquire_at(ip("198.51.100.1"), t + 3600);
+        let report = report.expect("the first connection of the next hour reports the last");
+        assert_eq!((report.peak, report.reached, report.refused), (17, [1, 0, 0, 0], 1));
+        let line = report.line().to_string();
+        assert!(!line.contains("203.0.113"), "{line}");
+        // The new hour starts from zero, and a quiet hour is not reported.
+        let (_, again) = l.acquire_at(ip("198.51.100.1"), t + 3 * 3600);
+        assert_eq!(again.map(|s| s.peak), Some(1), "the hour of t + 3600 held one");
+        drop(held);
     }
 
     #[test]
