@@ -983,7 +983,9 @@ check  "E44 the length that arrives is the page's" "$(wc -c < "$WORK/inj.html" |
 check  "E44 over HTTP/1.1 too"                   "$(curl -sk --http1.1 -A "$CHROME_UA" "$U3/html/page")" "$SNIP</head>"
 h1=$(curl -sk --http1.1 -v -A "$CHROME_UA" -o /dev/null -o /dev/null "$U3/html/page" "$U3/html/page" 2>&1 | tr -d '\r')
 check  "E44 over HTTP/1.1 the changed page is sent chunked" "$h1" '^< [Tt]ransfer-[Ee]ncoding: chunked$'
-check  "E44 over HTTP/1.1 the connection is kept for the next request" "$h1" 'Re-using existing connection'
+# curl 8.14 and later write "Re-using existing https: connection", earlier ones
+# "Re-using existing connection".
+check  "E44 over HTTP/1.1 the connection is kept for the next request" "$h1" 'Re-using existing [a-z]*:* *connection'
 refute "E44 not for a script's fetch"            "$(curl -sk --http2 -A "$CHROME_UA" -H 'sec-fetch-dest: empty' "$U3/html/page")" 'probe.js'
 refute "E44 not for an iframe"                   "$(curl -sk --http2 -A "$CHROME_UA" -H 'sec-fetch-dest: iframe' "$U3/html/page")" 'probe.js'
 refute "E44 not for a compressed page"           "$(curl -sk --http2 -A "$CHROME_UA" "$U3/html/gz")" 'probe.js'
