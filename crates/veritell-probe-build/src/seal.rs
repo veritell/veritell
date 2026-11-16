@@ -200,6 +200,9 @@ fn reorder_keys(root: &mut Ordered, orders: &[Vec<String>]) {
                     for slot in slots.iter().rev() {
                         moving.push(entries.remove(*slot));
                     }
+                    // Back in written order, so a key written twice keeps
+                    // its copies in order (the sort below is stable).
+                    moving.reverse();
                     moving.sort_by_key(|(k, _)| rank(k));
                     for (slot, entry) in slots.into_iter().zip(moving) {
                         entries.insert(slot.min(entries.len()), entry);
@@ -292,6 +295,21 @@ mod tests {
 
     const SECRET: &[u8] = b"0123456789abcdef0123456789abcdef";
     const TEMPLATE: &str = "var c = \"__VERITELL_CONFIG__\", b = \"__VERITELL_BUILD__\";\n";
+
+    /// Found by the `sealed_reports` fuzz target: moving keys into the
+    /// build's order reversed the copies of a key written twice.
+    #[test]
+    fn a_key_written_twice_keeps_its_copies_in_order() {
+        let template = format!("{TEMPLATE}/*@shuffle*/\nua: 1,\nhc: 2,\nplatform: 3,\n/*@end*/\n");
+        let b = Builder::new(&template, SECRET).unwrap();
+        let build = b.build_with_seed([3; 16], 10, 100);
+        assert!(!b.key_order(&build.id).unwrap().is_empty());
+        let report = br#"{"v":1,"main":{"ua":"first","hc":1,"ua":"second"}}"#;
+        let body = b.seal(&build.id, "n", report, [1; 12]).unwrap();
+        let opened = b.open(&body, 10).unwrap();
+        let text = String::from_utf8(opened.report_json).unwrap();
+        assert!(text.find("first").unwrap() < text.find("second").unwrap(), "{text}");
+    }
 
     #[test]
     fn nested_values_survive_and_extra_outer_keys_are_tolerated() {

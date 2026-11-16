@@ -266,4 +266,53 @@ for i, ip in enumerate([b"::ffff:0:10.0.0.1", b"64:ff9b::10.0.0.1", b"::10.0.0.1
 write_dict("directory_keys", ['"keys"', '"kty"', '"OKP"', '"crv"', '"Ed25519"', '"x"', '"nbf"', '"exp"', '"use"', '"sig"', "https://",
                               "http://", "[", "]", ":443", "max-age=", "no-store", "no-cache", "s-maxage=", ","])
 
+# The URL that printed one byte over MAX_URL_BYTES (a found crash).
+write("directory_keys", "url_limit_no_path", b"\x01" + (lambda h: h + b"x" * (2048 - len(h)))(b"https://[2::1]:63049?"))
+
+# ---- sealed_reports --------------------------------------------------------
+# Mode 1 seals the report as given; mode 2 renames its keys and encrypts it
+# with the build key, as a client can. The build is picked by bits 2 to 4.
+for name in ("chromium", "firefox", "safari"):
+    raw = open(os.path.join(ROOT, "probe", "test", "captured-%s.json" % name), "rb").read()
+    write("sealed_reports", "sealed_" + name, b"\x01" + raw + SEP + b"nonce-" + name.encode())
+    write("sealed_reports", "forged_" + name, b"\x06" + raw + SEP + b"n")
+write("sealed_reports", "forged_signs", b"\x0a" + variant(signs["tamper"]) + SEP + b"n")
+write("sealed_reports", "forged_nested", b"\x02" + b'{"v":1,"main":{"engine":{"features":[{"kinds":[[{"target":1}]]}]}}}' + SEP + b"x")
+# A key written twice: sealing once reversed the copies (a found crash).
+write("sealed_reports", "sealed_dupes", b"\x01" + b'{"v":1,"main":{"ua":"a","hc":1,"ua":"b","platform":"x"},"page":{"tz":"a","tz":"b"}}')
+write("sealed_reports", "forged_dupes", b"\x02" + b'{"v":1,"v":2,"main":{},"main":[]}')
+write("sealed_reports", "forged_unknown_key", b"\x03" + b'{"zz":1}')
+write("sealed_reports", "raw_shape", b"\x00" + b'{"b":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","n":"n","d":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}')
+write_dict("sealed_reports", ['"%s":' % k for k in report_keys] + ['"b":', '"n":', '"d":', "true", "false", "null", "[]", "{}", "1e308", "-0", "\xff"])
+
+# ---- bundles -----------------------------------------------------------------
+# Bits 2 to 4 of the first byte move the clock by (n - 4) * 1000 s, so 0x10
+# reads at 1_800_000_000; bits 5 and 6 are the minimum version.
+def manifest(files, version=1, created=1_800_000_000 - 100, expires=1_800_000_000 + 100, fmt=1):
+    import hashlib
+    listed = {n: {"sha256": hashlib.sha256(c).hexdigest(), "len": len(c)} for n, c in files.items()}
+    return json.dumps({"format": fmt, "version": version, "created": created, "expires": expires, "files": listed},
+                      separators=(",", ":")).encode()
+share_file = b'{"v":1,"entries":[{"h":"00112233445566778899aabbccddeeff","c":"malicious"},{"h":"ffeeddccbbaa99887766554433221100","c":"automated"}]}'
+cases = {
+    "one_file": {"rules.json": b'{"rules":[]}'},
+    "share": {"share_v1.json": share_file},
+    "two_files": {"a.json": b"1", "b-2_x.txt": b""},
+}
+for name, files in cases.items():
+    body = SEP.join([manifest(files)] + [x for n, c in files.items() for x in (n.encode(), c)])
+    write("bundles", "signed_" + name, b"\x11" + body)
+    write("bundles", "sealed_" + name, b"\x02" + SEP.join(x for n, c in files.items() for x in (n.encode(), c)))
+write("bundles", "signed_rollback", b"\x71" + SEP.join([manifest({"a": b"x"}, version=1), b"a", b"x"]))
+write("bundles", "signed_future", b"\x11" + SEP.join([manifest({"a": b"x"}, created=1_800_010_000, expires=1_800_020_000), b"a", b"x"]))
+write("bundles", "signed_unlisted", b"\x11" + SEP.join([manifest({"a": b"x"}), b"a", b"x", b"b", b"y"]))
+write("bundles", "signed_bad_hash", b"\x11" + SEP.join([manifest({"a": b"x"}), b"a", b"y"]))
+write("bundles", "signed_raw_base64", b"\x91" + SEP.join([manifest({"a": b"x"}), b"a", b"eA=="]))
+write("bundles", "share_file", b"\x03" + share_file)
+write("bundles", "share_dupe", b"\x03" + b'{"v":1,"entries":[{"h":"00112233445566778899aabbccddeeff","c":"malicious"},{"h":"00112233445566778899aabbccddeeff","c":"automated"}]}')
+write("bundles", "raw_shape", b"\x00" + b'{"manifest":"e30=","signature":"' + base64.b64encode(bytes(64)) + b'","files":{}}')
+write_dict("bundles", ['"format":', '"version":', '"created":', '"expires":', '"files":', '"sha256":', '"len":', '"manifest":',
+                       '"signature":', '"v":1', '"entries":', '"h":', '"c":', '"automated"', '"malicious"', "share_v1.json",
+                       "1800000000", "18446744073709551615", "\xff"])
+
 print("seeds written:", sum(len(f) for _, _, f in os.walk(os.path.join(OUT, "seeds"))))

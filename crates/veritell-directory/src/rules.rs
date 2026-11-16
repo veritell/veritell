@@ -108,7 +108,13 @@ pub fn parse_url(text: &str) -> Result<DirectoryUrl, FetchError> {
             }
         }
     };
-    Ok(DirectoryUrl { host, port, path_and_query })
+    let url = DirectoryUrl { host, port, path_and_query };
+    // The printed form can be one byte longer than the text (a `/` is added
+    // when there is no path); it must parse too.
+    if url.as_string().len() > MAX_URL_BYTES {
+        return Err(url_err("URL too long"));
+    }
+    Ok(url)
 }
 
 /// Whether a directory may be fetched from this address. False for anything
@@ -342,6 +348,23 @@ pub fn fetch_with(
 #[cfg(test)]
 mod audit_tests {
     use super::*;
+
+    /// Found by the `directory_keys` fuzz target: a URL of exactly
+    /// `MAX_URL_BYTES` with no path printed one byte longer, and the
+    /// printed form was refused.
+    #[test]
+    fn an_accepted_url_prints_within_the_limit() {
+        let head = "https://[2::1]:63049?";
+        let text = format!("{head}{}", "x".repeat(MAX_URL_BYTES - head.len()));
+        assert_eq!(text.len(), MAX_URL_BYTES);
+        assert!(parse_url(&text).is_err());
+        let shorter = &text[..MAX_URL_BYTES - 1];
+        let url = parse_url(shorter).unwrap();
+        assert_eq!(parse_url(&url.as_string()).unwrap(), url);
+        let with_path = format!("https://h/{}", "x".repeat(MAX_URL_BYTES - 10));
+        assert_eq!(with_path.len(), MAX_URL_BYTES);
+        assert!(parse_url(&with_path).is_ok());
+    }
 
     fn ok(s: &str) -> bool {
         address_allowed(s.parse().unwrap())

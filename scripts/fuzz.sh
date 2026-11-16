@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run every fuzz target for a fixed time: the veritell-fp parsers
-# (crates/veritell-fp/fuzz) and the request, report, token and directory
-# parsers (fuzz/, see fuzz/README.md).
+# (crates/veritell-fp/fuzz) and the request, report, token, directory and
+# bundle parsers (fuzz/, see fuzz/README.md).
 # Usage: scripts/fuzz.sh [seconds_per_target]   (default 60)
 # Env:   FUZZ_TOOLCHAIN  rustup toolchain (default: stable, run with RUSTC_BOOTSTRAP=1;
 #                        set to nightly in CI, where no bootstrap is needed)
@@ -14,6 +14,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 targets=(
   crates/veritell-fp:tls_clienthello crates/veritell-fp:h2_parse crates/veritell-fp:hpack_decode
   .:syn_parse .:wba_request .:reports .:ua_check .:tokens .:directory_keys
+  .:sealed_reports .:bundles
 )
 
 if [ "$toolchain" = "stable" ]; then

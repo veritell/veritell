@@ -1,7 +1,7 @@
 # Fuzzes the parsers that read what clients and remote servers send, with
 # cargo-fuzz: the veritell-fp ones (TLS ClientHello, HTTP/2 preamble, HPACK)
 # and those in fuzz/ (SYN, Web Bot Auth, reports, User-Agent, tokens, key
-# directories).
+# directories, sealed probe reports, feed and share bundles).
 name: fuzz
 on:
   # Pushes to main; a pull request's branch runs through pull_request only.

@@ -18,6 +18,7 @@ base64 = "0.22"
 sha2 = "0.10"
 serde_json = "1"
 url = "2"
+aes-gcm = "0.10"
 veritell-core = { path = "../crates/veritell-core" }
 veritell-fp = { path = "../crates/veritell-fp" }
 veritell-wba = { path = "../crates/veritell-wba" }
@@ -27,6 +28,9 @@ veritell-ua = { path = "../crates/veritell-ua" }
 veritell-token = { path = "../crates/veritell-token" }
 veritell-privacypass = { path = "../crates/veritell-privacypass" }
 veritell-directory = { path = "../crates/veritell-directory" }
+veritell-probe-build = { path = "../crates/veritell-probe-build" }
+veritell-feed = { path = "../crates/veritell-feed" }
+veritell-share = { path = "../crates/veritell-share" }
 
 # Keep this crate out of the root workspace.
 [workspace]
@@ -69,6 +73,20 @@ bench = false
 [[bin]]
 name = "directory_keys"
 path = "fuzz_targets/directory_keys.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sealed_reports"
+path = "fuzz_targets/sealed_reports.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bundles"
+path = "fuzz_targets/bundles.rs"
 test = false
 doc = false
 bench = false

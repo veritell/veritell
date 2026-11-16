@@ -12,6 +12,8 @@ only on public crate APIs.
 | `ua_check` | `veritell_ua::parse_user_agent`, `TruthTable::check` | User-Agent, JA4, HTTP/2 fingerprint, header names |
 | `tokens` | `veritell_token::issue`, `verify`, `pow::issue_challenge`, `verify_solution`, `issued_difficulty`, `sanitize_return_to`, `challenge_page`, `veritell_privacypass::token_from_authorization` and `verify` | the session cookie, a challenge answer, `Authorization: PrivateToken` |
 | `directory_keys` | `veritell_directory::parse_keys`, `parse_url`, `ttl_from_cache_control`, `address_allowed` | a key directory's response, its URL, `Cache-Control`, the address it resolves to |
+| `sealed_reports` | `veritell_probe_build::Builder::open` with the gateway's probe template | the sealed report body, and its plaintext: the build key is in the script every client gets |
+| `bundles` | `veritell_feed::open`, `veritell_share::open_bundle`, `decode` | a data feed or share bundle on disk; past the signature, the manifest and files |
 
 ## What a crash means here
 
@@ -37,6 +39,14 @@ top of each target. The main ones:
 - **Round trips and agreement.** A parsed probe report serialises and parses
   back to itself; a directory URL prints back to itself; the fetcher's and
   the Web Bot Auth crate's directory parsers read the same keys.
+- **Sealed reports.** No body made without the server secret opens; one
+  encrypted with a build's key opens only to `VOCAB` keys, stops opening
+  after the build expires or under another secret, and stays the same
+  report when any one byte changes.
+- **Bundles.** An unsigned bundle never opens; a signed one opens only
+  inside its clock window, at or above the minimum version, with valid
+  names and every file matching its length and hash; a share file reads
+  the same on its own and inside a bundle.
 - **Privacy.** The SYN signature never keeps the TCP timestamp clock.
 
 Build with overflow checks on: `cargo fuzz` does this by default, and
