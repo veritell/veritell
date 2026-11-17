@@ -317,6 +317,44 @@ write_dict("directory_keys", ['"keys"', '"kty"', '"OKP"', '"crv"', '"Ed25519"', 
 # The URL that printed one byte over MAX_URL_BYTES (a found crash).
 write("directory_keys", "url_limit_no_path", b"\x01" + (lambda h: h + b"x" * (2048 - len(h)))(b"https://[2::1]:63049?"))
 
+# ---- directory_fetch -------------------------------------------------------
+# Fetch (first byte even): flags (bits 1-3 address count, see the target),
+# per address a tag (bit 0 IPv6, bit 1 allowed, bit 2 allowed on another
+# port, bit 3 answers) and its bytes, the status, a Cache-Control flag and
+# value ending in 0xFF, the body.
+v4, v6 = (lambda tag, *b: bytes([tag]) + bytes(b)), (lambda tag, text: bytes([tag]) + __import__("ipaddress").IPv6Address(text).packed)
+def fetch(flags, addrs, status=200, cc=b"max-age=600", body=jwks.encode()):
+    head = bytes([0, flags | len(addrs) << 1]) + b"".join(addrs) + struct.pack(">H", status)
+    return head + (b"\x01" + cc + SEP if cc is not None else b"\x00") + body
+for name, data in {
+    "ok": fetch(0, [v4(8, 1, 1, 1, 1)]),
+    "second_answers": fetch(0, [v4(0, 1, 1, 1, 1), v4(8, 8, 8, 8, 8)], cc=None),
+    "all_fail": fetch(0, [v4(0, 1, 1, 1, 1), v4(0, 8, 8, 8, 8)]),
+    "one_refused": fetch(0, [v4(8, 1, 1, 1, 1), v4(8, 10, 0, 0, 1)]),
+    "allowed_loopback": fetch(0x20, [v4(0x0a, 127, 0, 0, 1)]),
+    "allowed_other_port": fetch(0, [v4(0x0c, 127, 0, 0, 1)]),
+    "v6_public": fetch(0, [v6(9, "2606:4700::1111")]),
+    "v6_mapped_private": fetch(0, [v6(9, "::ffff:10.0.0.1"), v4(8, 1, 1, 1, 1)]),
+    "redirect": fetch(0, [v4(8, 1, 1, 1, 1)], status=302, body=b""),
+    "too_large": fetch(0x40, [v4(8, 1, 1, 1, 1)]),
+    "lookup_fails": fetch(1, []),
+    "no_addresses": fetch(0, []),
+    "zero_timeout": fetch(0x10, [v4(8, 9, 9, 9, 9)], body=b'{"keys":[]}'),
+}.items():
+    write("directory_fetch", name, data)
+# Cache (first byte odd): 0 k t = success with k keys and lifetime t
+# (MIN, DEFAULT, MAX, u64::MAX), 1 = failure, 2 d = clock (below 0x80 hours
+# forward, then minutes back, 0xFF the end of time).
+ok, fail, hours = (lambda k, t: bytes([0, k, t])), b"\x01", (lambda d: bytes([2, d]))
+for name, ops in {
+    "stale_edge": ok(2, 0) + hours(0x7f) + hours(41) + fail + hours(1),
+    "retry": fail + ok(1, 1) + hours(1) + fail + bytes([2, 0x85]) + ok(3, 2),
+    "replace": ok(3, 2) + hours(24) + ok(1, 0) + hours(0x7f) + hours(0x7f),
+    "forever": ok(2, 3) + hours(0xFF) + fail + ok(1, 3),
+    "clock_back": ok(1, 1) + bytes([2, 0xFE]) + fail + bytes([2, 0xFE]),
+}.items():
+    write("directory_fetch", name, b"\x01" + ops)
+
 # ---- probe_template --------------------------------------------------------
 # The first byte holds flags (bit 0 short secret, bit 1 padded past the
 # size limit, bits 2-7 the seed); the rest is the template.

@@ -125,3 +125,10 @@ path = "fuzz_targets/share_ledger.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "directory_fetch"
+path = "fuzz_targets/directory_fetch.rs"
+test = false
+doc = false
+bench = false

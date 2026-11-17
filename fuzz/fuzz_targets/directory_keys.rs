@@ -11,9 +11,11 @@
 // - URL: an accepted URL prints back to itself; a WHATWG parser reads the
 //   same port and scheme; nothing that could change the request's target
 //   (`@` in the host, `#`, `\`, whitespace) is in it.
-// - Cache-Control: the TTL agrees with a second implementation.
+// - Cache-Control: the TTL agrees with a second implementation; no header
+//   is `DEFAULT_TTL_SECS`.
 // - Keys: every key's id is its thumbprint, ids are unique, there are 1 to
-//   64; the Web Bot Auth directory parser reads the same keys.
+//   64; the Web Bot Auth directory parser reads the same keys, and what it
+//   refuses the fetcher refuses too. Every error has a message.
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use veritell_directory::{
     address_allowed, parse_keys, parse_url, ttl_from_cache_control, DEFAULT_TTL_SECS, MAX_TTL_SECS, MIN_TTL_SECS,
@@ -158,19 +160,33 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
     let text = std::str::from_utf8(rest).unwrap_or("");
     match pick % 4 {
         0 => {
+            let wba = veritell_wba::parse_directory(text);
+            match &wba {
+                Err(e) => {
+                    assert!(!e.to_string().is_empty(), "empty error message");
+                    // Both refuse the same shapes before the fetcher's own
+                    // rules, and the fetcher hands its usable keys to this
+                    // parser.
+                    assert!(std::str::from_utf8(rest).is_err() || parse_keys(rest).is_err(), "the fetcher accepts what the WBA parser refuses");
+                }
+                Ok(_) => {}
+            }
+            if let Err(e) = parse_keys(rest) {
+                assert!(!e.to_string().is_empty(), "empty error message");
+            }
             if let Ok(keys) = parse_keys(rest) {
                 assert!((1..=64).contains(&keys.len()), "{} keys accepted", keys.len());
                 for (i, k) in keys.iter().enumerate() {
                     assert_eq!(k.keyid, veritell_wba::jwk_thumbprint_ed25519(&k.public));
                     assert!(keys[..i].iter().all(|o| o.keyid != k.keyid), "duplicate key id accepted");
                 }
-                let wba = veritell_wba::parse_directory(text).expect("WBA parser refuses a directory the fetcher accepts");
-                assert_eq!(wba, keys, "the two directory parsers read different keys");
+                assert_eq!(wba.as_ref().ok(), Some(&keys), "the two directory parsers read different keys");
             }
         }
         1 => url(text),
         2 => {
             assert_eq!(ttl_from_cache_control(Some(text)), ttl_reference(text), "TTL for {text:?}");
+            assert_eq!(ttl_from_cache_control(None), DEFAULT_TTL_SECS, "TTL with no header");
         }
         _ => {
             let ip: Option<IpAddr> = match rest.len() {
