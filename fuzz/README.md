@@ -8,13 +8,14 @@ only on public crate APIs.
 |---|---|---|
 | `syn_parse` | `veritell_fp::syn::parse` | the TCP SYN (IP and TCP headers, options) |
 | `wba_request` | `veritell_wba::verify`, `signature_info`, `signature_base`, `parse_directory`, `TrustedAgents::from_json` | method, authority, path, query, `Signature-Input`, `Signature`, `Signature-Agent`, one more header |
-| `reports` | `veritell_probe::parse_report` and `analyze`, `veritell_behavior::parse_summary` and `analyze` | the POSTed probe report and behaviour summary |
+| `reports` | `veritell_probe::parse_report`, `parse_truth` and `analyze`, `veritell_behavior::parse_summary` and `analyze` | the POSTed probe report and behaviour summary |
 | `ua_check` | `veritell_ua::parse_user_agent`, `TruthTable::check` | User-Agent, JA4, HTTP/2 fingerprint, header names |
 | `tokens` | `veritell_token::issue`, `verify`, `pow::issue_challenge`, `verify_solution`, `issued_difficulty`, `sanitize_return_to`, `challenge_page`, `veritell_privacypass::token_from_authorization` and `verify` | the session cookie, a challenge answer, `Authorization: PrivateToken` |
 | `directory_keys` | `veritell_directory::parse_keys`, `parse_url`, `ttl_from_cache_control`, `address_allowed` | a key directory's response, its URL, `Cache-Control`, the address it resolves to |
 | `sealed_reports` | `veritell_probe_build::Builder::open` with the gateway's probe template | the sealed report body, and its plaintext: the build key is in the script every client gets |
 | `replay_cache` | `veritell_wba::ReplayCache`: `first_use`, `restore`, `entries` across time steps and restarts, against a reference model | the order, timing and expiry of the signatures a gateway sees, and its capacity |
 | `budget_store` | `veritell_token::MemoryBudgetStore`: `try_consume` across time steps, `export` and `import` across restarts, against a reference model | the ids, budgets and expiry times a client presents, and the saved state file read back at start |
+| `probe_nonce` | `veritell_probe::verify_nonce` on nonces as sent, and on nonces issued by `issue_nonce` then edited | the nonce a client sends back with its report |
 | `probe_template` | `veritell_probe_build::Builder::new`, `build_with_seed`, then `seal` and `open` with the build | the probe template (shuffle markers, renamed identifiers, comments, the two tokens) and the server secret's length |
 | `bundles` | `veritell_feed::open`, `veritell_share::open_bundle`, `decode` | a data feed or share bundle on disk; past the signature, the manifest and files |
 

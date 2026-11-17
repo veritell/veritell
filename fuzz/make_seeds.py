@@ -195,6 +195,14 @@ for name, change in signs.items():
     # 0x04 claims a Gecko engine on Windows: the report is Blink on macOS.
     for pick in (0x00, 0x04 | (1 << 3)):
         write("reports", "probe_%s_%02x" % (name, pick), bytes([pick]) + variant(change))
+# A report body is also read as a truth file: the shipped one, and one with
+# two profiles for an engine.
+with open(os.path.join(ROOT, "crates", "veritell-probe", "data", "engine_v1.json"), "rb") as f:
+    TRUTH = f.read()
+write("reports", "truth", b"\x00" + TRUTH)
+_t = json.loads(TRUTH)
+_t["profiles"].append(_t["profiles"][0])
+write("reports", "truth_duplicate", b"\x00" + json.dumps(_t).encode())
 write_dict("reports", ['"%s":' % k for k in report_keys] + ["true", "false", "null", "[]", "{}", '"', "0", "-1", "1e308", "4294967296"])
 
 # ---- ua_check --------------------------------------------------------------
@@ -335,6 +343,24 @@ for name, (flags, template) in {
     write("probe_template", name, bytes([flags]) + template)
 write_dict("probe_template", ['"__VERITELL_CONFIG__"', '"__VERITELL_BUILD__"', "/*@shuffle*/", "/*@end*/", "$$", "//", "/*", "*/",
                               "\n", "$$r.", " = "])
+
+# ---- probe_nonce -----------------------------------------------------------
+# Even first byte: a nonce as sent. Odd: binding, clock offset, ttl, then
+# (position, byte) edits on a nonce issued by the target (0xFF truncates,
+# 0xFE appends); bit 1 makes the ttl the largest u64.
+for name, data in {
+    "raw_shape": b"\x00" + b"A" * 96,
+    "raw_bad_char": b"\x02" + b"A" * 95 + b"+",
+    "raw_short": b"\x04" + b"A" * 95,
+    "raw_padded": b"\x06" + b"A" * 94 + b"==",
+    "mint": b"\x01" + bytes(range(16)) + struct.pack(">II", 0, 300),
+    "mint_zero_ttl": b"\x01" + bytes(16) + struct.pack(">II", 5, 0),
+    "mint_forever": b"\x03" + bytes([9] * 16) + struct.pack(">II", 7, 0),
+    "mint_edit": b"\x01" + bytes(range(16)) + struct.pack(">II", 0, 60) + b"\x05B\x40_",
+    "mint_truncate": b"\x01" + bytes(range(16)) + struct.pack(">II", 0, 60) + b"\xff\x5f",
+    "mint_append": b"\x01" + bytes(range(16)) + struct.pack(">II", 0, 60) + b"\xfeA",
+}.items():
+    write("probe_nonce", name, data)
 
 # ---- budget_store ----------------------------------------------------------
 # Operation sequences (see the target): 0 id budget d = try_consume, 1 d =
