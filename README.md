@@ -60,6 +60,19 @@ cargo build --release -p veritell-proxy   # binary: target/release/veritell
 
 or `docker build -t veritell .`.
 
+Run by hand, the gateway takes its settings from a TOML file, flags, or
+both; a flag wins over the file. Every key, with its default, is in
+[deploy/veritell.example.toml](deploy/veritell.example.toml):
+
+```bash
+veritell --config veritell.toml                 # start
+veritell check-config --config veritell.toml    # show what it sets, then stop
+```
+
+Secrets are never in the file: each comes from its environment variable
+(`VERITELL_SECRET`, `VERITELL_ADMIN_TOKEN`, ...) or from a file that only
+its owner can read, named under `[secrets]`.
+
 ## What a challenged visitor sees
 
 Most visitors never see a challenge. When a policy asks for one, the page

@@ -1,6 +1,6 @@
 //! Veritell gateway binary.
 //!
-//! veritell --cert cert.pem --key key.pem [--listen 127.0.0.1:8443]
+//! veritell [check-config] [--config veritell.toml] --cert cert.pem --key key.pem [--listen 127.0.0.1:8443]
 //!          [--upstream host:port] [--policy policy.yaml] [--asn-db ip2asn.tsv]
 //!          [--token-budget N] [--wba-agents agents.json]
 //!          [--engine-truth engine.json] [--admin 127.0.0.1:9090]
@@ -20,6 +20,14 @@
 //!          [--state-dir dir] [--state-flush 10] [--inject-probe on|off] [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity 200000]
 //!          [--share-export file] [--share-import file --share-import-key key[,key]] [--share-min-networks n] [--share-interval secs]
 //!          [--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]
+//!
+//! `--config veritell.toml` reads settings from a TOML file, a key per flag
+//! in sections (`deploy/veritell.example.toml` lists them all); a flag on
+//! the command line wins over the file, an empty one too. Secrets are not
+//! read from it: each comes from its environment variable or from a file
+//! named under `[secrets]` that only its owner can read. `veritell
+//! check-config [flags]` prints what the file and flags set and where each
+//! secret would come from, then stops. See `settings.rs`.
 //!
 //! `--inject-probe on` adds the probe and behaviour scripts to the origin's
 //! HTML pages, so that they report from every visitor's browser, not only
@@ -159,6 +167,7 @@ mod known;
 mod maintenance;
 mod pass;
 mod probe;
+mod settings;
 mod share;
 mod shed;
 mod sni;
@@ -190,7 +199,7 @@ use conn::{install_client_hello_hook, FingerprintApp, TlsCallbacks};
 use gateway::Gateway;
 use util::{SystemResolver, Throttle};
 
-const USAGE: &str = "usage: veritell --cert <pem> --key <pem> [--listen addr:port] \
+const USAGE: &str = "usage: veritell [check-config] [--config file.toml] --cert <pem> --key <pem> [--listen addr:port] \
 [--upstream host:port] [--policy file.yaml] [--asn-db file.tsv] [--token-budget n] \
 [--wba-agents file.json] [--engine-truth file.json] [--admin 127.0.0.1:port] \
 [--clickhouse-url url] [--clickhouse-database name] [--clickhouse-table name] [--clickhouse-user name] \
@@ -246,10 +255,22 @@ fn known_flag(name: &str) -> bool {
         && USAGE.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).any(|w| w.strip_prefix("--") == Some(name))
 }
 
-fn parse_args() -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    let mut args = std::env::args().skip(1);
-    while let Some(flag) = args.next() {
+/// The command line, with the settings file (`--config`) under it.
+struct Args {
+    /// Flag name → value: the file's, then the command line's over them.
+    flags: HashMap<String, String>,
+    /// Where the secrets are read from.
+    secrets: settings::Secrets,
+    /// `check-config`: print what is set and stop.
+    check: bool,
+}
+
+fn parse_args() -> Args {
+    let mut raw = std::env::args().skip(1).peekable();
+    let check = raw.next_if(|a| a == "check-config").is_some();
+    let mut given = Vec::new();
+    let mut config: Option<String> = None;
+    while let Some(flag) = raw.next() {
         let Some(name) = flag.strip_prefix("--") else {
             fail(format!("unexpected argument {flag:?}\n{USAGE}"));
         };
@@ -258,18 +279,62 @@ fn parse_args() -> HashMap<String, String> {
         if !known_flag(name) {
             fail(format!("unknown flag --{name}\n{USAGE}"));
         }
-        let Some(value) = args.next() else {
+        let Some(value) = raw.next() else {
             fail(format!("--{name} needs a value\n{USAGE}"));
         };
-        out.insert(name.to_string(), value);
+        if name == "config" {
+            if config.replace(value).is_some() {
+                fail("--config is given twice");
+            }
+        } else {
+            given.push((name.to_string(), value));
+        }
     }
-    out
+    let loaded = match &config {
+        Some(path) => settings::load(std::path::Path::new(path)).unwrap_or_else(|e| fail(e)),
+        None => settings::Loaded::default(),
+    };
+    // A flag wins over the file, an empty one too (it means "none").
+    let mut flags = loaded.flags;
+    flags.extend(given);
+    Args { flags, secrets: settings::Secrets::new(loaded.secret_files), check }
 }
 
-fn load_keys() -> (Keys, ProbeKey, Vec<u8>) {
-    let secret = match std::env::var("VERITELL_SECRET") {
-        Ok(s) => s.into_bytes(),
-        Err(_) => {
+/// A secret from its environment variable or its `[secrets]` file.
+fn read_secret(secrets: &settings::Secrets, env: &str) -> Option<String> {
+    secrets.get(env).unwrap_or_else(|e| fail(e))
+}
+
+/// `check-config`: what the file and the flags set, one key a line, and
+/// where each secret would come from. Values are checked when the gateway
+/// starts, not here.
+fn check_config(flags: &HashMap<String, String>, secrets: &settings::Secrets) -> ! {
+    use settings::{Kind, Source, KEYS};
+    for (path, flag, kind) in KEYS {
+        if *kind == Kind::Secret {
+            let from = match secrets.source(flag) {
+                Source::Environment => "environment".to_string(),
+                Source::File(p) => {
+                    read_secret(secrets, flag);
+                    format!("file {}", p.display())
+                }
+                Source::Unset => "unset".to_string(),
+            };
+            println!("{path}: {flag} {from}");
+        } else if let Some(value) = flags.get(*flag) {
+            println!("{path} = {value:?}");
+        }
+    }
+    if !(flags.contains_key("cert") && flags.contains_key("key")) {
+        fail("tls.cert and tls.key (--cert, --key) are required");
+    }
+    std::process::exit(0);
+}
+
+fn load_keys(secrets: &settings::Secrets) -> (Keys, ProbeKey, Vec<u8>) {
+    let secret = match read_secret(secrets, "VERITELL_SECRET") {
+        Some(s) => s.into_bytes(),
+        None => {
             let mut random = [0u8; 32];
             if getrandom::fill(&mut random).is_err() {
                 fail("no VERITELL_SECRET and the system random source failed");
@@ -289,7 +354,10 @@ fn read_file(what: &str, path: &str) -> String {
 }
 
 fn main() {
-    let args = parse_args();
+    let Args { flags: args, secrets, check } = parse_args();
+    if check {
+        check_config(&args, &secrets);
+    }
     let (Some(cert), Some(key)) = (args.get("cert"), args.get("key")) else {
         fail(USAGE);
     };
@@ -472,9 +540,10 @@ fn main() {
     // The admin listener speaks plain HTTP, so it binds loopback unless a
     // token is set (see `admin::check_bind`). The token's length is checked
     // below.
+    let admin_token = read_secret(&secrets, "VERITELL_ADMIN_TOKEN");
     let admin = args.get("admin").map(|raw| {
         match raw.parse::<std::net::SocketAddr>() {
-            Ok(addr) => match admin::check_bind(addr, std::env::var_os("VERITELL_ADMIN_TOKEN").is_some()) {
+            Ok(addr) => match admin::check_bind(addr, admin_token.is_some()) {
                 Ok(()) => raw.clone(),
                 Err(message) => fail(message),
             },
@@ -491,7 +560,7 @@ fn main() {
             database: arg("clickhouse-database", "veritell"),
             table: arg("clickhouse-table", "events"),
             user: arg("clickhouse-user", "default"),
-            password: std::env::var("VERITELL_CLICKHOUSE_PASSWORD").unwrap_or_default(),
+            password: read_secret(&secrets, "VERITELL_CLICKHOUSE_PASSWORD").unwrap_or_default(),
             batch_size: 500,
             flush_interval: Duration::from_secs(1),
             queue_capacity: 50_000,
@@ -502,7 +571,7 @@ fn main() {
     }
 
     let mode = policy.mode();
-    let (keys, probe_key, secret) = load_keys();
+    let (keys, probe_key, secret) = load_keys(&secrets);
 
     let data = Arc::new(maintenance::LiveData {
         truth: Live::new(TruthTable::builtin()),
@@ -555,7 +624,7 @@ fn main() {
             fail("could not start the key directory thread");
         }
     }
-    let admin_token = std::env::var("VERITELL_ADMIN_TOKEN").ok().map(|t| {
+    let admin_token = admin_token.map(|t| {
         if t.len() < admin_auth::MIN_TOKEN_BYTES {
             fail(format!("VERITELL_ADMIN_TOKEN must be at least {} bytes", admin_auth::MIN_TOKEN_BYTES));
         }
@@ -563,8 +632,7 @@ fn main() {
     });
 
     let share_export = args.get("share-export").map(|path| {
-        let seed = std::env::var("VERITELL_SHARE_SEED")
-            .ok()
+        let seed = read_secret(&secrets, "VERITELL_SHARE_SEED")
             .and_then(|s| FeedKey::from_base64url(s.trim()))
             .unwrap_or_else(|| fail("--share-export needs VERITELL_SHARE_SEED: an Ed25519 seed, 32 bytes in base64url"));
         share::ExportTo { path: path.into(), seed: seed.0, every: Duration::from_secs(seconds("share-interval", 300)) }
@@ -584,8 +652,7 @@ fn main() {
         _ => fail("--share-import and --share-import-key must be given together"),
     };
     let sharing = (share_export.is_some() || share_import.is_some()).then(|| {
-        let key = std::env::var("VERITELL_SHARE_KEY")
-            .ok()
+        let key = read_secret(&secrets, "VERITELL_SHARE_KEY")
             .and_then(|k| veritell_share::ShareKey::new(k.as_bytes()))
             .unwrap_or_else(|| fail("sharing needs VERITELL_SHARE_KEY: the secret agreed with the other installs, at least 32 bytes"));
         let ledger = share_export.as_ref().map(|_| {
@@ -718,7 +785,7 @@ fn main() {
         Some(raw) => veritell_events::addr::AddrMode::parse(raw)
             .unwrap_or_else(|| fail(format!("--ip-mode: {raw:?} is not full, truncated or keyed"))),
     };
-    let known_key = known::KnownKey::from_env().map(|k| k.unwrap_or_else(|e| fail(e)));
+    let known_key = known::KnownKey::from_secret(read_secret(&secrets, "VERITELL_KNOWN_KEY")).map(|k| k.unwrap_or_else(|e| fail(e)));
     if known_key.is_some() {
         eprintln!("veritell: known-person marks on (VERITELL_KNOWN_KEY)");
     }

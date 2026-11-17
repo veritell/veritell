@@ -14,6 +14,11 @@ after:   internet :443 -> gateway :8443 -> nginx :8081 (web) -> app, /api
          127.0.0.1:8444 on the host, for checks and for rolling back.
 ```
 
+The kit passes the gateway its settings as flags, built from `site.conf`
+and `kit.env`. [veritell.example.toml](veritell.example.toml) is the
+settings file for a gateway run by hand (`--config`); the kit does not use
+it yet.
+
 ## Modes
 
 `FRONT=` in `site.conf` picks how the gateway gets in front of the site. A

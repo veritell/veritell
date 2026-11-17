@@ -30,10 +30,11 @@ fn valid_label(label: &str) -> bool {
 }
 
 impl KnownKey {
-    /// `None` when `VERITELL_KNOWN_KEY` is not set; an error when it is
-    /// shorter than 32 bytes.
-    pub fn from_env() -> Option<Result<KnownKey, String>> {
-        let raw = std::env::var("VERITELL_KNOWN_KEY").ok()?;
+    /// `None` when `VERITELL_KNOWN_KEY` (the environment variable or its
+    /// `[secrets]` file) is not set; an error when it is shorter than 32
+    /// bytes.
+    pub fn from_secret(raw: Option<String>) -> Option<Result<KnownKey, String>> {
+        let raw = raw?;
         Some(if raw.len() < 32 {
             Err("VERITELL_KNOWN_KEY must be at least 32 bytes".to_string())
         } else {

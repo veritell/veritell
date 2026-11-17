@@ -430,3 +430,119 @@ fn a_minimal_start_needs_only_a_certificate() {
     assert!(g.stop().success());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Writes a secret file readable by its owner only.
+fn private(dir: &Path, name: &str, content: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let path = write(dir, name, content);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    path
+}
+
+#[test]
+fn a_settings_file_starts_the_gateway_and_flags_win_over_it() {
+    let dir = temp_dir("config");
+    certificate(&dir);
+    let (from_file, from_flag, admin) = (free_port(), free_port(), free_port());
+    private(&dir, "admin_token", &format!("{ADMIN_TOKEN}\n"));
+    // Relative paths are the file's directory's; the ASN database is missing
+    // on purpose, and an empty flag turns it off.
+    let config = write(
+        &dir,
+        "veritell.toml",
+        format!(
+            "[server]\nlisten = \"127.0.0.1:{from_file}\"\nadmin = \"0.0.0.0:{admin}\"\n\
+             [tls]\ncert = \"cert.pem\"\nkey = \"key.pem\"\n\
+             [detection]\nasn_db = \"missing.tsv\"\nsource_url = \"off\"\n\
+             [secrets]\nadmin_token_file = \"admin_token\"\n"
+        ),
+    );
+    let listen = format!("127.0.0.1:{from_flag}");
+    let g = Gateway::start(command(&["--config", &config, "--listen", &listen, "--asn-db", ""]));
+    assert!(g.said(&format!("listening on https://{listen}")), "the flag's --listen: {:#?}", g.seen);
+    assert!(TcpStream::connect(("127.0.0.1", from_file)).is_err(), "the file's listen was used");
+    // The admin token came from the file: 0.0.0.0 is allowed, and it is asked for.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while TcpStream::connect(("127.0.0.1", admin)).is_err() {
+        assert!(Instant::now() < deadline, "the dashboard did not open");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let get = |auth: &str| http(admin, &format!("GET /api/summary HTTP/1.1\r\nHost: 127.0.0.1:{admin}\r\n{auth}Connection: close\r\n\r\n"));
+    assert_eq!(status(&get("")), 401);
+    assert_eq!(status(&get(&format!("Authorization: Bearer {ADMIN_TOKEN}\r\n"))), 200);
+    assert!(g.stop().success());
+
+    // The environment wins over the secret file.
+    let out = command(&["check-config", "--config", &config]).env("VERITELL_ADMIN_TOKEN", "x").output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+    assert!(stdout.contains("secrets.admin_token_file: VERITELL_ADMIN_TOKEN environment"), "{stdout}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn check_config_prints_settings_and_hides_secrets() {
+    let dir = temp_dir("check");
+    let token = private(&dir, "admin_token", ADMIN_TOKEN);
+    let config = write(
+        &dir,
+        "veritell.toml",
+        format!("[tls]\ncert = \"c.pem\"\nkey = \"/k.pem\"\n[server]\ntrusted_proxies = [\"10.0.0.1\", \"10.0.0.2\"]\n[secrets]\nadmin_token_file = \"{token}\"\n"),
+    );
+    let out = command(&["check-config", "--config", &config, "--listen", "127.0.0.1:1"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(0), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    let cert = dir.join("c.pem");
+    for line in [
+        "server.listen = \"127.0.0.1:1\"".to_string(),
+        "server.trusted_proxies = \"10.0.0.1,10.0.0.2\"".to_string(),
+        format!("tls.cert = {:?}", cert.to_string_lossy()),
+        "tls.key = \"/k.pem\"".to_string(),
+        format!("secrets.admin_token_file: VERITELL_ADMIN_TOKEN file {token}"),
+        "secrets.secret_file: VERITELL_SECRET environment".to_string(),
+        "secrets.share_key_file: VERITELL_SHARE_KEY unset".to_string(),
+    ] {
+        assert!(stdout.lines().any(|l| l == line), "no {line:?} in:\n{stdout}");
+    }
+    assert!(!stdout.contains(ADMIN_TOKEN) && !stdout.contains(SECRET), "a secret was printed:\n{stdout}");
+
+    // The example in the deploy kit is a valid file.
+    let example = concat!(env!("CARGO_MANIFEST_DIR"), "/../../deploy/veritell.example.toml");
+    let out = command(&["check-config", "--config", example]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn bad_settings_files_are_refused() {
+    let dir = temp_dir("bad-config");
+    let (cert, key) = certificate(&dir);
+    let file = |name: &str, text: &str| write(&dir, name, text);
+    let typo = file("typo.toml", "[server]\nlisen = \"127.0.0.1:1\"\n");
+    let wrong = file("wrong.toml", "[server]\nheader_timeout_secs = \"15\"\n");
+    let value = file("value.toml", "[flood]\nlimit = 0\n");
+    let open_secret = file("open.toml", "[secrets]\nsecret_file = \"secret\"\n");
+    write(&dir, "secret", SECRET);
+    let missing = dir.join("missing.toml").to_string_lossy().into_owned();
+    let base = |config: &str| vec!["--cert".to_string(), cert.clone(), "--key".into(), key.clone(), "--config".into(), config.to_string()];
+    let cases: Vec<(Vec<String>, &str)> = vec![
+        (base(&typo), "unknown setting server.lisen"),
+        (base(&wrong), "server.header_timeout_secs must be a whole number"),
+        // A value the flag would refuse is refused with the flag's message.
+        (base(&value), "--flood-limit must be a positive number"),
+        (base(&missing), "cannot read --config"),
+        (vec!["--config".into(), typo.clone(), "--config".into(), typo.clone()], "--config is given twice"),
+    ];
+    for (args, says) in &cases {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        refused(&args, says);
+    }
+    // A secret file others can read, once the environment does not set it.
+    std::fs::set_permissions(dir.join("secret"), std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
+    let args = base(&open_secret);
+    let out = command(&args.iter().map(String::as_str).collect::<Vec<_>>()).env_remove("VERITELL_SECRET").output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("VERITELL_SECRET from") && stderr.contains("make it 600"), "{stderr}");
+    std::fs::remove_dir_all(dir).unwrap();
+}

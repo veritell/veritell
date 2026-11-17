@@ -1,0 +1,131 @@
+# veritell.toml: an example. Every key the gateway reads, with its default.
+#
+#   veritell --config /etc/veritell/veritell.toml [--flag value ...]
+#
+# The deploy kit does not use this file yet: it passes flags.
+#
+# Rules:
+# - Every key is optional except tls.cert and tls.key; the value shown is
+#   the default when there is one. A commented-out key has no default
+#   (the feature is off).
+# - A flag on the command line wins over the file. Each key names its flag.
+# - An unknown key or section, or a value of the wrong type, is an error at
+#   startup that names it. `veritell check-config --config <file>` shows
+#   what a file and flags set, without starting the gateway.
+# - Durations are whole seconds and say so in the key (`_secs`). On/off
+#   settings are true or false.
+# - A flag given with an empty value means "none", as it does without a
+#   file: `--asn-db ''` turns off an asn_db set here.
+# - Relative paths are relative to this file's directory.
+# - No secret goes in this file. Secrets come from the environment, or from
+#   a file named by the matching `*_file` key (one value, trailing newline
+#   ignored, the file must not be readable by others). See [secrets].
+
+# ---- Where it listens -------------------------------------------------------
+[server]
+listen = "127.0.0.1:8443"            # --listen
+# admin = "127.0.0.1:9100"           # --admin (loopback unless an admin token is set)
+# sidecar_listen = "127.0.0.1:9200"  # --sidecar-listen
+header_timeout_secs = 15             # --header-timeout
+body_timeout_secs = 60               # --body-timeout
+write_timeout_secs = 30              # --write-timeout
+max_conns_per_network = 256          # --max-conns-per-network
+max_in_flight = 256                  # --max-in-flight
+shed = "log"                         # --shed: off | log | enforce
+trusted_proxies = []                 # --trusted-proxy, list of IPs
+forwarded_for = "append"             # --forwarded-for: append | replace
+log_requests = true                  # --log-requests
+
+[tls]
+cert = "/etc/veritell/cert.pem"      # --cert (required)
+key = "/etc/veritell/key.pem"        # --key (required)
+# sni_dir = "/etc/veritell/sni"      # --sni-dir: a certificate per name
+
+# ---- What it protects ---------------------------------------------------------
+[upstream]
+# address = "127.0.0.1:8080"         # --upstream; none: answer without an origin
+tls = false                          # --upstream-tls
+# sni = "example.com"                # --upstream-sni
+# ca = "/etc/veritell/origin-ca.pem" # --upstream-ca
+
+[upstream.hosts]                     # --upstream-host name=host:port,...
+# "shop.example.com" = "127.0.0.1:8081"
+
+# ---- How it judges --------------------------------------------------------------
+[detection]
+# policy = "policy.yaml"             # --policy; none: the built-in shadow policy
+# asn_db = "ip2asn-v4.tsv"           # --asn-db
+# engine_truth = "engine.json"       # --engine-truth; none: the built-in table
+# model = "model.json"               # --model
+inject_probe = false                 # --inject-probe
+source_url = "https://github.com/veritell/veritell"   # --source-url; "off" hides the link
+
+[probe]
+build_rotate_secs = 60               # --probe-build-rotate
+build_ttl_secs = 300                 # --probe-build-ttl
+
+[tokens]
+budget = 500                         # --token-budget
+single_use_capacity = 200000         # --single-use-capacity
+
+[web_bot_auth]
+# agents = "agents.json"             # --wba-agents
+directory_allow = []                 # --wba-directory-allow, list of "ip:port"
+# directory_ca = "test-ca.pem"       # --wba-directory-ca
+
+[privacy_pass.issuers]               # --privacy-pass-issuer name=key,...
+# "issuer.example" = "<base64url public key>"
+
+[aggregation]
+slot_secs = 10                       # --agg-slot
+warmup_secs = 120                    # --agg-warmup
+reputation_ttl_secs = 600            # --agg-reputation-ttl
+spread_min_networks = 50             # --agg-spread-min
+fanout_min_fingerprints = 30         # --agg-fanout-min
+strikes = 3                          # --agg-strikes
+
+[flood]
+mode = "log"                         # --flood-guard: off | log | enforce
+limit = 1000                         # --flood-limit
+rate_net_limit = 120                 # --rate-net-limit
+rate_client_limit = 60               # --rate-client-limit
+no_probe_pages = 20                  # --no-probe-pages
+fp_surge_min = 120                   # --fp-surge-min
+fp_surge_growth = 4                  # --fp-surge-growth
+
+# ---- Data in and out ------------------------------------------------------------
+[feed]
+# path = "feed.json"                 # --feed
+# keys = ["<base64url Ed25519 key>"] # --feed-key (required with path)
+
+[share]
+# export = "share-out.json"          # --share-export (needs the share seed)
+# import = "share-in.json"           # --share-import (needs the share key)
+# import_keys = ["<base64url Ed25519 key>"]   # --share-import-key
+min_networks = 20                    # --share-min-networks
+interval_secs = 300                  # --share-interval
+
+[events]
+ip_mode = "full"                     # --ip-mode: full | truncated | keyed
+
+[events.clickhouse]                  # the section on is the sink on
+# url = "http://127.0.0.1:8123"      # --clickhouse-url
+database = "veritell"                # --clickhouse-database
+table = "events"                     # --clickhouse-table
+user = "default"                     # --clickhouse-user
+
+[state]
+# dir = "/var/lib/veritell"          # --state-dir; none: nothing survives a restart
+flush_secs = 10                      # --state-flush
+
+# ---- Secrets: never values, only where to read them ----------------------------
+# The environment variable wins over the file. All are optional; the feature
+# that needs one stays off without it. Without `secret` the gateway makes a
+# random one for the run (tokens and probe builds do not survive a restart).
+[secrets]
+# secret_file = "/run/secrets/veritell_secret"                  # VERITELL_SECRET
+# admin_token_file = "/run/secrets/admin_token"                 # VERITELL_ADMIN_TOKEN
+# clickhouse_password_file = "/run/secrets/clickhouse"          # VERITELL_CLICKHOUSE_PASSWORD
+# share_seed_file = "/run/secrets/share_seed"                   # VERITELL_SHARE_SEED
+# share_key_file = "/run/secrets/share_key"                     # VERITELL_SHARE_KEY
+# known_key_file = "/run/secrets/known_key"                     # VERITELL_KNOWN_KEY
