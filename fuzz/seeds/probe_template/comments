@@ -1,0 +1,6 @@
+var c = "__VERITELL_CONFIG__", b = "__VERITELL_BUILD__";
+  // gone
+/* gone
+ still gone */
+keep(); /* kept */
+   

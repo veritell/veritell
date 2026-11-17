@@ -85,6 +85,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "probe_template"
+path = "fuzz_targets/probe_template.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "budget_store"
 path = "fuzz_targets/budget_store.rs"
 test = false

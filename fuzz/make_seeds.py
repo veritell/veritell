@@ -309,6 +309,33 @@ write_dict("directory_keys", ['"keys"', '"kty"', '"OKP"', '"crv"', '"Ed25519"', 
 # The URL that printed one byte over MAX_URL_BYTES (a found crash).
 write("directory_keys", "url_limit_no_path", b"\x01" + (lambda h: h + b"x" * (2048 - len(h)))(b"https://[2::1]:63049?"))
 
+# ---- probe_template --------------------------------------------------------
+# The first byte holds flags (bit 0 short secret, bit 1 padded past the
+# size limit, bits 2-7 the seed); the rest is the template.
+with open(os.path.join(ROOT, "probe", "probe.js"), "rb") as f:
+    PROBE_JS = f.read()
+TOKENS = b'var c = "__VERITELL_CONFIG__", b = "__VERITELL_BUILD__";\n'
+for name, (flags, template) in {
+    "probe_js": (0x04, PROBE_JS),
+    "minimal": (0x00, TOKENS),
+    "renamed": (0x08, TOKENS + b"var $$a = 1, $$ab = 2; $$a.v = $$ab; $ = $$;\n"),
+    "shuffle": (0x0C, TOKENS + b"/*@shuffle*/\n$$r.ua = 1;\n$$r.hc = 2;\n\n$$r.tz = 3;\n/*@end*/\n"),
+    "comments": (0x10, TOKENS + b"  // gone\n/* gone\n still gone */\nkeep(); /* kept */\n   \n"),
+    "nested": (0x00, TOKENS + b"/*@shuffle*/\na\n/*@shuffle*/\nb\n/*@end*/\n"),
+    "unclosed": (0x00, TOKENS + b"/*@shuffle*/\na\n"),
+    "close_first": (0x00, TOKENS + b"/*@end*/\n"),
+    "empty_region": (0x00, TOKENS + b"/*@shuffle*/\n  \n/*@end*/\n"),
+    "no_build": (0x00, b'var c = "__VERITELL_CONFIG__";\n'),
+    "two_config": (0x00, TOKENS + b'x = "__VERITELL_CONFIG__";\n'),
+    "weak_secret": (0x01, TOKENS),
+    "too_large": (0x02, TOKENS),
+    "config_in_comment": (0x00, b'// "__VERITELL_CONFIG__"\nvar b = "__VERITELL_BUILD__";\n'),
+    "build_in_comment": (0x00, b'var c = "__VERITELL_CONFIG__";\n/* "__VERITELL_BUILD__" */\n'),
+}.items():
+    write("probe_template", name, bytes([flags]) + template)
+write_dict("probe_template", ['"__VERITELL_CONFIG__"', '"__VERITELL_BUILD__"', "/*@shuffle*/", "/*@end*/", "$$", "//", "/*", "*/",
+                              "\n", "$$r.", " = "])
+
 # ---- budget_store ----------------------------------------------------------
 # Operation sequences (see the target): 0 id budget d = try_consume, 1 d =
 # time forward d*3 s, 2 = restart, 3 n (id used d)* = valid snapshot,

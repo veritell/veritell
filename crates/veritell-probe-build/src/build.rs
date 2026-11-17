@@ -17,8 +17,11 @@ pub enum BuildError {
     WeakSecret,
     /// Longer than `MAX_TEMPLATE_BYTES`.
     TooLarge,
-    /// `BUILD_TOKEN` or `CONFIG_TOKEN` does not occur exactly once. The
-    /// payload names the token.
+    /// `BUILD_TOKEN` or `CONFIG_TOKEN` does not occur exactly once, the two
+    /// overlap (replacing `BUILD_TOKEN` would break `CONFIG_TOKEN`), or one
+    /// is on a line that step 2 of [`Builder::build_with_seed`] could remove
+    /// (a comment line, or inside a block comment for some shuffle order).
+    /// The payload names the token.
     Token(&'static str),
     /// A shuffle region is not closed, is nested, is closed without being
     /// open, or is empty. The payload is the 1-based line number.
@@ -225,6 +228,53 @@ fn pieces(s: &str) -> Vec<Piece<'_>> {
     out
 }
 
+/// Whether the line holding `token` is kept by [`strip_and_trim`] in every
+/// build, whatever order the shuffle regions take. Follows the same block
+/// comment state as `strip_and_trim`, as the set of states a line can be
+/// reached in: a region with a line that opens a block comment or holds
+/// `*/` can leave either state behind, depending on its order.
+fn survives_stripping(segments: &[Segment], token: &str) -> bool {
+    fn opens_block(t: &str) -> bool {
+        t.strip_prefix("/*").is_some_and(|rest| !rest.contains("*/"))
+    }
+    fn next(in_block: bool, t: &str) -> bool {
+        if in_block {
+            !t.contains("*/")
+        } else {
+            opens_block(t)
+        }
+    }
+    // Kept when reached with these states (`may_be_in` a block, `may_be_out`).
+    let kept = |t: &str, may_be_in: bool| !may_be_in && !t.starts_with("//") && !t.starts_with("/*");
+    let (mut may_be_out, mut may_be_in) = (true, false);
+    for segment in segments {
+        match segment {
+            Segment::Line(line) => {
+                let t = line.trim();
+                if t.contains(token) && !kept(t, may_be_in) {
+                    return false;
+                }
+                let out = may_be_out && !next(false, t) || may_be_in && !next(true, t);
+                let inside = may_be_out && next(false, t) || may_be_in && next(true, t);
+                (may_be_out, may_be_in) = (out, inside);
+            }
+            Segment::Region(lines) => {
+                let volatile = lines.iter().any(|l| opens_block(l.trim()) || l.contains("*/"));
+                for line in lines {
+                    let t = line.trim();
+                    if t.contains(token) && (volatile || !kept(t, may_be_in)) {
+                        return false;
+                    }
+                }
+                if volatile {
+                    (may_be_out, may_be_in) = (true, true);
+                }
+            }
+        }
+    }
+    true
+}
+
 /// Step 2 and 3: drop comment-only lines, trim, drop blank lines.
 fn strip_and_trim(lines: &[String]) -> Vec<String> {
     let mut out = Vec::new();
@@ -288,7 +338,16 @@ impl Builder {
         if template.matches(CONFIG_TOKEN).count() != 1 {
             return Err(BuildError::Token(CONFIG_TOKEN));
         }
+        // The configuration is a JSON object: `{}` stands in for it.
+        if template.replacen(BUILD_TOKEN, "{}", 1).matches(CONFIG_TOKEN).count() != 1 {
+            return Err(BuildError::Token(CONFIG_TOKEN));
+        }
         let segments = parse_segments(template)?;
+        for token in [BUILD_TOKEN, CONFIG_TOKEN] {
+            if !survives_stripping(&segments, token) {
+                return Err(BuildError::Token(token));
+            }
+        }
         Ok(Builder { server_key: hmac(secret, &[KEY_LABEL]), segments })
     }
 
@@ -582,6 +641,43 @@ mod tests {
         assert_eq!(t("/*@shuffle*/\na;\n/*@shuffle*/\nb;\n/*@end*/\n/*@end*/\n"), Some(BuildError::Marker(4)));
         assert_eq!(t("a;\n/*@end*/\n"), Some(BuildError::Marker(3)));
         assert_eq!(t("/*@shuffle*/\n/*@end*/\n"), Some(BuildError::Marker(2)));
+    }
+
+    /// Found by the `probe_template` fuzz target: a token on a comment line
+    /// was accepted, then removed from every build with the comment.
+    #[test]
+    fn tokens_must_survive_comment_stripping() {
+        let config = "var c = \"__VERITELL_CONFIG__\";\n";
+        let build = "var b = \"__VERITELL_BUILD__\";\n";
+        let refused = [
+            (format!("// {CONFIG_TOKEN}\n{build}"), CONFIG_TOKEN),
+            (format!("{config}  /* {BUILD_TOKEN} */\n"), BUILD_TOKEN),
+            (format!("{config}/* open\n{BUILD_TOKEN}\n*/\n"), BUILD_TOKEN),
+            // A region that may or may not leave a block comment open.
+            (format!("{config}/*@shuffle*/\n/* a\nb */\n/*@end*/\n{build}"), BUILD_TOKEN),
+            (format!("{config}/*@shuffle*/\n/* a\n{BUILD_TOKEN}\n*/\n/*@end*/\n"), BUILD_TOKEN),
+        ];
+        for (template, token) in refused {
+            assert_eq!(Builder::new(&template, SECRET).err(), Some(BuildError::Token(token)), "{template:?}");
+        }
+        // Also found by it: the tokens sharing a quote, so that replacing
+        // BUILD_TOKEN took the start of CONFIG_TOKEN with it.
+        let overlap = "x = \"__\"__VERITELL_BUILD__\"__VERITELL_CONFIG__\";\n";
+        assert_eq!(Builder::new(overlap, SECRET).err(), Some(BuildError::Token(CONFIG_TOKEN)));
+        let accepted = [
+            format!("{config}/* comment */\n{build}"),
+            format!("{config}/* a\nb */\n{build}"),
+            format!("{config}/*@shuffle*/\nx;\n{build}/*@end*/\n"),
+            format!("{config}x(); // {BUILD_TOKEN}\n"),
+        ];
+        for template in accepted {
+            let b = Builder::new(&template, SECRET).unwrap_or_else(|e| panic!("{template:?}: {e}"));
+            for n in 0..8 {
+                let script = b.build_with_seed([n; 16], 0, 60).script;
+                assert_eq!(script.matches(CONFIG_TOKEN).count(), 1, "{template:?}");
+                assert!(!script.contains(BUILD_TOKEN) && script.contains("{\"id\":"), "{template:?}");
+            }
+        }
     }
 
     #[test]

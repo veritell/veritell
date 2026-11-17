@@ -15,6 +15,7 @@ only on public crate APIs.
 | `sealed_reports` | `veritell_probe_build::Builder::open` with the gateway's probe template | the sealed report body, and its plaintext: the build key is in the script every client gets |
 | `replay_cache` | `veritell_wba::ReplayCache`: `first_use`, `restore`, `entries` across time steps and restarts, against a reference model | the order, timing and expiry of the signatures a gateway sees, and its capacity |
 | `budget_store` | `veritell_token::MemoryBudgetStore`: `try_consume` across time steps, `export` and `import` across restarts, against a reference model | the ids, budgets and expiry times a client presents, and the saved state file read back at start |
+| `probe_template` | `veritell_probe_build::Builder::new`, `build_with_seed`, then `seal` and `open` with the build | the probe template (shuffle markers, renamed identifiers, comments, the two tokens) and the server secret's length |
 | `bundles` | `veritell_feed::open`, `veritell_share::open_bundle`, `decode` | a data feed or share bundle on disk; past the signature, the manifest and files |
 
 ## What a crash means here

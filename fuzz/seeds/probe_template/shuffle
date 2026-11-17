@@ -1,0 +1,7 @@
+var c = "__VERITELL_CONFIG__", b = "__VERITELL_BUILD__";
+/*@shuffle*/
+$$r.ua = 1;
+$$r.hc = 2;
+
+$$r.tz = 3;
+/*@end*/

@@ -21,6 +21,11 @@
 //   under another secret it is `UnknownBuild`; with any one byte changed it
 //   is refused or opens to the same report.
 // - Keys: an opened report has only `VOCAB` keys, at every depth.
+// - Builds: a body encrypted with another build's key, under this build's
+//   id, is `Decrypt` (one build's script cannot forge reports for another).
+// - Size: a body over `MAX_SEALED_BYTES` is `TooLarge` before anything else,
+//   and `seal` refuses to make one. Inputs stay far below that size, so
+//   one input in 64 checks it with a padded body and a long report.
 use std::sync::OnceLock;
 
 use aes_gcm::aead::{Aead, Payload};
@@ -29,7 +34,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use veritell_probe_build::{Build, Builder, OpenError, VOCAB};
+use veritell_probe_build::{Build, Builder, OpenError, MAX_NONCE_BYTES, MAX_SEALED_BYTES, VOCAB};
 
 const TEMPLATE: &str = include_str!("../../probe/probe.js");
 const SECRET: &[u8] = b"fuzz secret, not used anywhere else, 32+ bytes";
@@ -152,9 +157,23 @@ fn forge(build: &Build, key: &[u8; 32], nonce: &str, plaintext: &[u8], iv: [u8; 
     serde_json::to_vec(&serde_json::json!({ "b": build.id, "n": nonce, "d": STANDARD.encode(data) })).expect("body")
 }
 
+/// Size limits, with a body and a report past `MAX_SEALED_BYTES`.
+fn size_limits(build: &Build, body: &[u8]) {
+    let mut padded = body.to_vec();
+    padded.resize(MAX_SEALED_BYTES + 1, b' ');
+    assert_eq!(builder().open(&padded, NOW).err(), Some(OpenError::TooLarge), "an oversized body was read");
+    let long = format!("{{\"v\":1,\"main\":{{\"ua\":\"{}\"}}}}", "x".repeat(MAX_SEALED_BYTES));
+    assert_eq!(
+        builder().seal(&build.id, "n", long.as_bytes(), [0; 12]).err(),
+        Some(OpenError::TooLarge),
+        "seal made an oversized body"
+    );
+}
+
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
     let Some((&pick, rest)) = data.split_first() else { return };
-    let (build, key) = &builds()[usize::from(pick >> 2) % 8];
+    let index = usize::from(pick >> 2) % 8;
+    let (build, key) = &builds()[index];
     let tweak = usize::from(pick >> 5) * 7919 + rest.len();
     match pick & 3 {
         0 => {
@@ -173,6 +192,9 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
             let got: Value = serde_json::from_slice(&opened.report_json).expect("opened report is not JSON");
             assert!(same(&got, &sent), "a sealed report opened to another value: {got} vs {sent}");
             check_opened(&body, build, &opened.report_json, tweak);
+            if rest.len() % 64 == 63 {
+                size_limits(build, &body);
+            }
         }
         mode => {
             let (plain, nonce) = split(rest);
@@ -186,6 +208,14 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                     }
                     plain = text.into_bytes();
                 }
+            }
+            // The key of the next build, under this build's id.
+            let wrong = forge(build, &builds()[(index + 1) % 8].1, &nonce, &plain, [pick; 12]);
+            let got = builder().open(&wrong, NOW).err();
+            if nonce.len() <= MAX_NONCE_BYTES && wrong.len() <= MAX_SEALED_BYTES {
+                assert_eq!(got, Some(OpenError::Decrypt), "another build's key opened a report");
+            } else {
+                assert!(got.is_some(), "another build's key opened a report");
             }
             let body = forge(build, key, &nonce, &plain, [pick; 12]);
             match builder().open(&body, NOW) {

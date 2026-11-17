@@ -1,0 +1,2 @@
+var c = "__VERITELL_CONFIG__", b = "__VERITELL_BUILD__";
+var $$a = 1, $$ab = 2; $$a.v = $$ab; $ = $$;
