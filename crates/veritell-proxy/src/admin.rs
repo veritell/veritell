@@ -37,7 +37,9 @@ pub fn check_bind(addr: std::net::SocketAddr, has_token: bool) -> Result<(), Str
     if addr.ip().is_loopback() || has_token {
         Ok(())
     } else {
-        Err(format!("--admin {addr}: a non-loopback address needs VERITELL_ADMIN_TOKEN"))
+        Err(format!(
+            "--admin {addr}: a non-loopback address needs VERITELL_ADMIN_TOKEN"
+        ))
     }
 }
 
@@ -89,7 +91,10 @@ fn unauthorized() -> Response<Vec<u8>> {
         .header("content-type", "text/plain")
         .header("content-length", body.len())
         .header("cache-control", "no-store")
-        .header("www-authenticate", "Basic realm=\"veritell admin\", charset=\"UTF-8\"")
+        .header(
+            "www-authenticate",
+            "Basic realm=\"veritell admin\", charset=\"UTF-8\"",
+        )
         .body(body)
         .unwrap_or_else(|_| {
             let mut fallback = Response::new(b"unauthorized".to_vec());
@@ -107,7 +112,10 @@ impl ServeHttp for AdminApp {
             return misdirected();
         }
         if let Some(token) = &self.token {
-            let presented = req.headers.get("authorization").and_then(|v| v.to_str().ok());
+            let presented = req
+                .headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok());
             if !crate::admin_auth::authorized(presented, token) {
                 return unauthorized();
             }
@@ -147,7 +155,10 @@ mod tests {
         assert!(host_allowed(Some("127.0.0.1:9090"), &ok));
         assert!(host_allowed(Some("localhost:9090"), &ok));
         assert!(host_allowed(Some("LOCALHOST:9090"), &ok));
-        assert!(!host_allowed(Some("attacker.example:9090"), &ok), "a rebinding page's name");
+        assert!(
+            !host_allowed(Some("attacker.example:9090"), &ok),
+            "a rebinding page's name"
+        );
         assert!(!host_allowed(Some("localhost:9091"), &ok));
         assert!(!host_allowed(Some("127.0.0.1"), &ok));
         assert!(!host_allowed(None, &ok));
@@ -163,9 +174,15 @@ mod tests {
             assert!(host_allowed(Some("127.0.0.1:9090"), &ok), "{bind}");
             assert!(host_allowed(Some("[::1]:9090"), &ok), "{bind}");
             assert!(host_allowed(Some("localhost:9090"), &ok), "{bind}");
-            assert!(!host_allowed(Some("0.0.0.0:9090"), &ok), "{bind}: not a name to browse to");
+            assert!(
+                !host_allowed(Some("0.0.0.0:9090"), &ok),
+                "{bind}: not a name to browse to"
+            );
             assert!(!host_allowed(Some("[::]:9090"), &ok), "{bind}");
-            assert!(!host_allowed(Some("172.20.0.5:9090"), &ok), "{bind}: the container's address");
+            assert!(
+                !host_allowed(Some("172.20.0.5:9090"), &ok),
+                "{bind}: the container's address"
+            );
             assert!(!host_allowed(Some("attacker.example:9090"), &ok), "{bind}");
         }
     }
@@ -205,22 +222,34 @@ mod tests {
     }
 
     fn get(path: &str, host: &str, authorization: Option<&str>) -> String {
-        let auth = authorization.map(|a| format!("Authorization: {a}\r\n")).unwrap_or_default();
+        let auth = authorization
+            .map(|a| format!("Authorization: {a}\r\n"))
+            .unwrap_or_default();
         format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{auth}\r\n")
     }
 
     fn header<'a>(r: &'a Response<Vec<u8>>, name: &str) -> &'a str {
-        r.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("")
+        r.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
     }
 
     #[tokio::test]
     async fn another_host_is_misdirected_before_anything_else() {
-        let r = ask(&app(Some(TOKEN)), &get("/api/summary", "attacker.example:9090", None)).await;
+        let r = ask(
+            &app(Some(TOKEN)),
+            &get("/api/summary", "attacker.example:9090", None),
+        )
+        .await;
         assert_eq!(r.status(), http::StatusCode::MISDIRECTED_REQUEST);
         assert_eq!(r.body(), b"wrong host");
         assert_eq!(header(&r, "cache-control"), "no-store");
         assert_eq!(header(&r, "content-length"), "10");
-        assert!(r.headers().get("www-authenticate").is_none(), "no login offered to a rebinding page");
+        assert!(
+            r.headers().get("www-authenticate").is_none(),
+            "no login offered to a rebinding page"
+        );
     }
 
     #[tokio::test]
@@ -230,7 +259,11 @@ mod tests {
         assert_eq!(r.status(), http::StatusCode::OK);
         assert!(header(&r, "content-type").starts_with("text/html"));
         assert_eq!(header(&r, "content-length"), r.body().len().to_string());
-        let r = ask(&a, &get("/api/summary?window_secs=60", "127.0.0.1:9090", None)).await;
+        let r = ask(
+            &a,
+            &get("/api/summary?window_secs=60", "127.0.0.1:9090", None),
+        )
+        .await;
         assert_eq!(r.status(), http::StatusCode::OK);
         assert!(header(&r, "content-type").starts_with("application/json"));
         assert!(String::from_utf8_lossy(r.body()).contains("\"total\""));
@@ -244,7 +277,11 @@ mod tests {
         assert_eq!(r.body(), b"unauthorized");
         assert!(header(&r, "www-authenticate").starts_with("Basic realm=\"veritell admin\""));
         assert_eq!(header(&r, "cache-control"), "no-store");
-        let r = ask(&a, &get("/api/events", "localhost:9090", Some("Bearer wrong"))).await;
+        let r = ask(
+            &a,
+            &get("/api/events", "localhost:9090", Some("Bearer wrong")),
+        )
+        .await;
         assert_eq!(r.status(), http::StatusCode::UNAUTHORIZED);
     }
 
@@ -256,9 +293,14 @@ mod tests {
         assert_eq!(r.status(), http::StatusCode::OK);
         let basic = format!(
             "Basic {}",
-            base64::engine::general_purpose::STANDARD.encode([b"admin:".as_slice(), TOKEN].concat())
+            base64::engine::general_purpose::STANDARD
+                .encode([b"admin:".as_slice(), TOKEN].concat())
         );
-        let r = ask(&a, &get("/api/events?limit=5", "localhost:9090", Some(&basic))).await;
+        let r = ask(
+            &a,
+            &get("/api/events?limit=5", "localhost:9090", Some(&basic)),
+        )
+        .await;
         assert_eq!(r.status(), http::StatusCode::OK);
         assert_eq!(r.body(), b"[]");
     }
@@ -266,7 +308,11 @@ mod tests {
     #[tokio::test]
     async fn the_dashboards_own_answers_and_headers_are_passed_on() {
         let a = app(None);
-        let r = ask(&a, "POST /api/events HTTP/1.1\r\nHost: localhost:9090\r\nContent-Length: 0\r\n\r\n").await;
+        let r = ask(
+            &a,
+            "POST /api/events HTTP/1.1\r\nHost: localhost:9090\r\nContent-Length: 0\r\n\r\n",
+        )
+        .await;
         assert_eq!(r.status(), http::StatusCode::METHOD_NOT_ALLOWED);
         let r = ask(&a, &get("/nothing-here", "localhost:9090", None)).await;
         assert_eq!(r.status(), http::StatusCode::NOT_FOUND);

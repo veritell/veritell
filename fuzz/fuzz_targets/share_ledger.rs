@@ -39,15 +39,21 @@
 use std::collections::HashMap;
 use veritell_core::{Class, Layer};
 use veritell_share::{
-    decode, encode, open_bundle, seal_bundle, Config, ConfigError, Entry, Imported, Ledger, ShareKey, DETECTION_ID,
-    HASH_BYTES, MAX_ENTRIES, MIN_NETWORKS_FLOOR, MIN_SECRET_BYTES, PENALTY,
+    decode, encode, open_bundle, seal_bundle, Config, ConfigError, Entry, Imported, Ledger,
+    ShareKey, DETECTION_ID, HASH_BYTES, MAX_ENTRIES, MIN_NETWORKS_FLOOR, MIN_SECRET_BYTES, PENALTY,
 };
 
 const START: u64 = 1_800_000_000;
 const SECRET: &[u8; 32] = b"fuzz share secret, 32 bytes long";
 const SEED: [u8; 32] = [0x5a; 32];
-const CLASSES: [Class; 6] =
-    [Class::Human, Class::VerifiedBot, Class::SignedAgent, Class::UnverifiedAgent, Class::Automated, Class::Malicious];
+const CLASSES: [Class; 6] = [
+    Class::Human,
+    Class::VerifiedBot,
+    Class::SignedAgent,
+    Class::UnverifiedAgent,
+    Class::Automated,
+    Class::Malicious,
+];
 
 fn severity(c: Class) -> u8 {
     match c {
@@ -116,7 +122,14 @@ impl Model {
                 return;
             }
         }
-        self.slots.insert(hash, Slot { class, last: now, networks: vec![(network, now)] });
+        self.slots.insert(
+            hash,
+            Slot {
+                class,
+                last: now,
+                networks: vec![(network, now)],
+            },
+        );
     }
 
     fn export(&mut self, now: u64) -> Vec<Entry> {
@@ -125,9 +138,17 @@ impl Model {
             .slots
             .iter()
             .filter(|(_, s)| {
-                now - s.last <= self.ttl && s.networks.iter().filter(|&&(_, t)| now - t <= self.ttl).count() >= self.min
+                now - s.last <= self.ttl
+                    && s.networks
+                        .iter()
+                        .filter(|&&(_, t)| now - t <= self.ttl)
+                        .count()
+                        >= self.min
             })
-            .map(|(h, s)| Entry { hash: *h, class: s.class })
+            .map(|(h, s)| Entry {
+                hash: *h,
+                class: s.class,
+            })
             .collect();
         out.sort_by_key(|e| e.hash);
         out
@@ -151,37 +172,74 @@ fn key() -> ShareKey {
 /// What the receiver does with an export.
 fn receive(entries: &[Entry], hashes: &[[u8; HASH_BYTES]], now: u64) {
     let file = encode(entries);
-    assert_eq!(decode(&file).as_deref(), Ok(entries), "an export does not survive the file format");
-    let bundle = seal_bundle(entries, 7, now - 10, now + 10, &SEED).expect("an export does not seal");
+    assert_eq!(
+        decode(&file).as_deref(),
+        Ok(entries),
+        "an export does not survive the file format"
+    );
+    let bundle =
+        seal_bundle(entries, 7, now - 10, now + 10, &SEED).expect("an export does not seal");
     let opened = open_bundle(&bundle, &[veritell_feed::public_key(&SEED)], now, 7);
-    assert_eq!(opened.as_ref().map(|(v, e)| (*v, e.as_slice())), Ok((7, entries)), "an export does not open");
+    assert_eq!(
+        opened.as_ref().map(|(v, e)| (*v, e.as_slice())),
+        Ok((7, entries)),
+        "an export does not open"
+    );
 
     let imported = Imported::new(entries);
-    assert_eq!((imported.len(), imported.is_empty()), (entries.len(), entries.is_empty()));
+    assert_eq!(
+        (imported.len(), imported.is_empty()),
+        (entries.len(), entries.is_empty())
+    );
     let other = ShareKey::new(&[7u8; 40]).expect("a 40-byte secret");
     for (i, hash) in hashes.iter().enumerate() {
         let fp = fingerprint(i);
         let listed = entries.iter().find(|e| e.hash == *hash);
         let found = imported.detection(&key(), &fp);
-        assert_eq!(found.is_some(), listed.is_some(), "{fp}: detected {found:?}, listed {listed:?}");
+        assert_eq!(
+            found.is_some(),
+            listed.is_some(),
+            "{fp}: detected {found:?}, listed {listed:?}"
+        );
         if let (Some(d), Some(e)) = (found, listed) {
-            assert_eq!((d.id.as_str(), d.layer, d.penalty, d.class_hint), (DETECTION_ID, Layer::Population, PENALTY, None));
-            assert!(d.detail.contains(e.class.as_str()), "detail {:?} does not name {:?}", d.detail, e.class);
+            assert_eq!(
+                (d.id.as_str(), d.layer, d.penalty, d.class_hint),
+                (DETECTION_ID, Layer::Population, PENALTY, None)
+            );
+            assert!(
+                d.detail.contains(e.class.as_str()),
+                "detail {:?} does not name {:?}",
+                d.detail,
+                e.class
+            );
             let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-            assert!(!d.detail.contains(&hex) && !d.detail.contains(&fp), "detail names the fingerprint");
+            assert!(
+                !d.detail.contains(&hex) && !d.detail.contains(&fp),
+                "detail names the fingerprint"
+            );
         }
-        assert!(imported.detection(&other, &fp).is_none(), "{fp} detected under another secret");
+        assert!(
+            imported.detection(&other, &fp).is_none(),
+            "{fp} detected under another secret"
+        );
     }
-    assert!(Imported::empty().detection(&key(), &fingerprint(0)).is_none());
+    assert!(Imported::empty()
+        .detection(&key(), &fingerprint(0))
+        .is_none());
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    assert!(ShareKey::new(&SECRET[..MIN_SECRET_BYTES - 1]).is_none(), "a short secret makes a key");
+    assert!(
+        ShareKey::new(&SECRET[..MIN_SECRET_BYTES - 1]).is_none(),
+        "a short secret makes a key"
+    );
     assert_eq!(format!("{:?}", key()), "ShareKey(..)");
     let [c, t, ops @ ..] = data else { return };
 
     if c & 0xE0 == 0xE0 {
-        let [a, b, m0, m1, m2, m3, ttl, ..] = ops else { return };
+        let [a, b, m0, m1, m2, m3, ttl, ..] = ops else {
+            return;
+        };
         let config = Config {
             min_networks: u32::from(u16::from_be_bytes([*a, *b])),
             max_fingerprints: u32::from_be_bytes([*m0, *m1, *m2, *m3]) as usize,
@@ -213,7 +271,13 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
     // malicious record.
     let mut log: Vec<(usize, [u8; 8], u64, Class)> = Vec::new();
     let mut now = START;
-    let step = |now: u64, d: u8| if d < 0x80 { now + u64::from(d) } else { now - u64::from(d - 0x80) };
+    let step = |now: u64, d: u8| {
+        if d < 0x80 {
+            now + u64::from(d)
+        } else {
+            now - u64::from(d - 0x80)
+        }
+    };
 
     let mut last = None;
     let mut rest = ops;
@@ -224,12 +288,20 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 let [f, n, k, d, tail @ ..] = rest else { break };
                 rest = tail;
                 now = step(now, *d);
-                let (f, network, class) = (usize::from(*f % 8), [*n % 16; 8], CLASSES[usize::from(*k) % 6]);
+                let (f, network, class) = (
+                    usize::from(*f % 8),
+                    [*n % 16; 8],
+                    CLASSES[usize::from(*k) % 6],
+                );
                 let before = (ledger.tracked(), ledger.export(0));
                 ledger.record(&fingerprint(f), network, class, now);
                 model.record(hashes[f], network, class, now);
                 if severity(class) == 0 {
-                    assert_eq!((ledger.tracked(), ledger.export(0)), before, "a {class:?} record changed the ledger");
+                    assert_eq!(
+                        (ledger.tracked(), ledger.export(0)),
+                        before,
+                        "a {class:?} record changed the ledger"
+                    );
                 } else {
                     log.push((f, network, model.latest, class));
                 }
@@ -240,13 +312,22 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 now = step(now, *d);
                 let got = ledger.export(now);
                 assert_eq!(got, model.export(now), "export differs from the model");
-                assert!(got.windows(2).all(|w| w[0].hash < w[1].hash), "export not sorted by hash");
+                assert!(
+                    got.windows(2).all(|w| w[0].hash < w[1].hash),
+                    "export not sorted by hash"
+                );
                 let at = model.latest;
                 for e in &got {
                     assert!(severity(e.class) > 0, "exported class {:?}", e.class);
-                    let f = hashes.iter().position(|h| *h == e.hash).expect("exported an unknown hash");
-                    let mut networks: Vec<[u8; 8]> =
-                        log.iter().filter(|r| r.0 == f && at - r.2 <= config.ttl_secs).map(|r| r.1).collect();
+                    let f = hashes
+                        .iter()
+                        .position(|h| *h == e.hash)
+                        .expect("exported an unknown hash");
+                    let mut networks: Vec<[u8; 8]> = log
+                        .iter()
+                        .filter(|r| r.0 == f && at - r.2 <= config.ttl_secs)
+                        .map(|r| r.1)
+                        .collect();
                     networks.sort();
                     networks.dedup();
                     assert!(
@@ -255,7 +336,10 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                         networks.len()
                     );
                     if e.class == Class::Malicious {
-                        assert!(log.iter().any(|r| r.0 == f && r.3 == Class::Malicious), "{f} exported as malicious");
+                        assert!(
+                            log.iter().any(|r| r.0 == f && r.3 == Class::Malicious),
+                            "{f} exported as malicious"
+                        );
                     }
                 }
                 last = Some((got, at));
@@ -268,8 +352,16 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
             }
         }
         let tracked = ledger.tracked();
-        assert_eq!(tracked, model.slots.len(), "tracked() differs from the model");
-        assert!(tracked <= config.max_fingerprints, "{tracked} tracked over {}", config.max_fingerprints);
+        assert_eq!(
+            tracked,
+            model.slots.len(),
+            "tracked() differs from the model"
+        );
+        assert!(
+            tracked <= config.max_fingerprints,
+            "{tracked} tracked over {}",
+            config.max_fingerprints
+        );
     }
     if let Some((entries, at)) = last {
         receive(&entries, &hashes, at);

@@ -12,7 +12,8 @@ const CONTEXT: &str = "8e7acc900e393381e8810b7c9e4a68b5163f1f880ab6688a6ffe78092
 
 const CHALLENGE_1: &str = "0002000e6973737565722e6578616d706c65208e7acc900e393381e8810b7c9e4a68b5163f1f880ab6688a6ffe780923609e88000e6f726967696e2e6578616d706c65";
 const CHALLENGE_2: &str = "0002000e6973737565722e6578616d706c6500000e6f726967696e2e6578616d706c65";
-const CHALLENGE_3: &str = "0002000e6973737565722e6578616d706c65000017666f6f2e6578616d706c652c6261722e6578616d706c65";
+const CHALLENGE_3: &str =
+    "0002000e6973737565722e6578616d706c65000017666f6f2e6578616d706c652c6261722e6578616d706c65";
 const CHALLENGE_4: &str = "0002000e6973737565722e6578616d706c65000000";
 const CHALLENGE_5: &str = "0002000e6973737565722e6578616d706c65208e7acc900e393381e8810b7c9e4a68b5163f1f880ab6688a6ffe780923609e880000";
 
@@ -27,7 +28,10 @@ const DIGEST_4: &str = "b741ec1b6fd05f1e95f8982906aec1612896d9ca97d53eef94ad3c9f
 
 fn hex(text: &str) -> Vec<u8> {
     assert_eq!(text.len() % 2, 0);
-    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 fn hex32(text: &str) -> [u8; 32] {
@@ -39,7 +43,10 @@ fn key() -> IssuerKey {
 }
 
 fn accepted(digest: &str) -> Accepted {
-    Accepted { challenge_digest: hex32(digest), key_id: hex32(KEY_ID) }
+    Accepted {
+        challenge_digest: hex32(digest),
+        key_id: hex32(KEY_ID),
+    }
 }
 
 // ---------- the RFC's vectors ----------
@@ -65,7 +72,11 @@ fn the_rfc_challenges_are_rebuilt_byte_for_byte() {
         (Some(&ctx), "", CHALLENGE_5),
     ];
     for (context, origin, expected) in cases {
-        assert_eq!(token_challenge("issuer.example", context, origin).unwrap(), hex(expected), "{origin:?}");
+        assert_eq!(
+            token_challenge("issuer.example", context, origin).unwrap(),
+            hex(expected),
+            "{origin:?}"
+        );
     }
     assert_eq!(challenge_digest(&hex(CHALLENGE_1)), hex32(DIGEST_1));
     assert_eq!(challenge_digest(&hex(CHALLENGE_4)), hex32(DIGEST_4));
@@ -76,13 +87,24 @@ fn the_rfc_challenges_are_rebuilt_byte_for_byte() {
 fn the_rfc_tokens_verify() {
     assert_eq!(hex(TOKEN_1).len(), TOKEN_BYTES);
     let t = verify(&hex(TOKEN_1), &[key()], &[accepted(DIGEST_1)]).unwrap();
-    assert_eq!(t.nonce, hex32("aa72019d1f951df197021ce63876fe8b0a02dc1c31a12b0a2dd1508d07827f05"));
+    assert_eq!(
+        t.nonce,
+        hex32("aa72019d1f951df197021ce63876fe8b0a02dc1c31a12b0a2dd1508d07827f05")
+    );
     assert_eq!(t.challenge_digest, hex32(DIGEST_1));
     assert_eq!(t.token_key_id, hex32(KEY_ID));
 
-    let t = verify(&hex(TOKEN_4), &[key()], &[accepted(DIGEST_1), accepted(DIGEST_4)]).unwrap();
+    let t = verify(
+        &hex(TOKEN_4),
+        &[key()],
+        &[accepted(DIGEST_1), accepted(DIGEST_4)],
+    )
+    .unwrap();
     assert_eq!(t.challenge_digest, hex32(DIGEST_4));
-    assert_eq!(t.nonce, hex32("494dae41fc7e300c2d09990afcd5d5e1fc95305337dc12f78942c45340bfe8e6"));
+    assert_eq!(
+        t.nonce,
+        hex32("494dae41fc7e300c2d09990afcd5d5e1fc95305337dc12f78942c45340bfe8e6")
+    );
 }
 
 #[test]
@@ -103,19 +125,37 @@ fn the_signature_check_alone() {
 fn a_token_for_another_challenge() {
     // Token 1 answers challenge 1 (origin.example with a context). A site
     // asking challenge 4, or asking nothing, does not take it.
-    assert_eq!(verify(&hex(TOKEN_1), &[key()], &[accepted(DIGEST_4)]), Err(PassError::WrongChallenge));
-    assert_eq!(verify(&hex(TOKEN_1), &[key()], &[]), Err(PassError::WrongChallenge));
+    assert_eq!(
+        verify(&hex(TOKEN_1), &[key()], &[accepted(DIGEST_4)]),
+        Err(PassError::WrongChallenge)
+    );
+    assert_eq!(
+        verify(&hex(TOKEN_1), &[key()], &[]),
+        Err(PassError::WrongChallenge)
+    );
     // The digest is right but the challenge was made for another issuer key.
-    let other_key = Accepted { challenge_digest: hex32(DIGEST_1), key_id: [7; 32] };
-    assert_eq!(verify(&hex(TOKEN_1), &[key()], &[other_key]), Err(PassError::WrongChallenge));
+    let other_key = Accepted {
+        challenge_digest: hex32(DIGEST_1),
+        key_id: [7; 32],
+    };
+    assert_eq!(
+        verify(&hex(TOKEN_1), &[key()], &[other_key]),
+        Err(PassError::WrongChallenge)
+    );
 }
 
 #[test]
 fn a_token_from_a_key_that_is_not_trusted() {
-    assert_eq!(verify(&hex(TOKEN_1), &[], &[accepted(DIGEST_1)]), Err(PassError::UnknownKey));
+    assert_eq!(
+        verify(&hex(TOKEN_1), &[], &[accepted(DIGEST_1)]),
+        Err(PassError::UnknownKey)
+    );
     let mut t = hex(TOKEN_1);
     t[70] ^= 1; // inside token_key_id
-    assert_eq!(verify(&t, &[key()], &[accepted(DIGEST_1)]), Err(PassError::UnknownKey));
+    assert_eq!(
+        verify(&t, &[key()], &[accepted(DIGEST_1)]),
+        Err(PassError::UnknownKey)
+    );
 }
 
 #[test]
@@ -129,7 +169,11 @@ fn a_token_that_was_changed() {
     for at in [98, 200, 353] {
         let mut t = hex(TOKEN_1);
         t[at] ^= 0x80;
-        assert_eq!(verify(&t, &[key()], &ok), Err(PassError::BadAuthenticator), "byte {at}");
+        assert_eq!(
+            verify(&t, &[key()], &ok),
+            Err(PassError::BadAuthenticator),
+            "byte {at}"
+        );
     }
     // The digest: no longer a challenge this site asked.
     let mut t = hex(TOKEN_1);
@@ -155,9 +199,18 @@ fn tokens_of_the_wrong_shape() {
     // Another type is reported as such, at any length.
     let mut other = t.clone();
     other[1] = 1;
-    assert_eq!(verify(&other, &[key()], &ok), Err(PassError::UnknownType(1)));
-    assert_eq!(verify(&[0xda, 0x7a], &[key()], &ok), Err(PassError::UnknownType(0xda7a)));
-    assert_eq!(verify(&[0x00, 0x01, 9, 9, 9], &[key()], &ok), Err(PassError::UnknownType(1)));
+    assert_eq!(
+        verify(&other, &[key()], &ok),
+        Err(PassError::UnknownType(1))
+    );
+    assert_eq!(
+        verify(&[0xda, 0x7a], &[key()], &ok),
+        Err(PassError::UnknownType(0xda7a))
+    );
+    assert_eq!(
+        verify(&[0x00, 0x01, 9, 9, 9], &[key()], &ok),
+        Err(PassError::UnknownType(1))
+    );
 }
 
 #[test]
@@ -176,7 +229,10 @@ fn no_truncation_or_single_bit_flip_verifies() {
 // ---------- issuer keys ----------
 
 fn key_error(spki: &[u8]) -> bool {
-    matches!(IssuerKey::new("issuer.example", spki), Err(PassError::Key(_)))
+    matches!(
+        IssuerKey::new("issuer.example", spki),
+        Err(PassError::Key(_))
+    )
 }
 
 #[test]
@@ -222,8 +278,16 @@ fn issuer_keys_that_are_refused() {
 #[test]
 fn issuer_names_are_checked_first() {
     assert_eq!(IssuerKey::new("", &hex(PKI)).err(), Some(PassError::Name));
-    assert_eq!(IssuerKey::new("issuer@example", &[]).err(), Some(PassError::Name));
-    assert_eq!(IssuerKey::new("issuer.example:8443", &hex(PKI)).unwrap().name(), "issuer.example:8443");
+    assert_eq!(
+        IssuerKey::new("issuer@example", &[]).err(),
+        Some(PassError::Name)
+    );
+    assert_eq!(
+        IssuerKey::new("issuer.example:8443", &hex(PKI))
+            .unwrap()
+            .name(),
+        "issuer.example:8443"
+    );
 }
 
 #[test]
@@ -235,11 +299,26 @@ fn issuer_keys_in_base64url() {
     assert!(padded.contains('_') || padded.contains('-'));
     let k = IssuerKey::from_base64url("issuer.example", &padded).unwrap();
     assert_eq!(k, key());
-    assert_eq!(IssuerKey::from_base64url("issuer.example", &URL_SAFE_NO_PAD.encode(&der)).unwrap(), key());
+    assert_eq!(
+        IssuerKey::from_base64url("issuer.example", &URL_SAFE_NO_PAD.encode(&der)).unwrap(),
+        key()
+    );
     // Written back with padding, as the RFC requires. 342 bytes need none.
     assert_eq!(k.token_key(), padded);
-    for bad in [String::new(), STANDARD.encode(&der), format!(" {padded}"), format!("{padded}\n"), "!!!!".to_string()] {
-        assert!(matches!(IssuerKey::from_base64url("issuer.example", &bad), Err(PassError::Key(_))), "{bad:.20}");
+    for bad in [
+        String::new(),
+        STANDARD.encode(&der),
+        format!(" {padded}"),
+        format!("{padded}\n"),
+        "!!!!".to_string(),
+    ] {
+        assert!(
+            matches!(
+                IssuerKey::from_base64url("issuer.example", &bad),
+                Err(PassError::Key(_))
+            ),
+            "{bad:.20}"
+        );
     }
 }
 
@@ -249,15 +328,43 @@ fn issuer_keys_in_base64url() {
 fn server_names() {
     let longest = format!("{}.example", "a".repeat(MAX_NAME_BYTES - 8));
     assert_eq!(longest.len(), MAX_NAME_BYTES);
-    for good in ["issuer.example", "issuer.example.com:8443", "localhost", "localhost:1", "a", "A.Example", "192.0.2.1", "x-y.example:65535", longest.as_str()] {
+    for good in [
+        "issuer.example",
+        "issuer.example.com:8443",
+        "localhost",
+        "localhost:1",
+        "a",
+        "A.Example",
+        "192.0.2.1",
+        "x-y.example:65535",
+        longest.as_str(),
+    ] {
         assert!(valid_server_name(good), "{good}");
     }
     let too_long = format!("a{longest}");
     for bad in [
-        "", "issuer@example.com", "user:pw@issuer.example", "issuer.example:", "issuer.example:0", "issuer.example:65536",
-        "issuer.example:123456", "issuer.example:8a", "issuer..example", ".issuer.example", "issuer.example.", "issuer example",
-        "issuer.example/path", "https://issuer.example", "[::1]", "[::1]:443", "issuer_example", "issu\u{e9}r.example",
-        "issuer.example,other.example", "issuer.example:80:80", " issuer.example", too_long.as_str(),
+        "",
+        "issuer@example.com",
+        "user:pw@issuer.example",
+        "issuer.example:",
+        "issuer.example:0",
+        "issuer.example:65536",
+        "issuer.example:123456",
+        "issuer.example:8a",
+        "issuer..example",
+        ".issuer.example",
+        "issuer.example.",
+        "issuer example",
+        "issuer.example/path",
+        "https://issuer.example",
+        "[::1]",
+        "[::1]:443",
+        "issuer_example",
+        "issu\u{e9}r.example",
+        "issuer.example,other.example",
+        "issuer.example:80:80",
+        " issuer.example",
+        too_long.as_str(),
     ] {
         assert!(!valid_server_name(bad), "{bad}");
     }
@@ -277,7 +384,11 @@ fn challenges_with_bad_names_are_not_built() {
         ("issuer.example", "user@origin.example"),
         ("issuer.example", " "),
     ] {
-        assert_eq!(token_challenge(issuer, None, origin), Err(PassError::Name), "{issuer:?} {origin:?}");
+        assert_eq!(
+            token_challenge(issuer, None, origin),
+            Err(PassError::Name),
+            "{issuer:?} {origin:?}"
+        );
     }
     // Names go in as written: another spelling is another challenge.
     assert_ne!(
@@ -311,7 +422,13 @@ fn the_challenge_header() {
     let c4 = hex(CHALLENGE_4);
     let c2 = hex(CHALLENGE_2);
     let one = www_authenticate(&[(c4.as_slice(), &k)]);
-    assert_eq!(one, format!("PrivateToken challenge=\"AAIADmlzc3Vlci5leGFtcGxlAAAA\", token-key=\"{}\"", k.token_key()));
+    assert_eq!(
+        one,
+        format!(
+            "PrivateToken challenge=\"AAIADmlzc3Vlci5leGFtcGxlAAAA\", token-key=\"{}\"",
+            k.token_key()
+        )
+    );
     let two = www_authenticate(&[(c4.as_slice(), &k), (c2.as_slice(), &k)]);
     assert!(two.starts_with(&format!("{one}, PrivateToken challenge=\"")));
     assert_eq!(two.matches("PrivateToken ").count(), 2);
@@ -331,32 +448,62 @@ fn b64(bytes: &[u8]) -> String {
 fn the_token_is_found_in_authorization() {
     let token = hex(TOKEN_1);
     let enc = b64(&token);
-    assert_eq!(token_from_authorization(&format!("PrivateToken token=\"{enc}\"")), Ok(Some(token.clone())));
+    assert_eq!(
+        token_from_authorization(&format!("PrivateToken token=\"{enc}\"")),
+        Ok(Some(token.clone()))
+    );
     // 354 bytes need no padding, so the bare form is also legal.
     assert!(!enc.contains('='));
-    assert_eq!(token_from_authorization(&format!("PrivateToken token={enc}")), Ok(Some(token.clone())));
-    assert_eq!(token_from_authorization(&format!("privatetoken  TOKEN = \"{enc}\" ")), Ok(Some(token.clone())));
+    assert_eq!(
+        token_from_authorization(&format!("PrivateToken token={enc}")),
+        Ok(Some(token.clone()))
+    );
+    assert_eq!(
+        token_from_authorization(&format!("privatetoken  TOKEN = \"{enc}\" ")),
+        Ok(Some(token.clone()))
+    );
     // Other parameters are ignored, wherever they are.
     assert_eq!(
-        token_from_authorization(&format!("PrivateToken realm=\"x, y\", token=\"{enc}\", extra=1")),
+        token_from_authorization(&format!(
+            "PrivateToken realm=\"x, y\", token=\"{enc}\", extra=1"
+        )),
         Ok(Some(token.clone()))
     );
     // Padding is accepted when present and when absent.
-    assert_eq!(token_from_authorization("PrivateToken token=\"AAIADg==\""), Ok(Some(vec![0, 2, 0, 14])));
-    assert_eq!(token_from_authorization("PrivateToken token=\"AAIADg\""), Ok(Some(vec![0, 2, 0, 14])));
-    assert_eq!(token_from_authorization("PrivateToken token=AAIADg=="), Ok(Some(vec![0, 2, 0, 14])));
+    assert_eq!(
+        token_from_authorization("PrivateToken token=\"AAIADg==\""),
+        Ok(Some(vec![0, 2, 0, 14]))
+    );
+    assert_eq!(
+        token_from_authorization("PrivateToken token=\"AAIADg\""),
+        Ok(Some(vec![0, 2, 0, 14]))
+    );
+    assert_eq!(
+        token_from_authorization("PrivateToken token=AAIADg=="),
+        Ok(Some(vec![0, 2, 0, 14]))
+    );
 }
 
 #[test]
 fn other_schemes_are_not_ours() {
-    for value in ["", "Basic dXNlcjpwYXNz", "Bearer abc.def", "PrivateTokens token=\"AAIA\"", "token=\"AAIA\"", "Private Token token=\"AAIA\""] {
+    for value in [
+        "",
+        "Basic dXNlcjpwYXNz",
+        "Bearer abc.def",
+        "PrivateTokens token=\"AAIA\"",
+        "token=\"AAIA\"",
+        "Private Token token=\"AAIA\"",
+    ] {
         assert_eq!(token_from_authorization(value), Ok(None), "{value:?}");
     }
 }
 
 #[test]
 fn our_scheme_without_a_usable_token() {
-    let long = format!("PrivateToken token=\"{}\"", "A".repeat(MAX_AUTHORIZATION_BYTES));
+    let long = format!(
+        "PrivateToken token=\"{}\"",
+        "A".repeat(MAX_AUTHORIZATION_BYTES)
+    );
     for value in [
         "PrivateToken",
         "PrivateToken ",
@@ -378,6 +525,10 @@ fn our_scheme_without_a_usable_token() {
         "PrivateToken =\"AAIA\"",
         long.as_str(),
     ] {
-        assert_eq!(token_from_authorization(value), Err(PassError::Malformed), "{value:.60}");
+        assert_eq!(
+            token_from_authorization(value),
+            Err(PassError::Malformed),
+            "{value:.60}"
+        );
     }
 }

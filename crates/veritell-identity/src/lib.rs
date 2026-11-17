@@ -225,13 +225,15 @@ impl<R: Resolver> CrawlerVerifier<R> {
     /// First spec, in list order, whose token occurs in the User-Agent.
     fn match_spec(&self, ua: &str) -> Option<&CrawlerSpec> {
         let ua_lower = ua.to_ascii_lowercase();
-        self.specs.iter().find(|s| {
-            !s.ua_token.is_empty() && ua_lower.contains(&s.ua_token.to_ascii_lowercase())
-        })
+        self.specs
+            .iter()
+            .find(|s| !s.ua_token.is_empty() && ua_lower.contains(&s.ua_token.to_ascii_lowercase()))
     }
 
     fn lock_cache(&self) -> MutexGuard<'_, Cache> {
-        self.cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn cache_get(&self, key: &CacheKey) -> Option<CrawlerVerdict> {
@@ -274,7 +276,14 @@ impl<R: Resolver> CrawlerVerifier<R> {
         } else {
             cache.other.push_back((key.clone(), seq));
         }
-        cache.entries.insert(key, Entry { verdict, expires, seq });
+        cache.entries.insert(
+            key,
+            Entry {
+                verdict,
+                expires,
+                seq,
+            },
+        );
         cache.compact();
     }
 }
@@ -282,7 +291,10 @@ impl<R: Resolver> CrawlerVerifier<R> {
 /// Trim, strip one trailing dot, lowercase.
 fn normalise_host(name: &str) -> String {
     let trimmed = name.trim();
-    trimmed.strip_suffix('.').unwrap_or(trimmed).to_ascii_lowercase()
+    trimmed
+        .strip_suffix('.')
+        .unwrap_or(trimmed)
+        .to_ascii_lowercase()
 }
 
 /// `host` equals `suffix`, or ends with `.` + `suffix` (with a non-empty label before it).
@@ -318,7 +330,11 @@ pub fn builtin_specs() -> Vec<CrawlerSpec> {
         spec("Applebot", "applebot", &["applebot.apple.com"]),
         // "yandexbot", not "yandex": Yandex's own browser and apps carry
         // "Yandex" in their User-Agent and must not be treated as crawler claims.
-        spec("YandexBot", "yandexbot", &["yandex.ru", "yandex.net", "yandex.com"]),
+        spec(
+            "YandexBot",
+            "yandexbot",
+            &["yandex.ru", "yandex.net", "yandex.com"],
+        ),
         spec("Baiduspider", "baiduspider", &["baidu.com", "baidu.jp"]),
     ]
 }
@@ -345,7 +361,10 @@ impl AsnInfo {
                 "net_hosting",
                 Layer::Identity,
                 20,
-                format!("AS{} ({}) is a hosting or cloud provider", self.asn, self.org),
+                format!(
+                    "AS{} ({}) is a hosting or cloud provider",
+                    self.asn, self.org
+                ),
             )),
             NetClass::Other => None,
         }
@@ -411,7 +430,10 @@ pub fn canonical(ip: IpAddr) -> IpAddr {
 fn parse_row(line: &str) -> Result<Option<Parsed>, String> {
     let fields: Vec<&str> = line.splitn(5, '\t').collect();
     let [start_s, end_s, asn_s, _country, org] = fields.as_slice() else {
-        return Err(format!("expected 5 tab-separated fields, found {}", fields.len()));
+        return Err(format!(
+            "expected 5 tab-separated fields, found {}",
+            fields.len()
+        ));
     };
 
     let start = canonical(
@@ -438,14 +460,24 @@ fn parse_row(line: &str) -> Result<Option<Parsed>, String> {
             if a > b {
                 return Err("range start is after range end".to_string());
             }
-            Parsed::V4(Span { start: a, end: b, asn, org })
+            Parsed::V4(Span {
+                start: a,
+                end: b,
+                asn,
+                org,
+            })
         }
         (IpAddr::V6(a), IpAddr::V6(b)) => {
             let (a, b) = (u128::from(a), u128::from(b));
             if a > b {
                 return Err("range start is after range end".to_string());
             }
-            Parsed::V6(Span { start: a, end: b, asn, org })
+            Parsed::V6(Span {
+                start: a,
+                end: b,
+                asn,
+                org,
+            })
         }
         _ => return Err("range start and end are different address families".to_string()),
     };
@@ -466,7 +498,10 @@ fn find<T: Ord + Copy>(spans: &[Span<T>], ip: T) -> Option<&Span<T>> {
 
 impl AsnDb {
     pub fn empty() -> AsnDb {
-        AsnDb { v4: Vec::new(), v6: Vec::new() }
+        AsnDb {
+            v4: Vec::new(),
+            v6: Vec::new(),
+        }
     }
 
     /// Loads the iptoasn.com combined TSV format:
@@ -507,7 +542,11 @@ impl AsnDb {
         } else {
             NetClass::Other
         };
-        Some(AsnInfo { asn, org: org.to_string(), class })
+        Some(AsnInfo {
+            asn,
+            org: org.to_string(),
+            class,
+        })
     }
 }
 
@@ -543,19 +582,32 @@ mod tests {
     }
 
     fn no_dns() -> FixedDns {
-        FixedDns { names: Vec::new(), forward: Vec::new(), forward_calls: AtomicUsize::new(0) }
+        FixedDns {
+            names: Vec::new(),
+            forward: Vec::new(),
+            forward_calls: AtomicUsize::new(0),
+        }
     }
 
     fn key(n: u32) -> CacheKey {
-        ("Googlebot".to_string(), IpAddr::from(std::net::Ipv6Addr::from(0x2001_0db8_u128 << 96 | u128::from(n))))
+        (
+            "Googlebot".to_string(),
+            IpAddr::from(std::net::Ipv6Addr::from(
+                0x2001_0db8_u128 << 96 | u128::from(n),
+            )),
+        )
     }
 
     fn good() -> CrawlerVerdict {
-        CrawlerVerdict::Verified { name: "Googlebot".into() }
+        CrawlerVerdict::Verified {
+            name: "Googlebot".into(),
+        }
     }
 
     fn fake() -> CrawlerVerdict {
-        CrawlerVerdict::Spoofed { claimed: "Googlebot".into() }
+        CrawlerVerdict::Spoofed {
+            claimed: "Googlebot".into(),
+        }
     }
 
     #[test]
@@ -570,7 +622,11 @@ mod tests {
         }
         assert_eq!(v.cache_len(), 10);
         for n in 0..3 {
-            assert_eq!(v.cache_get_at(&key(n), t), Some(good()), "verified entry {n} was evicted");
+            assert_eq!(
+                v.cache_get_at(&key(n), t),
+                Some(good()),
+                "verified entry {n} was evicted"
+            );
         }
         // The newest fake claims are the ones kept.
         assert_eq!(v.cache_get_at(&key(10_099), t), Some(fake()));
@@ -623,7 +679,11 @@ mod tests {
         let mut t = Instant::now();
         for round in 0..200u32 {
             for n in 0..50 {
-                v.cache_put_at(key(n), if (n + round) % 2 == 0 { good() } else { fake() }, t);
+                v.cache_put_at(
+                    key(n),
+                    if (n + round) % 2 == 0 { good() } else { fake() },
+                    t,
+                );
             }
             t += SPOOFED_TTL + Duration::from_secs(1);
             for n in 0..50 {
@@ -632,7 +692,11 @@ mod tests {
         }
         let c = v.lock_cache();
         assert!(c.entries.len() <= 50);
-        assert!(c.verified.len() + c.other.len() <= 2 * 50, "queues hold {}", c.verified.len() + c.other.len());
+        assert!(
+            c.verified.len() + c.other.len() <= 2 * 50,
+            "queues hold {}",
+            c.verified.len() + c.other.len()
+        );
     }
 
     #[tokio::test]
@@ -649,7 +713,9 @@ mod tests {
         let v = CrawlerVerifier::new(dns);
         assert_eq!(
             v.verify(Some("Googlebot/2.1"), target).await,
-            CrawlerVerdict::Verified { name: "Googlebot".into() }
+            CrawlerVerdict::Verified {
+                name: "Googlebot".into()
+            }
         );
     }
 
@@ -666,8 +732,11 @@ mod tests {
         };
         let v = CrawlerVerifier::new(dns);
         assert_ne!(
-            v.verify(Some("Mozilla/5.0 (compatible; Googlebot/2.1)"), target).await,
-            CrawlerVerdict::Verified { name: "Googlebot".into() }
+            v.verify(Some("Mozilla/5.0 (compatible; Googlebot/2.1)"), target)
+                .await,
+            CrawlerVerdict::Verified {
+                name: "Googlebot".into()
+            }
         );
     }
 
@@ -682,7 +751,9 @@ mod tests {
         let v = CrawlerVerifier::with_specs(dns, builtin_specs(), 0);
         assert_eq!(
             v.verify(Some("Googlebot/2.1"), target).await,
-            CrawlerVerdict::Verified { name: "Googlebot".into() }
+            CrawlerVerdict::Verified {
+                name: "Googlebot".into()
+            }
         );
         assert_eq!(v.cache_len(), 0);
     }
@@ -697,7 +768,9 @@ mod tests {
 
     #[test]
     fn start_after_end_is_a_line_error() {
-        match AsnDb::from_iptoasn_tsv("3.0.0.0\t3.1.255.255\t16509\tUS\tAMAZON-02\n3.1.0.0\t3.0.0.0\t16509\tUS\tX\n") {
+        match AsnDb::from_iptoasn_tsv(
+            "3.0.0.0\t3.1.255.255\t16509\tUS\tAMAZON-02\n3.1.0.0\t3.0.0.0\t16509\tUS\tX\n",
+        ) {
             Err(AsnError::BadLine(2, why)) => assert!(why.contains("after")),
             other => panic!("expected BadLine(2, _), got {:?}", other.map(|d| d.len())),
         }

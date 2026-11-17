@@ -31,7 +31,10 @@ pub fn request_wants(method: &str, sec_fetch_dest: Option<&str>) -> bool {
 /// responses. Only an `Injection::Wanted` request that accepts `text/html` is
 /// touched; the client then gets the page uncompressed. Everything else keeps
 /// its header.
-pub fn drop_accept_encoding(state: &Injection, upstream_request: &mut pingora::http::RequestHeader) {
+pub fn drop_accept_encoding(
+    state: &Injection,
+    upstream_request: &mut pingora::http::RequestHeader,
+) {
     if *state != Injection::Wanted {
         return;
     }
@@ -50,7 +53,10 @@ pub fn drop_accept_encoding(state: &Injection, upstream_request: &mut pingora::h
 /// (it has the scripts) and stays, as does every request that is not
 /// `Injection::Wanted` with `text/html` in `Accept`. `If-Modified-Since`
 /// alone cannot tell the two copies apart and is left alone.
-pub fn drop_stale_validators(state: &Injection, upstream_request: &mut pingora::http::RequestHeader) {
+pub fn drop_stale_validators(
+    state: &Injection,
+    upstream_request: &mut pingora::http::RequestHeader,
+) {
     if *state != Injection::Wanted || !accepts_html(upstream_request) {
         return;
     }
@@ -69,10 +75,7 @@ pub fn drop_stale_validators(state: &Injection, upstream_request: &mut pingora::
 /// Whether an `If-None-Match` value lists a strong entity tag (`"x"`, not
 /// `W/"x"`, and not `*`).
 pub fn has_strong_tag(value: &str) -> bool {
-    value
-        .split(',')
-        .map(str::trim)
-        .any(|t| t.starts_with('"'))
+    value.split(',').map(str::trim).any(|t| t.starts_with('"'))
 }
 
 fn accepts_html(req: &pingora::http::RequestHeader) -> bool {
@@ -84,20 +87,29 @@ fn accepts_html(req: &pingora::http::RequestHeader) -> bool {
 }
 
 /// Whether the response is a whole HTML page that can be read as it is.
-pub fn response_allows(status: u16, content_type: Option<&str>, content_encoding: Option<&str>) -> bool {
+pub fn response_allows(
+    status: u16,
+    content_type: Option<&str>,
+    content_encoding: Option<&str>,
+) -> bool {
     status == 200
         && content_type.is_some_and(|t| {
-            t.split(';').next().is_some_and(|m| m.trim().eq_ignore_ascii_case("text/html"))
+            t.split(';')
+                .next()
+                .is_some_and(|m| m.trim().eq_ignore_ascii_case("text/html"))
         })
-        && content_encoding.is_none_or(|e| e.trim().is_empty() || e.trim().eq_ignore_ascii_case("identity"))
+        && content_encoding
+            .is_none_or(|e| e.trim().is_empty() || e.trim().eq_ignore_ascii_case("identity"))
 }
 
 fn find_ci(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).position(|w| w.eq_ignore_ascii_case(needle))
+    hay.windows(needle.len())
+        .position(|w| w.eq_ignore_ascii_case(needle))
 }
 
 fn rfind_ci(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).rposition(|w| w.eq_ignore_ascii_case(needle))
+    hay.windows(needle.len())
+        .rposition(|w| w.eq_ignore_ascii_case(needle))
 }
 
 /// What happens to one response's body. The only transitions are:
@@ -121,14 +133,25 @@ pub enum Injection {
 
 impl Injection {
     pub fn for_request(enabled: bool, method: &str, sec_fetch_dest: Option<&str>) -> Injection {
-        if enabled && request_wants(method, sec_fetch_dest) { Injection::Wanted } else { Injection::Pass }
+        if enabled && request_wants(method, sec_fetch_dest) {
+            Injection::Wanted
+        } else {
+            Injection::Pass
+        }
     }
 
     /// At the response headers. True when the body will be changed, so that
     /// the caller drops `Content-Length` and weakens a strong `ETag`.
-    pub fn on_response(&mut self, status: u16, content_type: Option<&str>, content_encoding: Option<&str>) -> bool {
+    pub fn on_response(
+        &mut self,
+        status: u16,
+        content_type: Option<&str>,
+        content_encoding: Option<&str>,
+    ) -> bool {
         *self = match std::mem::take(self) {
-            Injection::Wanted if response_allows(status, content_type, content_encoding) => Injection::Holding(Vec::new()),
+            Injection::Wanted if response_allows(status, content_type, content_encoding) => {
+                Injection::Holding(Vec::new())
+            }
             _ => Injection::Pass,
         };
         matches!(self, Injection::Holding(_))
@@ -136,7 +159,9 @@ impl Injection {
 
     /// For each body chunk: what to send now. `None` while holding.
     pub fn on_body(&mut self, chunk: Option<Vec<u8>>, end_of_stream: bool) -> Option<Vec<u8>> {
-        let Injection::Holding(held) = self else { return chunk };
+        let Injection::Holding(held) = self else {
+            return chunk;
+        };
         if let Some(chunk) = chunk {
             held.extend_from_slice(&chunk);
         }
@@ -159,7 +184,11 @@ impl Injection {
 /// section 8.8.1). A weak one stays as it is.
 pub fn weaken_etag(etag: &str) -> String {
     let etag = etag.trim();
-    if etag.starts_with("W/") { etag.to_string() } else { format!("W/{etag}") }
+    if etag.starts_with("W/") {
+        etag.to_string()
+    } else {
+        format!("W/{etag}")
+    }
 }
 
 /// The page with the scripts added, or `None` when it has no place for them.
@@ -190,7 +219,8 @@ mod tests {
 
     #[test]
     fn before_the_first_head_close() {
-        let page = b"<!doctype html><html><HEAD><title>x</title></Head><body>a</head></body></html>";
+        let page =
+            b"<!doctype html><html><HEAD><title>x</title></Head><body>a</head></body></html>";
         let out = String::from_utf8(insert(page).unwrap()).unwrap();
         assert_eq!(out, format!("<!doctype html><html><HEAD><title>x</title>{SNIPPET}</Head><body>a</head></body></html>"));
     }
@@ -238,7 +268,11 @@ mod tests {
         assert_eq!(st.on_body(Some(b"<head>".to_vec()), false), None);
         assert_eq!(st.on_body(None, false), None);
         let out = st.on_body(None, true).unwrap();
-        assert_eq!(out, b"<head>".to_vec(), "no </head> and no </body>: unchanged");
+        assert_eq!(
+            out,
+            b"<head>".to_vec(),
+            "no </head> and no </body>: unchanged"
+        );
     }
 
     #[test]
@@ -250,7 +284,10 @@ mod tests {
         let first = st.on_body(Some(big.clone()), false).unwrap();
         assert_eq!(first.len(), 13 + MAX_BUFFER);
         assert_eq!(st, Injection::Pass);
-        assert_eq!(st.on_body(Some(b"</body>".to_vec()), true), Some(b"</body>".to_vec()));
+        assert_eq!(
+            st.on_body(Some(b"</body>".to_vec()), true),
+            Some(b"</body>".to_vec())
+        );
     }
 
     #[test]
@@ -261,8 +298,14 @@ mod tests {
         let mut off = Injection::for_request(false, "GET", None);
         assert_eq!(off, Injection::Pass);
         assert!(!off.on_response(200, Some("text/html"), None));
-        assert_eq!(Injection::for_request(true, "GET", Some("script")), Injection::Pass);
-        assert_eq!(Injection::for_request(true, "GET", Some("document")), Injection::Wanted);
+        assert_eq!(
+            Injection::for_request(true, "GET", Some("script")),
+            Injection::Pass
+        );
+        assert_eq!(
+            Injection::for_request(true, "GET", Some("document")),
+            Injection::Wanted
+        );
         // A second response decision cannot restart holding.
         let mut st = Injection::Pass;
         assert!(!st.on_response(200, Some("text/html"), None));
@@ -297,7 +340,11 @@ mod tests {
     #[test]
     fn which_responses() {
         assert!(response_allows(200, Some("text/html"), None));
-        assert!(response_allows(200, Some("text/html; charset=utf-8"), Some("identity")));
+        assert!(response_allows(
+            200,
+            Some("text/html; charset=utf-8"),
+            Some("identity")
+        ));
         assert!(response_allows(200, Some("Text/HTML"), Some("")));
         assert!(!response_allows(200, Some("text/html"), Some("gzip")));
         assert!(!response_allows(200, Some("application/json"), None));

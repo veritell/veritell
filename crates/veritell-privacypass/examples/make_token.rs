@@ -21,10 +21,10 @@ use sha2::{Digest, Sha256};
 
 /// The AlgorithmIdentifier of RFC 9578 section 6.5, with its SEQUENCE header.
 const ALGORITHM: [u8; 63] = [
-    0x30, 0x3d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a, 0x30, 0x30, 0xa0, 0x0d, 0x30, 0x0b,
-    0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0xa1, 0x1a, 0x30, 0x18, 0x06, 0x09, 0x2a, 0x86,
-    0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x08, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
-    0x02, 0xa2, 0x03, 0x02, 0x01, 0x30,
+    0x30, 0x3d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a, 0x30, 0x30, 0xa0,
+    0x0d, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0xa1, 0x1a,
+    0x30, 0x18, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x08, 0x30, 0x0b, 0x06,
+    0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0xa2, 0x03, 0x02, 0x01, 0x30,
 ];
 
 fn der(tag: u8, content: &[u8]) -> Vec<u8> {
@@ -63,10 +63,18 @@ fn hex_nonce(text: &str) -> [u8; 32] {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut der_key = Vec::new();
-    std::io::stdin().read_to_end(&mut der_key).expect("reading the key from standard input");
-    let key = KeyPair::from_pkcs8(&der_key).expect("standard input must be a PKCS#8 DER RSA private key");
+    std::io::stdin()
+        .read_to_end(&mut der_key)
+        .expect("reading the key from standard input");
+    let key =
+        KeyPair::from_pkcs8(&der_key).expect("standard input must be a PKCS#8 DER RSA private key");
     let spki = spki(&key);
-    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         ["spki"] => println!("{}", URL_SAFE.encode(&spki)),
         ["token", challenge] => print_token(&key, &spki, challenge, None),
         ["token", challenge, nonce] => print_token(&key, &spki, challenge, Some(hex_nonce(nonce))),
@@ -79,7 +87,9 @@ fn main() {
 
 fn print_token(key: &KeyPair, spki: &[u8], challenge: &str, nonce: Option<[u8; 32]>) {
     let rng = SystemRandom::new();
-    let challenge = URL_SAFE_NO_PAD.decode(challenge.trim_end_matches('=')).expect("the challenge must be base64url");
+    let challenge = URL_SAFE_NO_PAD
+        .decode(challenge.trim_end_matches('='))
+        .expect("the challenge must be base64url");
     let nonce = nonce.unwrap_or_else(|| {
         let mut n = [0u8; 32];
         rng.fill(&mut n).expect("random bytes");
@@ -91,7 +101,8 @@ fn print_token(key: &KeyPair, spki: &[u8], challenge: &str, nonce: Option<[u8; 3
     token.extend_from_slice(&Sha256::digest(spki));
     assert_eq!(token.len(), 98);
     let mut signature = vec![0u8; key.public().modulus_len()];
-    key.sign(&RSA_PSS_SHA384, &rng, &token, &mut signature).expect("signing");
+    key.sign(&RSA_PSS_SHA384, &rng, &token, &mut signature)
+        .expect("signing");
     token.extend_from_slice(&signature);
     println!("PrivateToken token=\"{}\"", URL_SAFE.encode(&token));
 }

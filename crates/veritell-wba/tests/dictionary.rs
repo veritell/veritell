@@ -19,26 +19,51 @@ const EXPIRES: u64 = 1_735_693_200;
 const NOW: u64 = CREATED + 100;
 
 fn rfc_public() -> [u8; 32] {
-    URL_SAFE_NO_PAD.decode(RFC_KEY_X).unwrap().try_into().unwrap()
+    URL_SAFE_NO_PAD
+        .decode(RFC_KEY_X)
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn sign(base: &str) -> String {
-    let d: [u8; 32] = URL_SAFE_NO_PAD.decode(RFC_KEY_D).unwrap().try_into().unwrap();
-    format!(":{}:", STANDARD.encode(SigningKey::from_bytes(&d).sign(base.as_bytes()).to_bytes()))
+    let d: [u8; 32] = URL_SAFE_NO_PAD
+        .decode(RFC_KEY_D)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    format!(
+        ":{}:",
+        STANDARD.encode(SigningKey::from_bytes(&d).sign(base.as_bytes()).to_bytes())
+    )
 }
 
 fn trusted(signature_agent: Option<&str>) -> TrustedAgents {
     let mut t = TrustedAgents::new();
-    t.add("test-agent", signature_agent, vec![Ed25519Key::from_public(rfc_public())]).unwrap();
+    t.add(
+        "test-agent",
+        signature_agent,
+        vec![Ed25519Key::from_public(rfc_public())],
+    )
+    .unwrap();
     t
 }
 
 fn req<'a>(headers: &'a [(&'a str, &'a str)]) -> RequestParts<'a> {
-    RequestParts { method: "GET", authority: "example.com", path: "/", query: None, headers }
+    RequestParts {
+        method: "GET",
+        authority: "example.com",
+        path: "/",
+        query: None,
+        headers,
+    }
 }
 
 fn verified() -> WbaVerdict {
-    WbaVerdict::Verified { agent: "test-agent".to_string(), keyid: DRAFT_KEYID.to_string() }
+    WbaVerdict::Verified {
+        agent: "test-agent".to_string(),
+        keyid: DRAFT_KEYID.to_string(),
+    }
 }
 
 fn params() -> String {
@@ -52,11 +77,18 @@ fn params() -> String {
 fn signed(label: &str, agent_component: &str, agent_line: &str) -> (String, String) {
     let member = format!("(\"@authority\" {agent_component}){}", params());
     let base = format!("\"@authority\": example.com\n{agent_component}: {agent_line}\n\"@signature-params\": {member}");
-    (format!("{label}={member}"), format!("{label}={}", sign(&base)))
+    (
+        format!("{label}={member}"),
+        format!("{label}={}", sign(&base)),
+    )
 }
 
 fn check(agent_header: &str, input: &str, sig: &str, trusted: &TrustedAgents) -> WbaVerdict {
-    let h = [("Signature-Agent", agent_header), ("Signature-Input", input), ("Signature", sig)];
+    let h = [
+        ("Signature-Agent", agent_header),
+        ("Signature-Input", input),
+        ("Signature", sig),
+    ];
     verify(&req(&h), trusted, NOW)
 }
 
@@ -67,7 +99,8 @@ const B_TEST: &str = "\"https://b.test/keys.json\"";
 
 const E21_AGENT: &str = "sig2=\"https://signature-agent.test\"";
 const E21_MEMBER: &str = "(\"@authority\" \"signature-agent\";key=\"sig2\");created=1735689600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=4889289600;nonce=\"n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA==\";tag=\"web-bot-auth\"";
-const E21_SIG: &str = "CGokAoY/FrPpyuzTe1Fb2kLTAH9Idw6qSFd1+D77r1firsMRCxeuLu5e6O+ek3zQgDMAzjiXtLVfqE00xnABCQ==";
+const E21_SIG: &str =
+    "CGokAoY/FrPpyuzTe1Fb2kLTAH9Idw6qSFd1+D77r1firsMRCxeuLu5e6O+ek3zQgDMAzjiXtLVfqE00xnABCQ==";
 
 #[test]
 fn draft_e21_signature_base_is_exact_and_its_signature_verifies() {
@@ -80,7 +113,10 @@ fn draft_e21_signature_base_is_exact_and_its_signature_verifies() {
     // The draft's own signature verifies over that base, which shows the
     // vector was copied correctly.
     let sig = ed25519_dalek::Signature::from_slice(&STANDARD.decode(E21_SIG).unwrap()).unwrap();
-    VerifyingKey::from_bytes(&rfc_public()).unwrap().verify(base.as_bytes(), &sig).unwrap();
+    VerifyingKey::from_bytes(&rfc_public())
+        .unwrap()
+        .verify(base.as_bytes(), &sig)
+        .unwrap();
 }
 
 #[test]
@@ -102,14 +138,32 @@ fn a_dictionary_signature_agent_verifies() {
     let (input, sig) = signed("sig2", KEYED, B_TEST);
     let header = format!("sig2={B_TEST}");
     assert_eq!(check(&header, &input, &sig, &trusted(None)), verified());
-    assert_eq!(check(&header, &input, &sig, &trusted(Some("https://b.test/keys.json"))), verified());
     assert_eq!(
-        check(&header, &input, &sig, &trusted(Some("https://a.test/keys.json"))),
+        check(
+            &header,
+            &input,
+            &sig,
+            &trusted(Some("https://b.test/keys.json"))
+        ),
+        verified()
+    );
+    assert_eq!(
+        check(
+            &header,
+            &input,
+            &sig,
+            &trusted(Some("https://a.test/keys.json"))
+        ),
         WbaVerdict::Invalid(WbaInvalid::AgentMismatch)
     );
     // Not a prefix match and not case-folded.
     assert_eq!(
-        check(&header, &input, &sig, &trusted(Some("https://b.test/keys.jso"))),
+        check(
+            &header,
+            &input,
+            &sig,
+            &trusted(Some("https://b.test/keys.jso"))
+        ),
         WbaVerdict::Invalid(WbaInvalid::AgentMismatch)
     );
 }
@@ -118,10 +172,24 @@ fn a_dictionary_signature_agent_verifies() {
 fn the_member_for_this_signatures_label_is_the_agent() {
     let (input, sig) = signed("sig2", KEYED, B_TEST);
     // Other members, before and after, with odd spacing between them.
-    let header = format!("sig1=\"https://a.test/keys.json\",   sig2={B_TEST}  ,sig3=\"https://c.test/\"");
-    assert_eq!(check(&header, &input, &sig, &trusted(Some("https://b.test/keys.json"))), verified());
+    let header =
+        format!("sig1=\"https://a.test/keys.json\",   sig2={B_TEST}  ,sig3=\"https://c.test/\"");
     assert_eq!(
-        check(&header, &input, &sig, &trusted(Some("https://a.test/keys.json"))),
+        check(
+            &header,
+            &input,
+            &sig,
+            &trusted(Some("https://b.test/keys.json"))
+        ),
+        verified()
+    );
+    assert_eq!(
+        check(
+            &header,
+            &input,
+            &sig,
+            &trusted(Some("https://a.test/keys.json"))
+        ),
         WbaVerdict::Invalid(WbaInvalid::AgentMismatch)
     );
     // Two header lines are one dictionary.
@@ -131,7 +199,10 @@ fn the_member_for_this_signatures_label_is_the_agent() {
         ("signature-agent", "sig2=\"https://b.test/keys.json\""),
         ("Signature", sig.as_str()),
     ];
-    assert_eq!(verify(&req(&h), &trusted(Some("https://b.test/keys.json")), NOW), verified());
+    assert_eq!(
+        verify(&req(&h), &trusted(Some("https://b.test/keys.json")), NOW),
+        verified()
+    );
 }
 
 #[test]
@@ -139,9 +210,22 @@ fn covering_the_whole_header_is_accepted_too() {
     let header = format!("sig1=\"https://a.test/keys.json\", sig2={B_TEST}");
     // The plain-header rule: the line is the header value as sent.
     let (input, sig) = signed("sig2", "\"signature-agent\"", &header);
-    assert_eq!(check(&header, &input, &sig, &trusted(Some("https://b.test/keys.json"))), verified());
     assert_eq!(
-        check(&header, &input, &sig, &trusted(Some("https://a.test/keys.json"))),
+        check(
+            &header,
+            &input,
+            &sig,
+            &trusted(Some("https://b.test/keys.json"))
+        ),
+        verified()
+    );
+    assert_eq!(
+        check(
+            &header,
+            &input,
+            &sig,
+            &trusted(Some("https://a.test/keys.json"))
+        ),
         WbaVerdict::Invalid(WbaInvalid::AgentMismatch)
     );
 }
@@ -149,7 +233,11 @@ fn covering_the_whole_header_is_accepted_too() {
 #[test]
 fn covering_another_labels_member_is_not_enough() {
     // Signed under sig2, but what is covered is sig1's member.
-    let (input, sig) = signed("sig2", "\"signature-agent\";key=\"sig1\"", "\"https://a.test/keys.json\"");
+    let (input, sig) = signed(
+        "sig2",
+        "\"signature-agent\";key=\"sig1\"",
+        "\"https://a.test/keys.json\"",
+    );
     let header = format!("sig1=\"https://a.test/keys.json\", sig2={B_TEST}");
     assert_eq!(
         check(&header, &input, &sig, &trusted(None)),
@@ -161,17 +249,30 @@ fn covering_another_labels_member_is_not_enough() {
 fn a_dictionary_without_this_signatures_member_is_unsigned() {
     let header = "sig1=\"https://a.test/keys.json\"";
     // Covering sig1's member.
-    let (input, sig) = signed("sig2", "\"signature-agent\";key=\"sig1\"", "\"https://a.test/keys.json\"");
-    assert_eq!(check(header, &input, &sig, &trusted(None)), WbaVerdict::Invalid(WbaInvalid::SignatureAgentUnsigned));
+    let (input, sig) = signed(
+        "sig2",
+        "\"signature-agent\";key=\"sig1\"",
+        "\"https://a.test/keys.json\"",
+    );
+    assert_eq!(
+        check(header, &input, &sig, &trusted(None)),
+        WbaVerdict::Invalid(WbaInvalid::SignatureAgentUnsigned)
+    );
     // Covering the whole header.
     let (input, sig) = signed("sig2", "\"signature-agent\"", header);
-    assert_eq!(check(header, &input, &sig, &trusted(None)), WbaVerdict::Invalid(WbaInvalid::SignatureAgentUnsigned));
+    assert_eq!(
+        check(header, &input, &sig, &trusted(None)),
+        WbaVerdict::Invalid(WbaInvalid::SignatureAgentUnsigned)
+    );
     // Covering nothing of it.
     let member = format!("(\"@authority\"){}", params());
     let base = format!("\"@authority\": example.com\n\"@signature-params\": {member}");
     let (input, sig) = (format!("sig2={member}"), format!("sig2={}", sign(&base)));
     let header = format!("sig2={B_TEST}");
-    assert_eq!(check(&header, &input, &sig, &trusted(None)), WbaVerdict::Invalid(WbaInvalid::SignatureAgentUnsigned));
+    assert_eq!(
+        check(&header, &input, &sig, &trusted(None)),
+        WbaVerdict::Invalid(WbaInvalid::SignatureAgentUnsigned)
+    );
 }
 
 #[test]
@@ -187,7 +288,13 @@ fn a_member_with_parameters_is_ignored() {
 #[test]
 fn a_member_that_is_not_a_string_is_malformed() {
     let (input, sig) = signed("sig2", KEYED, B_TEST);
-    for header in ["sig2=https", "sig2=42", "sig2=(\"https://b.test/keys.json\")", "sig2", "sig2=:aGk=:"] {
+    for header in [
+        "sig2=https",
+        "sig2=42",
+        "sig2=(\"https://b.test/keys.json\")",
+        "sig2",
+        "sig2=:aGk=:",
+    ] {
         assert_eq!(
             check(header, &input, &sig, &trusted(None)),
             WbaVerdict::Invalid(WbaInvalid::Malformed),
@@ -199,7 +306,14 @@ fn a_member_that_is_not_a_string_is_malformed() {
 #[test]
 fn a_header_that_is_neither_form_is_malformed() {
     let (input, sig) = signed("sig2", KEYED, B_TEST);
-    for header in ["sig2=", "\"unterminated", "sig2=\"a\", sig2=\"b\"", "https://b.test/keys.json", "sig2=\"a\",", "=\"a\""] {
+    for header in [
+        "sig2=",
+        "\"unterminated",
+        "sig2=\"a\", sig2=\"b\"",
+        "https://b.test/keys.json",
+        "sig2=\"a\",",
+        "=\"a\"",
+    ] {
         assert_eq!(
             check(header, &input, &sig, &trusted(None)),
             WbaVerdict::Invalid(WbaInvalid::Malformed),
@@ -212,7 +326,12 @@ fn a_header_that_is_neither_form_is_malformed() {
 fn a_changed_member_fails_the_signature() {
     let (input, sig) = signed("sig2", KEYED, B_TEST);
     assert_eq!(
-        check("sig2=\"https://evil.test/keys.json\"", &input, &sig, &trusted(None)),
+        check(
+            "sig2=\"https://evil.test/keys.json\"",
+            &input,
+            &sig,
+            &trusted(None)
+        ),
         WbaVerdict::Invalid(WbaInvalid::BadSignature)
     );
     // Another member changing does not matter: it was not covered.
@@ -235,11 +354,17 @@ fn no_truncation_of_a_valid_request_verifies_or_panics() {
     assert_eq!(check(&header, &input, &sig, &trusted(None)), verified());
     for cut in 0..header.len() {
         let v = check(&header[..cut], &input, &sig, &trusted(None));
-        assert!(!matches!(v, WbaVerdict::Verified { .. }), "agent cut at {cut}");
+        assert!(
+            !matches!(v, WbaVerdict::Verified { .. }),
+            "agent cut at {cut}"
+        );
     }
     for cut in 0..input.len() {
         let v = check(&header, &input[..cut], &sig, &trusted(None));
-        assert!(!matches!(v, WbaVerdict::Verified { .. }), "input cut at {cut}");
+        assert!(
+            !matches!(v, WbaVerdict::Verified { .. }),
+            "input cut at {cut}"
+        );
     }
 }
 
@@ -251,7 +376,10 @@ fn base_of(headers: &[(&str, &str)], components: &str) -> Result<String, WbaInva
 
 #[test]
 fn key_selects_one_member_of_any_dictionary_header() {
-    let h = [("X-Dict", "a=1, b=tok,  c=\"str\" , d=?1"), ("Signature-Agent", "s=\"https://b.test/\"")];
+    let h = [
+        ("X-Dict", "a=1, b=tok,  c=\"str\" , d=?1"),
+        ("Signature-Agent", "s=\"https://b.test/\""),
+    ];
     assert_eq!(
         base_of(&h, "\"x-dict\";key=\"a\" \"x-dict\";key=\"c\" \"x-dict\";key=\"b\" \"x-dict\" \"signature-agent\";key=\"s\"").unwrap(),
         "\"x-dict\";key=\"a\": 1\n\
@@ -265,7 +393,10 @@ fn key_selects_one_member_of_any_dictionary_header() {
 
 #[test]
 fn key_problems() {
-    let h = [("X-Dict", "a=1, p=2;x=1, l=(1 2)"), ("X-Plain", "\"just a string\"")];
+    let h = [
+        ("X-Dict", "a=1, p=2;x=1, l=(1 2)"),
+        ("X-Plain", "\"just a string\""),
+    ];
     use WbaInvalid::{Malformed, UnsupportedComponent};
     for (components, expected) in [
         // No such member, no such header, not a dictionary.

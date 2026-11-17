@@ -42,7 +42,13 @@ pub fn analyze(summary: &Summary, params: &Params) -> Vec<Detection> {
         );
     }
 
-    if s.submits >= 1 && s.untrusted >= 1 && s.clicks == 0 && s.touches == 0 && s.keys == 0 && s.pastes == 0 {
+    if s.submits >= 1
+        && s.untrusted >= 1
+        && s.clicks == 0
+        && s.touches == 0
+        && s.keys == 0
+        && s.pastes == 0
+    {
         out.push(
             Detection::new(
                 UNTRUSTED_SUBMIT,
@@ -91,7 +97,8 @@ pub fn analyze(summary: &Summary, params: &Params) -> Vec<Detection> {
         );
     }
 
-    let jumped_share = u64::from(s.teleport).saturating_mul(100) >= u64::from(s.clicks).saturating_mul(u64::from(p.jumped_pct));
+    let jumped_share = u64::from(s.teleport).saturating_mul(100)
+        >= u64::from(s.clicks).saturating_mul(u64::from(p.jumped_pct));
     // On a touch screen there is no pointer to travel: every tap "jumps".
     if s.touches == 0 && s.teleport >= p.min_jumped_clicks && jumped_share {
         out.push(

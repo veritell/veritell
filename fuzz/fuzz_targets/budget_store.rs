@@ -126,7 +126,9 @@ fn id(b: u8) -> Id {
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    let Some((&cap, mut ops)) = data.split_first() else { return };
+    let Some((&cap, mut ops)) = data.split_first() else {
+        return;
+    };
     let capacity = usize::from(cap % 8);
     let mut store = MemoryBudgetStore::new(capacity);
     let mut model = Model {
@@ -152,14 +154,21 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 let exp = rel(now, arg());
                 let was_held = model.map.contains_key(&id);
                 let got = store.try_consume(&id, budget, exp, now);
-                assert_eq!(got, model.try_consume(id, budget, exp, now), "try_consume differs from the model");
+                assert_eq!(
+                    got,
+                    model.try_consume(id, budget, exp, now),
+                    "try_consume differs from the model"
+                );
                 // Ids the store dropped while purging start again.
                 counted.retain(|k, _| model.map.contains_key(k));
                 if got == Consumed::Used {
                     let n = counted.entry(id).or_insert(0);
                     if was_held {
                         *n += 1;
-                        assert!(*n <= budget.max(1), "id used {n} times with budget {budget}");
+                        assert!(
+                            *n <= budget.max(1),
+                            "id used {n} times with budget {budget}"
+                        );
                     } else {
                         *n = 1;
                     }
@@ -169,9 +178,15 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
             2 => {
                 let saved = store.export(now);
                 let fresh = MemoryBudgetStore::new(capacity);
-                let n = fresh.import(&saved, now).expect("an exported snapshot does not import");
+                let n = fresh
+                    .import(&saved, now)
+                    .expect("an exported snapshot does not import");
                 assert_eq!(n, model.map.values().filter(|v| v.1 > now).count());
-                assert_eq!(fresh.export(now), saved, "a restart lost or changed entries");
+                assert_eq!(
+                    fresh.export(now),
+                    saved,
+                    "a restart lost or changed entries"
+                );
                 store = fresh;
                 model.map.retain(|_, v| v.1 > now);
             }
@@ -189,9 +204,16 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                     snap.extend_from_slice(&u.to_be_bytes());
                     snap.extend_from_slice(&e.to_be_bytes());
                 }
-                let before = read_snapshot(&store.export(0)).expect("export does not follow the format");
-                let n = store.import(&snap, now).expect("a valid snapshot is refused");
-                assert_eq!(n, model.import(&entries, now), "import applied a different number of entries");
+                let before =
+                    read_snapshot(&store.export(0)).expect("export does not follow the format");
+                let n = store
+                    .import(&snap, now)
+                    .expect("a valid snapshot is refused");
+                assert_eq!(
+                    n,
+                    model.import(&entries, now),
+                    "import applied a different number of entries"
+                );
                 let after: BTreeMap<Id, (u32, u64)> = read_snapshot(&store.export(0))
                     .expect("export does not follow the format")
                     .into_iter()
@@ -199,7 +221,10 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                     .collect();
                 for (k, used, exp) in before {
                     let (u2, e2) = after.get(&k).copied().expect("import dropped an id");
-                    assert!(u2 >= used && e2 >= exp, "import lowered a budget or an expiry");
+                    assert!(
+                        u2 >= used && e2 >= exp,
+                        "import lowered a budget or an expiry"
+                    );
                 }
                 counted.clear();
             }
@@ -214,14 +239,29 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                     }
                     (Err(e), None) => {
                         assert!(!e.to_string().is_empty());
-                        assert_eq!(store.export(0), before, "a refused snapshot changed the store");
+                        assert_eq!(
+                            store.export(0),
+                            before,
+                            "a refused snapshot changed the store"
+                        );
                     }
-                    (got, want) => panic!("import {got:?}, but the format says {:?}", want.map(|e| e.len())),
+                    (got, want) => panic!(
+                        "import {got:?}, but the format says {:?}",
+                        want.map(|e| e.len())
+                    ),
                 }
             }
         }
-        assert!(store.len() <= capacity, "{} entries over capacity {capacity}", store.len());
+        assert!(
+            store.len() <= capacity,
+            "{} entries over capacity {capacity}",
+            store.len()
+        );
         assert_eq!(store.is_empty(), store.len() == 0);
-        assert_eq!(store.export(now), model.export(now), "stored entries differ from the model");
+        assert_eq!(
+            store.export(now),
+            model.export(now),
+            "stored entries differ from the model"
+        );
     }
 });

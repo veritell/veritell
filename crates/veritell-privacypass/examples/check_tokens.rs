@@ -13,7 +13,9 @@ use std::io::BufRead;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use veritell_privacypass::{challenge_digest, token_from_authorization, verify, Accepted, IssuerKey};
+use veritell_privacypass::{
+    challenge_digest, token_from_authorization, verify, Accepted, IssuerKey,
+};
 
 fn check(line: &str) -> Result<String, String> {
     let mut fields = line.split('\t');
@@ -23,13 +25,24 @@ fn check(line: &str) -> Result<String, String> {
         return Err("expected four tab-separated fields".into());
     };
     let key = IssuerKey::from_base64url(issuer, key).map_err(|e| format!("issuer key: {e:?}"))?;
-    let challenge = URL_SAFE_NO_PAD.decode(challenge.trim_end_matches('=')).map_err(|e| format!("challenge: {e}"))?;
+    let challenge = URL_SAFE_NO_PAD
+        .decode(challenge.trim_end_matches('='))
+        .map_err(|e| format!("challenge: {e}"))?;
     let token = token_from_authorization(auth)
         .map_err(|e| format!("authorization: {e:?}"))?
         .ok_or("no PrivateToken in the authorization value")?;
-    let accepted = [Accepted { challenge_digest: challenge_digest(&challenge), key_id: *key.key_id() }];
-    let ok = verify(&token, std::slice::from_ref(&key), &accepted).map_err(|e| format!("refused: {e:?}"))?;
-    let nonce: String = ok.nonce.iter().take(4).map(|b| format!("{b:02x}")).collect();
+    let accepted = [Accepted {
+        challenge_digest: challenge_digest(&challenge),
+        key_id: *key.key_id(),
+    }];
+    let ok = verify(&token, std::slice::from_ref(&key), &accepted)
+        .map_err(|e| format!("refused: {e:?}"))?;
+    let nonce: String = ok
+        .nonce
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02x}"))
+        .collect();
     Ok(format!("verified: issuer {issuer}, token nonce {nonce}..."))
 }
 

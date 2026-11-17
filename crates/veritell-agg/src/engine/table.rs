@@ -62,7 +62,14 @@ impl<E: Tracked> Table<E> {
     /// The entry for `key`, created with `make` (after evicting if the table
     /// is full). `s` is the current slot, `w2` the length of the whole
     /// window in slots; an entry untouched for `w2` slots is idle.
-    pub(crate) fn get_or_insert_with(&mut self, key: u64, now: u64, s: u64, w2: u64, make: impl FnOnce() -> E) -> &mut E {
+    pub(crate) fn get_or_insert_with(
+        &mut self,
+        key: u64,
+        now: u64,
+        s: u64,
+        w2: u64,
+        make: impl FnOnce() -> E,
+    ) -> &mut E {
         if !self.map.contains_key(&key) {
             if self.map.len() >= self.cap {
                 self.evict(now, s, w2);
@@ -79,8 +86,12 @@ impl<E: Tracked> Table<E> {
     fn evict(&mut self, now: u64, s: u64, w2: u64) {
         let mut best: Option<(u64, (bool, u64))> = None;
         for _ in 0..CANDIDATES {
-            let Some(key) = self.order.pop_front() else { break };
-            let Some(e) = self.map.get(&key) else { continue };
+            let Some(key) = self.order.pop_front() else {
+                break;
+            };
+            let Some(e) = self.map.get(&key) else {
+                continue;
+            };
             let live = e.rep_until() > now;
             let last = e.last_slot();
             if !live && s.saturating_sub(last) >= w2 {

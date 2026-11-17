@@ -28,8 +28,12 @@ fn keyid(k: &SigningKey) -> String {
 
 fn trusted(k: &SigningKey) -> TrustedAgents {
     let mut t = TrustedAgents::new();
-    t.add("agent", None, vec![Ed25519Key::from_public(k.verifying_key().to_bytes())])
-        .unwrap();
+    t.add(
+        "agent",
+        None,
+        vec![Ed25519Key::from_public(k.verifying_key().to_bytes())],
+    )
+    .unwrap();
     t
 }
 
@@ -54,7 +58,10 @@ fn junk_signature_bytes_are_bad_not_unknown_key() {
     let (input, _) = signed(&k, "\"@authority\"", CREATED + 600, "n");
     for junk in [[0xffu8; 64], [0u8; 64], [0x41u8; 64]] {
         let (input, sig) = with_sig_bytes(&input, &junk);
-        let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+        let h = [
+            ("Signature-Input", input.as_str()),
+            ("Signature", sig.as_str()),
+        ];
         let v = verify(&req(&h), &TrustedAgents::new(), NOW);
         assert_eq!(v, WbaVerdict::Invalid(WbaInvalid::BadSignature), "{junk:?}");
         assert_eq!(v.detection().unwrap().id, "wba_bad_signature");
@@ -74,7 +81,10 @@ fn non_canonical_s_is_bad() {
     ];
     bytes[32..].copy_from_slice(&order);
     let (input, sig) = with_sig_bytes(&input, &bytes);
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &TrustedAgents::new(), NOW),
         WbaVerdict::Invalid(WbaInvalid::BadSignature)
@@ -86,7 +96,10 @@ fn a_real_signature_with_an_untrusted_key_is_still_unknown_key() {
     // The limit that remains: anyone can make a key and sign with it.
     let k = key(2);
     let (input, sig) = signed(&k, "\"@authority\"", CREATED + 600, "n");
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &TrustedAgents::new(), NOW),
         WbaVerdict::UnknownKey { keyid: keyid(&k) }
@@ -102,7 +115,10 @@ fn unknown_key_with_a_missing_covered_header_is_malformed() {
         keyid(&k)
     );
     let (input, sig) = with_sig_bytes(&format!("s={member}"), &k.sign(b"x").to_bytes());
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &TrustedAgents::new(), NOW),
         WbaVerdict::Invalid(WbaInvalid::Malformed)
@@ -114,7 +130,10 @@ fn a_day_long_window_is_refused() {
     assert_eq!(MAX_WINDOW_SECS, 3_600);
     let k = key(1);
     let (input, sig) = signed(&k, "\"@authority\"", CREATED + 86_400, "n");
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(&k), NOW),
         WbaVerdict::Invalid(WbaInvalid::WindowTooLong)
@@ -127,8 +146,14 @@ fn replay_cache_refuses_a_second_use_until_expiry() {
     let t = trusted(&k);
     let expires = CREATED + 600;
     let (input, sig) = signed(&k, "\"@authority\"", expires, "n1");
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
-    assert!(matches!(verify(&req(&h), &t, NOW), WbaVerdict::Verified { .. }));
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
+    assert!(matches!(
+        verify(&req(&h), &t, NOW),
+        WbaVerdict::Verified { .. }
+    ));
     let info = signature_info(&req(&h)).unwrap();
     assert_eq!(info.expires, expires);
     assert!(info.covers("@authority"));
@@ -144,7 +169,10 @@ fn replay_cache_refuses_a_second_use_until_expiry() {
 
     // A fresh nonce is a fresh signature.
     let (input2, sig2) = signed(&k, "\"@authority\"", expires, "n2");
-    let h2 = [("Signature-Input", input2.as_str()), ("Signature", sig2.as_str())];
+    let h2 = [
+        ("Signature-Input", input2.as_str()),
+        ("Signature", sig2.as_str()),
+    ];
     let info2 = signature_info(&req(&h2)).unwrap();
     assert_ne!(info.replay_id, info2.replay_id);
     assert!(cache.first_use(&info2, NOW));
@@ -180,8 +208,14 @@ fn signature_info_lists_method_and_path_when_covered() {
         CREATED + 600,
         "n",
     );
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
-    assert!(matches!(verify(&req(&h), &trusted(&k), NOW), WbaVerdict::Verified { .. }));
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
+    assert!(matches!(
+        verify(&req(&h), &trusted(&k), NOW),
+        WbaVerdict::Verified { .. }
+    ));
     let info = signature_info(&req(&h)).unwrap();
     assert_eq!(info.components, vec!["@method", "@path", "@authority"]);
     assert!(signature_info(&req(&[])).is_none());

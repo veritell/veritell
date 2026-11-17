@@ -24,7 +24,13 @@ fn main() {
             flagged += 1;
             continue;
         };
-        let text = |key: &str| value.get(key).and_then(|b| b.as_str()).unwrap_or("-").to_string();
+        let text = |key: &str| {
+            value
+                .get(key)
+                .and_then(|b| b.as_str())
+                .unwrap_or("-")
+                .to_string()
+        };
         let label = format!("{}/{}", text("browser"), text("device"));
         if let Some(inner) = value.get_mut("summary") {
             value = inner.take();

@@ -145,7 +145,12 @@ impl std::error::Error for FeedError {}
 ///    (`Malformed`), and matches `len` and `sha256` (`Hash`); no file is
 ///    present that is not listed (`Unlisted`). Files are checked in
 ///    ascending name order, listed files first.
-pub fn open(bytes: &[u8], keys: &[FeedKey], now: u64, min_version: u64) -> Result<Bundle, FeedError> {
+pub fn open(
+    bytes: &[u8],
+    keys: &[FeedKey],
+    now: u64,
+    min_version: u64,
+) -> Result<Bundle, FeedError> {
     // 1. Length.
     if bytes.len() > MAX_BUNDLE_BYTES {
         return Err(FeedError::TooLarge);
@@ -162,9 +167,16 @@ pub fn open(bytes: &[u8], keys: &[FeedKey], now: u64, min_version: u64) -> Resul
         _ => return Err(FeedError::Malformed),
     };
     drop(outer);
-    let manifest_bytes = STANDARD.decode(manifest_b64.as_bytes()).map_err(|_| FeedError::Malformed)?;
-    let signature_bytes = STANDARD.decode(signature_b64.as_bytes()).map_err(|_| FeedError::Malformed)?;
-    let signature_array: [u8; 64] = signature_bytes.as_slice().try_into().map_err(|_| FeedError::Malformed)?;
+    let manifest_bytes = STANDARD
+        .decode(manifest_b64.as_bytes())
+        .map_err(|_| FeedError::Malformed)?;
+    let signature_bytes = STANDARD
+        .decode(signature_b64.as_bytes())
+        .map_err(|_| FeedError::Malformed)?;
+    let signature_array: [u8; 64] = signature_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| FeedError::Malformed)?;
     let signature = Signature::from_bytes(&signature_array);
 
     // 3. Signature over the exact manifest bytes, before any parsing of them.
@@ -191,7 +203,10 @@ pub fn open(bytes: &[u8], keys: &[FeedKey], now: u64, min_version: u64) -> Resul
     }
     // 6. Rollback.
     if manifest.version < min_version {
-        return Err(FeedError::Rollback { minimum: min_version, got: manifest.version });
+        return Err(FeedError::Rollback {
+            minimum: min_version,
+            got: manifest.version,
+        });
     }
     // 7. Count, then names in ascending order.
     if manifest.files.len() > MAX_FILES {
@@ -212,9 +227,13 @@ pub fn open(bytes: &[u8], keys: &[FeedKey], now: u64, min_version: u64) -> Resul
         let Value::String(text) = value else {
             return Err(FeedError::Malformed);
         };
-        let content = STANDARD.decode(text.as_bytes()).map_err(|_| FeedError::Malformed)?;
+        let content = STANDARD
+            .decode(text.as_bytes())
+            .map_err(|_| FeedError::Malformed)?;
         drop(text);
-        let len_ok = u64::try_from(content.len()).map(|l| l == entry.len).unwrap_or(false);
+        let len_ok = u64::try_from(content.len())
+            .map(|l| l == entry.len)
+            .unwrap_or(false);
         let digest = hex_lower(&Sha256::digest(&content));
         if !len_ok || !ct_eq(digest.as_bytes(), entry.sha256.as_bytes()) {
             return Err(FeedError::Hash(name));
@@ -224,7 +243,12 @@ pub fn open(bytes: &[u8], keys: &[FeedKey], now: u64, min_version: u64) -> Resul
     if let Some(name) = carried.into_keys().next() {
         return Err(FeedError::Unlisted(name));
     }
-    Ok(Bundle { version: manifest.version, created: manifest.created, expires: manifest.expires, files })
+    Ok(Bundle {
+        version: manifest.version,
+        created: manifest.created,
+        expires: manifest.expires,
+        files,
+    })
 }
 
 struct Entry {
@@ -252,7 +276,11 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, FeedError> {
     let Value::Object(map) = value else {
         return Err(FeedError::Manifest);
     };
-    let num = |key: &str| map.get(key).and_then(Value::as_u64).ok_or(FeedError::Manifest);
+    let num = |key: &str| {
+        map.get(key)
+            .and_then(Value::as_u64)
+            .ok_or(FeedError::Manifest)
+    };
     let Some(Value::Object(listed)) = map.get("files") else {
         return Err(FeedError::Manifest);
     };
@@ -265,7 +293,10 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, FeedError> {
             Some(Value::String(s)) if is_lower_hex_64(s) => s.clone(),
             _ => return Err(FeedError::Manifest),
         };
-        let len = entry.get("len").and_then(Value::as_u64).ok_or(FeedError::Manifest)?;
+        let len = entry
+            .get("len")
+            .and_then(Value::as_u64)
+            .ok_or(FeedError::Manifest)?;
         files.insert(name.clone(), Entry { sha256, len });
     }
     Ok(Manifest {
@@ -278,14 +309,18 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, FeedError> {
 }
 
 fn is_lower_hex_64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= MAX_NAME_BYTES
         && !name.starts_with('.')
-        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-'))
+        && name.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
+        })
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -331,9 +366,9 @@ pub fn seal(
     }
     // Cheap lower bound on the output size, so a huge input is refused before
     // it is encoded.
-    let encoded_lower_bound = files
-        .values()
-        .fold(0usize, |acc, v| acc.saturating_add(v.len().div_ceil(3).saturating_mul(4)));
+    let encoded_lower_bound = files.values().fold(0usize, |acc, v| {
+        acc.saturating_add(v.len().div_ceil(3).saturating_mul(4))
+    });
     if encoded_lower_bound > MAX_BUNDLE_BYTES {
         return Err(FeedError::TooLarge);
     }
@@ -343,7 +378,10 @@ pub fn seal(
     for (name, content) in files {
         let mut entry = Map::new();
         entry.insert("len".into(), Value::from(content.len() as u64));
-        entry.insert("sha256".into(), Value::String(hex_lower(&Sha256::digest(content))));
+        entry.insert(
+            "sha256".into(),
+            Value::String(hex_lower(&Sha256::digest(content))),
+        );
         listed.insert(name.clone(), Value::Object(entry));
         carried.insert(name.clone(), Value::String(STANDARD.encode(content)));
     }
@@ -353,13 +391,20 @@ pub fn seal(
     manifest.insert("files".into(), Value::Object(listed));
     manifest.insert("format".into(), Value::from(FORMAT));
     manifest.insert("version".into(), Value::from(version));
-    let manifest_bytes = serde_json::to_vec(&Value::Object(manifest)).map_err(|_| FeedError::Manifest)?;
+    let manifest_bytes =
+        serde_json::to_vec(&Value::Object(manifest)).map_err(|_| FeedError::Manifest)?;
     let signature = SigningKey::from_bytes(seed).sign(&manifest_bytes);
 
     let mut outer = Map::new();
     outer.insert("files".into(), Value::Object(carried));
-    outer.insert("manifest".into(), Value::String(STANDARD.encode(&manifest_bytes)));
-    outer.insert("signature".into(), Value::String(STANDARD.encode(signature.to_bytes())));
+    outer.insert(
+        "manifest".into(),
+        Value::String(STANDARD.encode(&manifest_bytes)),
+    );
+    outer.insert(
+        "signature".into(),
+        Value::String(STANDARD.encode(signature.to_bytes())),
+    );
     let out = serde_json::to_vec(&Value::Object(outer)).map_err(|_| FeedError::Malformed)?;
     if out.len() > MAX_BUNDLE_BYTES {
         return Err(FeedError::TooLarge);
@@ -383,7 +428,9 @@ pub struct Live<T> {
 
 impl<T> Live<T> {
     pub fn new(value: T) -> Live<T> {
-        Live { current: RwLock::new(Arc::new(value)) }
+        Live {
+            current: RwLock::new(Arc::new(value)),
+        }
     }
 
     /// The current value.
@@ -444,7 +491,8 @@ mod tests {
         assert_eq!(open(&sign(float), &keys, 15, 0), Err(FeedError::Manifest));
         let big = "{\"format\":1,\"version\":18446744073709551616,\"created\":10,\"expires\":20,\"files\":{}}";
         assert_eq!(open(&sign(big), &keys, 15, 0), Err(FeedError::Manifest));
-        let ok = "{ \"version\": 5, \"files\": {}, \"expires\": 20, \"created\": 10, \"format\": 1 }";
+        let ok =
+            "{ \"version\": 5, \"files\": {}, \"expires\": 20, \"created\": 10, \"format\": 1 }";
         assert_eq!(open(&sign(ok), &keys, 15, 0).unwrap().version, 5);
     }
 
@@ -462,7 +510,10 @@ mod tests {
             STANDARD.encode(sig.to_bytes())
         );
         // "A" sorts before "b B".
-        assert_eq!(open(doc.as_bytes(), &keys, 15, 0), Err(FeedError::Name("A".into())));
+        assert_eq!(
+            open(doc.as_bytes(), &keys, 15, 0),
+            Err(FeedError::Name("A".into()))
+        );
     }
 
     #[test]
@@ -470,9 +521,15 @@ mod tests {
         let s = seal(&one("a"), 1, 10, 20, &SEED).unwrap();
         let mut v: Value = serde_json::from_slice(&s).unwrap();
         v["files"]["a"] = Value::from(5);
-        assert_eq!(open(v.to_string().as_bytes(), &[public_key(&SEED)], 15, 0), Err(FeedError::Malformed));
+        assert_eq!(
+            open(v.to_string().as_bytes(), &[public_key(&SEED)], 15, 0),
+            Err(FeedError::Malformed)
+        );
         // An off-curve style key must simply fail to verify.
-        assert_eq!(open(&s, &[FeedKey([0xff; 32])], 15, 0), Err(FeedError::Signature));
+        assert_eq!(
+            open(&s, &[FeedKey([0xff; 32])], 15, 0),
+            Err(FeedError::Signature)
+        );
     }
 
     #[test]

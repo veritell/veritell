@@ -1,7 +1,7 @@
 //! Acceptance tests written by the project lead. DO NOT EDIT.
 
-use veritell_model::*;
 use serde_json::{json, Value};
+use veritell_model::*;
 
 // ---- a reference evaluator, written to be obviously right ----
 
@@ -14,7 +14,11 @@ struct Reference {
 fn reference(model: &Value, x: &[f32]) -> Reference {
     let n = model["features"].as_array().unwrap().len();
     let base = model["base"].as_f64().unwrap();
-    let mut out = Reference { raw: base, bias: base, contributions: vec![0.0; n] };
+    let mut out = Reference {
+        raw: base,
+        bias: base,
+        contributions: vec![0.0; n],
+    };
     for tree in model["trees"].as_array().unwrap() {
         let nodes = tree.as_array().unwrap();
         out.bias += nodes[0]["v"].as_f64().unwrap();
@@ -29,7 +33,11 @@ fn reference(model: &Value, x: &[f32]) -> Reference {
             let f = f.as_u64().unwrap() as usize;
             let t = node["t"].as_f64().unwrap();
             let value = f64::from(x[f]);
-            let next = if value.is_nan() || value < t { &node["l"] } else { &node["r"] };
+            let next = if value.is_nan() || value < t {
+                &node["l"]
+            } else {
+                &node["r"]
+            };
             let next = next.as_u64().unwrap() as usize;
             out.contributions[f] += nodes[next]["v"].as_f64().unwrap() - v;
             i = next;
@@ -43,7 +51,10 @@ struct Lcg(u64);
 
 impl Lcg {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0 >> 33
     }
     fn unit(&mut self) -> f64 {
@@ -75,7 +86,9 @@ fn random_tree(rng: &mut Lcg, features: usize, depth: usize) -> Value {
 fn random_model(seed: u64, features: usize, trees: usize, depth: usize) -> Value {
     let mut rng = Lcg(seed);
     let names: Vec<String> = (0..features).map(|i| format!("f{i}")).collect();
-    let trees: Vec<Value> = (0..trees).map(|_| random_tree(&mut rng, features, depth)).collect();
+    let trees: Vec<Value> = (0..trees)
+        .map(|_| random_tree(&mut rng, features, depth))
+        .collect();
     json!({ "v": 1, "features": names, "base": rng.unit(), "trees": trees })
 }
 
@@ -153,16 +166,32 @@ fn matches_the_reference_on_fixed_models_and_inputs() {
     let mut checked = 0;
     for seed in 1..=40u64 {
         let features = 1 + (seed as usize * 7) % 40;
-        let model = random_model(seed, features, 1 + (seed as usize * 13) % 60, 1 + seed as usize % MAX_DEPTH);
+        let model = random_model(
+            seed,
+            features,
+            1 + (seed as usize * 13) % 60,
+            1 + seed as usize % MAX_DEPTH,
+        );
         let loaded = load(&model).unwrap();
         let mut rng = Lcg(seed ^ 0xabcdef);
         for case in 0..25 {
             let x: Vec<f32> = (0..features)
-                .map(|i| if (case + i) % 17 == 0 { f32::NAN } else { (rng.unit() * 4.0) as f32 })
+                .map(|i| {
+                    if (case + i) % 17 == 0 {
+                        f32::NAN
+                    } else {
+                        (rng.unit() * 4.0) as f32
+                    }
+                })
                 .collect();
             let want = reference(&model, &x);
             let got = loaded.evaluate(&x).unwrap();
-            assert!(close(got.raw, want.raw, 1e-6), "seed {seed} case {case}: {} against {}", got.raw, want.raw);
+            assert!(
+                close(got.raw, want.raw, 1e-6),
+                "seed {seed} case {case}: {} against {}",
+                got.raw,
+                want.raw
+            );
             assert!(close(got.bias, want.bias, 1e-6));
             assert_eq!(got.contributions.len(), features);
             for (g, w) in got.contributions.iter().zip(&want.contributions) {
@@ -170,8 +199,16 @@ fn matches_the_reference_on_fixed_models_and_inputs() {
             }
             // Attributions account for the whole result.
             let total: f64 = got.bias + got.contributions.iter().sum::<f64>();
-            assert!(close(total, got.raw, 1e-9), "seed {seed}: {total} against {}", got.raw);
-            assert!(close(got.probability, 1.0 / (1.0 + (-want.raw).exp()), 1e-9));
+            assert!(
+                close(total, got.raw, 1e-9),
+                "seed {seed}: {total} against {}",
+                got.raw
+            );
+            assert!(close(
+                got.probability,
+                1.0 / (1.0 + (-want.raw).exp()),
+                1e-9
+            ));
             assert!((0.0..=1.0).contains(&got.probability));
             checked += 1;
         }
@@ -210,7 +247,9 @@ fn top_orders_by_size_then_index() {
     let e = m.evaluate(&[0.0, 1.0, 0.0, 0.0]).unwrap();
     let top = e.top(10);
     assert_eq!(top.iter().map(|t| t.0).collect::<Vec<_>>(), [2, 1, 3]);
-    assert!(close(top[0].1, -0.9, 1e-12) && close(top[1].1, 0.3, 1e-12) && close(top[2].1, -0.3, 1e-12));
+    assert!(
+        close(top[0].1, -0.9, 1e-12) && close(top[1].1, 0.3, 1e-12) && close(top[2].1, -0.3, 1e-12)
+    );
     assert_eq!(e.top(2).len(), 2);
     assert!(e.top(0).is_empty());
 }
@@ -226,7 +265,8 @@ fn wrong_vector_length_is_refused() {
 #[test]
 fn the_builtin_feature_names_make_a_valid_model() {
     let names = FeatureSpec::builtin().unwrap().names();
-    let m = load(&json!({ "v": 1, "features": names, "base": 0.0, "trees": [[{"v": 0.5}]] })).unwrap();
+    let m =
+        load(&json!({ "v": 1, "features": names, "base": 0.0, "trees": [[{"v": 0.5}]] })).unwrap();
     assert_eq!(m.features(), names.as_slice());
     let x = FeatureSpec::builtin().unwrap().vector(&[]);
     assert!(close(m.evaluate(&x).unwrap().raw, 0.5, 1e-12));
@@ -236,7 +276,8 @@ fn the_builtin_feature_names_make_a_valid_model() {
 
 #[test]
 fn models_at_the_limits_load() {
-    let m = load(&json!({ "v": 1, "features": ["a"], "base": 0.0, "trees": [chain(MAX_DEPTH)] })).unwrap();
+    let m = load(&json!({ "v": 1, "features": ["a"], "base": 0.0, "trees": [chain(MAX_DEPTH)] }))
+        .unwrap();
     assert!(close(m.evaluate(&[1e9]).unwrap().raw, 100.0, 1e-12));
     assert!(close(m.evaluate(&[3.5]).unwrap().raw, 4.0, 1e-12));
 
@@ -254,7 +295,9 @@ fn models_at_the_limits_load() {
     let mut nodes: Vec<Value> = Vec::new();
     for i in 0..MAX_NODES {
         if 2 * i + 2 < MAX_NODES {
-            nodes.push(json!({ "f": 0, "t": rng.unit(), "l": 2 * i + 1, "r": 2 * i + 2, "v": rng.unit() }));
+            nodes.push(
+                json!({ "f": 0, "t": rng.unit(), "l": 2 * i + 1, "r": 2 * i + 2, "v": rng.unit() }),
+            );
         } else {
             nodes.push(json!({ "v": rng.unit() }));
         }
@@ -264,7 +307,14 @@ fn models_at_the_limits_load() {
 
 #[test]
 fn models_over_the_limits_are_refused() {
-    let over = |m: Value| assert_eq!(load(&m).err(), Some(ModelError::Limits), "{}", &m.to_string()[..60.min(m.to_string().len())]);
+    let over = |m: Value| {
+        assert_eq!(
+            load(&m).err(),
+            Some(ModelError::Limits),
+            "{}",
+            &m.to_string()[..60.min(m.to_string().len())]
+        )
+    };
     over(json!({ "v": 1, "features": ["a"], "base": 0.0, "trees": [chain(MAX_DEPTH + 1)] }));
     let many: Vec<Value> = (0..=MAX_TREES).map(|_| json!([{"v": 0.0}])).collect();
     over(json!({ "v": 1, "features": ["a"], "base": 0.0, "trees": many }));
@@ -295,9 +345,13 @@ fn cycles_and_bad_indices_are_refused() {
     };
     // A node that is its own child, and a two-node loop.
     bad(json!([[ {"f": 0, "t": 0.0, "l": 0, "r": 1, "v": 0.0}, {"v": 0.0} ]]));
-    bad(json!([[ {"f": 0, "t": 0.0, "l": 1, "r": 2, "v": 0.0}, {"f": 0, "t": 0.0, "l": 0, "r": 2, "v": 0.0}, {"v": 0.0} ]]));
+    bad(
+        json!([[ {"f": 0, "t": 0.0, "l": 1, "r": 2, "v": 0.0}, {"f": 0, "t": 0.0, "l": 0, "r": 2, "v": 0.0}, {"v": 0.0} ]]),
+    );
     // A child that points backwards without making a loop is refused too.
-    bad(json!([[ {"f": 0, "t": 0.0, "l": 1, "r": 2, "v": 0.0}, {"v": 0.0}, {"f": 0, "t": 0.0, "l": 1, "r": 3, "v": 0.0}, {"v": 0.0} ]]));
+    bad(
+        json!([[ {"f": 0, "t": 0.0, "l": 1, "r": 2, "v": 0.0}, {"v": 0.0}, {"f": 0, "t": 0.0, "l": 1, "r": 3, "v": 0.0}, {"v": 0.0} ]]),
+    );
     // Past the end.
     bad(json!([[ {"f": 0, "t": 0.0, "l": 1, "r": 2, "v": 0.0}, {"v": 0.0} ]]));
     bad(json!([[ {"f": 0, "t": 0.0, "l": 1, "r": 4000000000u64, "v": 0.0}, {"v": 0.0} ]]));
@@ -313,8 +367,20 @@ fn cycles_and_bad_indices_are_refused() {
 
 #[test]
 fn malformed_files_are_refused() {
-    for body in [&b""[..], b"null", b"[]", b"{}", b"\xff", b"{\"v\":1", b"{\"v\":1,\"features\":[],\"base\":0}"] {
-        assert_eq!(Model::from_json(body).err(), Some(ModelError::Malformed), "{body:?}");
+    for body in [
+        &b""[..],
+        b"null",
+        b"[]",
+        b"{}",
+        b"\xff",
+        b"{\"v\":1",
+        b"{\"v\":1,\"features\":[],\"base\":0}",
+    ] {
+        assert_eq!(
+            Model::from_json(body).err(),
+            Some(ModelError::Malformed),
+            "{body:?}"
+        );
     }
     let bad = |change: fn(&mut Value)| {
         let mut m = tiny();
@@ -338,9 +404,15 @@ fn malformed_files_are_refused() {
     bad(|m| m["trees"][0][1]["v"] = Value::Null);
     // Numbers that overflow a double are not finite.
     let huge = tiny().to_string().replace("-0.25", "1e999");
-    assert_eq!(Model::from_json(huge.as_bytes()).err(), Some(ModelError::Malformed));
+    assert_eq!(
+        Model::from_json(huge.as_bytes()).err(),
+        Some(ModelError::Malformed)
+    );
     let huge = tiny().to_string().replace("0.6", "-1e999");
-    assert_eq!(Model::from_json(huge.as_bytes()).err(), Some(ModelError::Malformed));
+    assert_eq!(
+        Model::from_json(huge.as_bytes()).err(),
+        Some(ModelError::Malformed)
+    );
 }
 
 #[test]
@@ -351,7 +423,8 @@ fn version_is_checked_before_limits_and_structure() {
     m["trees"] = json!([[]]);
     assert_eq!(load(&m).err(), Some(ModelError::Version));
     // Limits before structure.
-    let both = json!({ "v": 1, "features": ["a", "a"], "base": 0.0, "trees": [chain(MAX_DEPTH + 1)] });
+    let both =
+        json!({ "v": 1, "features": ["a", "a"], "base": 0.0, "trees": [chain(MAX_DEPTH + 1)] });
     assert_eq!(load(&both).err(), Some(ModelError::Limits));
 }
 
@@ -378,7 +451,11 @@ fn hostile_files_never_panic() {
     // Deep nesting must not overflow the stack.
     let deep = format!("{}{}", "[".repeat(200_000), "]".repeat(200_000));
     assert!(Model::from_json(deep.as_bytes()).is_err());
-    let deep = format!("{{\"v\":1,\"features\":[],\"base\":0,\"trees\":{}{}}}", "[".repeat(100_000), "]".repeat(100_000));
+    let deep = format!(
+        "{{\"v\":1,\"features\":[],\"base\":0,\"trees\":{}{}}}",
+        "[".repeat(100_000),
+        "]".repeat(100_000)
+    );
     assert!(Model::from_json(deep.as_bytes()).is_err());
 }
 
@@ -395,5 +472,8 @@ fn the_largest_model_evaluates_quickly() {
     let per_call = start.elapsed() / 2_000;
     assert!(close(sum, 2_000.0 * 100.0 * MAX_TREES as f64, 1e-3));
     // About 5,000 steps. Generous enough for a debug build on a busy machine.
-    assert!(per_call < std::time::Duration::from_millis(2), "{per_call:?} per evaluation");
+    assert!(
+        per_call < std::time::Duration::from_millis(2),
+        "{per_call:?} per evaluation"
+    );
 }

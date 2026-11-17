@@ -52,7 +52,9 @@ pub struct InFlight(Arc<AtomicU32>);
 
 impl Drop for InFlight {
     fn drop(&mut self) {
-        let _ = self.0.try_update(Ordering::AcqRel, Ordering::Acquire, |n| Some(n.saturating_sub(1)));
+        let _ = self.0.try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            Some(n.saturating_sub(1))
+        });
     }
 }
 
@@ -60,7 +62,12 @@ impl Shedder {
     pub const DEFAULT_CAP: u32 = 256;
 
     pub fn new(mode: GuardMode, cap: u32) -> Self {
-        Shedder { mode, cap: cap.max(1), in_flight: Arc::new(AtomicU32::new(0)), second: Mutex::new((0, 0, 0)) }
+        Shedder {
+            mode,
+            cap: cap.max(1),
+            in_flight: Arc::new(AtomicU32::new(0)),
+            second: Mutex::new((0, 0, 0)),
+        }
     }
 
     fn soft(&self) -> u32 {
@@ -158,7 +165,10 @@ mod tests {
         s.check(Trust::Plain, 20);
         let (_, line) = s.check(Trust::Kept, 21);
         let line = line.expect("the next second reports the last");
-        assert_eq!((line["refused"].as_u64(), line["peak_in_flight"].as_u64()), (Some(2), Some(1)));
+        assert_eq!(
+            (line["refused"].as_u64(), line["peak_in_flight"].as_u64()),
+            (Some(2), Some(1))
+        );
         // A second with nothing refused writes nothing.
         assert!(s.check(Trust::Kept, 23).1.is_none());
     }

@@ -85,7 +85,10 @@ fn matches(event: &Event, filter: &Filter) -> bool {
         && filter.ip.as_ref().is_none_or(|ip| ip == &event.ip)
         && filter.kind.is_none_or(|k| k == event.kind)
         && filter.outcome.as_ref().is_none_or(|o| o == &event.outcome)
-        && filter.host.as_ref().is_none_or(|h| h.eq_ignore_ascii_case(&event.host))
+        && filter
+            .host
+            .as_ref()
+            .is_none_or(|h| h.eq_ignore_ascii_case(&event.host))
 }
 
 impl EventSink for MemoryRing {
@@ -137,7 +140,10 @@ impl EventQuery for MemoryRing {
                 .collect();
             (window, inner.evicted)
         };
-        let mut s = Summary { evicted, ..Summary::default() };
+        let mut s = Summary {
+            evicted,
+            ..Summary::default()
+        };
         // Every site in the window, whatever the site filter.
         let mut hosts: HashMap<Cow<'_, str>, u64> = HashMap::new();
         let mut detections: HashMap<&str, u64> = HashMap::new();
@@ -167,11 +173,28 @@ impl EventQuery for MemoryRing {
                 bump(b);
             }
         }
-        s.by_host = top_n(hosts.into_iter().map(|(k, v)| (k.into_owned(), v)).collect(), TOP_HOSTS);
-        s.top_detections =
-            top_n(detections.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), TOP_DETECTIONS);
-        s.by_class = by_class.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-        s.by_outcome = by_outcome.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        s.by_host = top_n(
+            hosts
+                .into_iter()
+                .map(|(k, v)| (k.into_owned(), v))
+                .collect(),
+            TOP_HOSTS,
+        );
+        s.top_detections = top_n(
+            detections
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+            TOP_DETECTIONS,
+        );
+        s.by_class = by_class
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        s.by_outcome = by_outcome
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
         s
     }
 }
@@ -213,7 +236,10 @@ mod tests {
             h2: String::new(),
             score,
             class: Class::Human,
-            detections: dets.iter().map(|d| Detection::new(d, Layer::Network, 1, "x")).collect(),
+            detections: dets
+                .iter()
+                .map(|d| Detection::new(d, Layer::Network, 1, "x"))
+                .collect(),
             identity: String::new(),
             asn: 0,
             net_class: String::new(),

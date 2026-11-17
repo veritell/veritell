@@ -69,8 +69,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 
 use cel::{Context, Env, Program, Value};
-use veritell_core::{Action, ChallengeKind, Class};
 use serde::Deserialize;
+use veritell_core::{Action, ChallengeKind, Class};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -176,9 +176,15 @@ pub struct Decision {
 pub enum PolicyError {
     Yaml(String),
     /// Where (e.g. `routes[1].rules[0].when`) and why.
-    Expression { location: String, message: String },
+    Expression {
+        location: String,
+        message: String,
+    },
     /// Where and the offending action text.
-    Action { location: String, message: String },
+    Action {
+        location: String,
+        message: String,
+    },
     /// Any other structural problem (unknown mode, unknown field, ...).
     Invalid(String),
 }
@@ -210,7 +216,9 @@ fn yaml_options() -> serde_saphyr::Options {
 }
 
 /// A list written with no entries (`routes:`) is an empty list.
-fn empty_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Vec<T>, D::Error> {
+fn empty_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Vec<T>, D::Error> {
     Ok(Option::<Vec<T>>::deserialize(d)?.unwrap_or_default())
 }
 
@@ -228,10 +236,14 @@ impl<'de> Deserialize<'de> for Count {
                 f.write_str("an integer from 0 to 4294967295")
             }
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Count, E> {
-                u32::try_from(v).map(Count).map_err(|_| E::invalid_value(serde::de::Unexpected::Unsigned(v), &self))
+                u32::try_from(v)
+                    .map(Count)
+                    .map_err(|_| E::invalid_value(serde::de::Unexpected::Unsigned(v), &self))
             }
             fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Count, E> {
-                u32::try_from(v).map(Count).map_err(|_| E::invalid_value(serde::de::Unexpected::Signed(v), &self))
+                u32::try_from(v)
+                    .map(Count)
+                    .map_err(|_| E::invalid_value(serde::de::Unexpected::Signed(v), &self))
             }
         }
         d.deserialize_any(V)
@@ -337,7 +349,8 @@ fn valid_price(s: &str) -> bool {
 fn valid_terms(s: &str) -> bool {
     s.starts_with("https://")
         && s.len() <= MAX_TERMS_LEN
-        && s.bytes().all(|b| (0x21..=0x7e).contains(&b) && b != b'"' && b != b'\\')
+        && s.bytes()
+            .all(|b| (0x21..=0x7e).contains(&b) && b != b'"' && b != b'\\')
 }
 
 fn validate_offer(name: &str, raw: RawOffer) -> Result<Offer, PolicyError> {
@@ -348,13 +361,21 @@ fn validate_offer(name: &str, raw: RawOffer) -> Result<Offer, PolicyError> {
         )));
     }
     if !valid_price(&raw.price) {
-        return Err(invalid(&what, "price", "must be digits with an optional '.' and 1 to 6 digits"));
+        return Err(invalid(
+            &what,
+            "price",
+            "must be digits with an optional '.' and 1 to 6 digits",
+        ));
     }
     if raw.currency.len() != 3 || !raw.currency.bytes().all(|b| b.is_ascii_uppercase()) {
         return Err(invalid(&what, "currency", "must be exactly three of A-Z"));
     }
     if !is_token(&raw.unit, 32, true) {
-        return Err(invalid(&what, "unit", "must be 1 to 32 of a-z, 0-9, '-', '_'"));
+        return Err(invalid(
+            &what,
+            "unit",
+            "must be 1 to 32 of a-z, 0-9, '-', '_'",
+        ));
     }
     if !valid_terms(&raw.terms) {
         return Err(invalid(
@@ -394,7 +415,10 @@ fn validate_offer(name: &str, raw: RawOffer) -> Result<Offer, PolicyError> {
 fn compile(env: &Env, src: &str, location: String) -> Result<Program, PolicyError> {
     match catch_unwind(AssertUnwindSafe(|| env.compile(src))) {
         Ok(Ok(p)) => Ok(p),
-        Ok(Err(e)) => Err(PolicyError::Expression { location, message: e.to_string() }),
+        Ok(Err(e)) => Err(PolicyError::Expression {
+            location,
+            message: e.to_string(),
+        }),
         Err(_) => Err(PolicyError::Expression {
             location,
             message: "expression parser failed unexpectedly".to_string(),
@@ -415,7 +439,10 @@ fn parse_action(
         let message = match offers {
             None => "charge is not allowed here".to_string(),
             Some(offers) => {
-                let name = rest.strip_prefix('(').and_then(|r| r.strip_suffix(')')).map(str::trim);
+                let name = rest
+                    .strip_prefix('(')
+                    .and_then(|r| r.strip_suffix(')'))
+                    .map(str::trim);
                 match name.and_then(|n| offers.get(n)) {
                     Some(offer) => return Ok((Action::Charge, Some(offer.clone()))),
                     None => format!(
@@ -435,10 +462,15 @@ fn parse_action(
         // served as a proof of work.
         Ok(Action::Challenge(ChallengeKind::Interactive)) => Err(PolicyError::Action {
             location,
-            message: "challenge(interactive) is not available; use challenge(pow) or challenge(silent)".to_string(),
+            message:
+                "challenge(interactive) is not available; use challenge(pow) or challenge(silent)"
+                    .to_string(),
         }),
         Ok(a) => Ok((a, None)),
-        Err(e) => Err(PolicyError::Action { location, message: e.to_string() }),
+        Err(e) => Err(PolicyError::Action {
+            location,
+            message: e.to_string(),
+        }),
     }
 }
 
@@ -446,8 +478,8 @@ impl Policy {
     /// Parses and compiles a policy. Every CEL expression is compiled here,
     /// so a typo fails at load time rather than on a live request.
     pub fn from_yaml(yaml: &str) -> Result<Policy, PolicyError> {
-        let raw: Option<RawPolicy> =
-            serde_saphyr::from_str_with_options(yaml, yaml_options()).map_err(|e| PolicyError::Yaml(e.to_string()))?;
+        let raw: Option<RawPolicy> = serde_saphyr::from_str_with_options(yaml, yaml_options())
+            .map_err(|e| PolicyError::Yaml(e.to_string()))?;
         let raw = raw.unwrap_or_default();
 
         let mode = match raw.mode.as_deref() {
@@ -467,7 +499,9 @@ impl Policy {
         let mut offers: BTreeMap<String, Offer> = BTreeMap::new();
         let raw_offers = raw.offers.unwrap_or_default();
         if raw_offers.len() > MAX_OFFERS {
-            return Err(PolicyError::Invalid(format!("at most {MAX_OFFERS} offers are allowed")));
+            return Err(PolicyError::Invalid(format!(
+                "at most {MAX_OFFERS} offers are allowed"
+            )));
         }
         for (name, o) in raw_offers {
             let offer = validate_offer(&name, o)?;
@@ -483,12 +517,18 @@ impl Policy {
                         "at most {MAX_IDENTITIES} identities may be listed under quotas"
                     )));
                 }
-                if ids.keys().any(|k| k.is_empty() || k.len() > MAX_IDENTITY_LEN) {
+                if ids
+                    .keys()
+                    .any(|k| k.is_empty() || k.len() > MAX_IDENTITY_LEN)
+                {
                     return Err(PolicyError::Invalid(format!(
                         "a quota identity must be 1 to {MAX_IDENTITY_LEN} bytes"
                     )));
                 }
-                (q.default.map(|c| c.0), ids.into_iter().map(|(k, c)| (k, c.0)).collect())
+                (
+                    q.default.map(|c| c.0),
+                    ids.into_iter().map(|(k, c)| (k, c.0)).collect(),
+                )
             }
         };
 
@@ -507,7 +547,11 @@ impl Policy {
                     format!("routes[{i}].rules[{j}].action"),
                     Some(&offers),
                 )?;
-                rules.push(Rule { when, action, offer });
+                rules.push(Rule {
+                    when,
+                    action,
+                    offer,
+                });
             }
             routes.push(Route {
                 name: r.name.unwrap_or_else(|| format!("route-{i}")),
@@ -515,7 +559,14 @@ impl Policy {
                 rules,
             });
         }
-        Ok(Policy { mode, default_action, routes, env, quota_default, quota_identities })
+        Ok(Policy {
+            mode,
+            default_action,
+            routes,
+            env,
+            quota_default,
+            quota_identities,
+        })
     }
 
     /// The policy used when no file is given: shadow mode, no routes.
@@ -541,7 +592,10 @@ impl Policy {
         if identity.is_empty() {
             return None;
         }
-        self.quota_identities.get(identity).copied().or(self.quota_default)
+        self.quota_identities
+            .get(identity)
+            .copied()
+            .or(self.quota_default)
     }
 
     fn build_context(&self, input: &PolicyInput<'_>) -> Context<'static, 'static> {
@@ -629,7 +683,7 @@ impl Policy {
                 route: Some(route.name.clone()),
                 rule: None,
                 error: None,
-                            offer: None,
+                offer: None,
             };
         }
         Decision {
@@ -638,18 +692,44 @@ impl Policy {
             route: None,
             rule: None,
             error: None,
-                            offer: None,
+            offer: None,
         }
     }
 }
 
 /// Headers ordinary requests carry, which a receipt header must not be.
 const COMMON_REQUEST_HEADERS: &[&str] = &[
-    "accept", "accept-encoding", "accept-language", "authorization", "cache-control", "connection",
-    "content-length", "content-type", "cookie", "dnt", "forwarded", "host", "if-modified-since",
-    "if-none-match", "origin", "pragma", "priority", "range", "referer", "signature", "signature-agent",
-    "signature-input", "te", "upgrade-insecure-requests", "user-agent", "via", "x-forwarded-for",
-    "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "x-requested-with",
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "authorization",
+    "cache-control",
+    "connection",
+    "content-length",
+    "content-type",
+    "cookie",
+    "dnt",
+    "forwarded",
+    "host",
+    "if-modified-since",
+    "if-none-match",
+    "origin",
+    "pragma",
+    "priority",
+    "range",
+    "referer",
+    "signature",
+    "signature-agent",
+    "signature-input",
+    "te",
+    "upgrade-insecure-requests",
+    "user-agent",
+    "via",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "x-requested-with",
 ];
 
 /// Executes a program, requiring a boolean result. Panics inside the CEL
@@ -657,7 +737,9 @@ const COMMON_REQUEST_HEADERS: &[&str] = &[
 fn run_bool(program: &Program, ctx: &Context<'_, '_>) -> Result<bool, String> {
     match catch_unwind(AssertUnwindSafe(|| program.execute(ctx))) {
         Ok(Ok(Value::Bool(b))) => Ok(b),
-        Ok(Ok(other)) => Err(format!("expression returned a non-boolean value: {other:?}")),
+        Ok(Ok(other)) => Err(format!(
+            "expression returned a non-boolean value: {other:?}"
+        )),
         Ok(Err(e)) => Err(e.to_string()),
         Err(_) => Err("expression evaluation failed unexpectedly".to_string()),
     }
@@ -696,12 +778,21 @@ mod tests {
         let d = p.evaluate(&input());
         assert_eq!(d.action, Action::Pass);
         assert!(d.error.is_some());
-        assert_eq!((d.route.as_deref(), d.rule, d.enforced), (Some("bad"), None, true));
+        assert_eq!(
+            (d.route.as_deref(), d.rule, d.enforced),
+            (Some("bad"), None, true)
+        );
     }
 
     #[test]
     fn a_receipt_header_cannot_be_one_every_request_carries() {
-        for h in ["user-agent", "accept", "authorization", "sec-fetch-mode", "host"] {
+        for h in [
+            "user-agent",
+            "accept",
+            "authorization",
+            "sec-fetch-mode",
+            "host",
+        ] {
             let yaml = format!(
                 "offers:\n  x:\n    price: \"1\"\n    currency: EUR\n    unit: request\n    terms: https://example.test/t\n    receipt_header: {h}\nroutes: []\n"
             );
@@ -713,7 +804,8 @@ mod tests {
 
     #[test]
     fn an_interactive_challenge_is_refused_at_load() {
-        let rule = "routes:\n  - rules:\n      - when: 'true'\n        action: challenge(interactive)\n";
+        let rule =
+            "routes:\n  - rules:\n      - when: 'true'\n        action: challenge(interactive)\n";
         let err = Policy::from_yaml(rule).err().expect("accepted").to_string();
         assert!(err.contains("interactive"), "{err}");
         assert!(Policy::from_yaml("default_action: challenge(interactive)\nroutes: []\n").is_err());
@@ -730,7 +822,8 @@ mod tests {
         assert_eq!(d.action, Action::Pass);
         assert!(d.error.is_some());
         // Without an error, the default applies as before.
-        let p = Policy::from_yaml("mode: enforce\ndefault_action: block\nroutes:\n  - rules: []\n").unwrap();
+        let p = Policy::from_yaml("mode: enforce\ndefault_action: block\nroutes:\n  - rules: []\n")
+            .unwrap();
         assert_eq!(p.evaluate(&input()).action, Action::Block);
     }
 
@@ -762,24 +855,56 @@ mod tests {
     #[test]
     fn validators() {
         assert!(valid_price("0") && valid_price("123456789.123456") && valid_price("1.5"));
-        for bad in ["", ".5", "1.", "1.2.3", "1234567890", "1.1234567", "-1", "1e3", " 1"] {
+        for bad in [
+            "",
+            ".5",
+            "1.",
+            "1.2.3",
+            "1234567890",
+            "1.1234567",
+            "-1",
+            "1e3",
+            " 1",
+        ] {
             assert!(!valid_price(bad), "{bad}");
         }
         assert!(valid_terms("https://a.example/x?y=1&z=2"));
-        for bad in ["http://a", "https://a b", "https://a\"b", "https://a\\b", "https://caf\u{e9}", "https://a\n"] {
+        for bad in [
+            "http://a",
+            "https://a b",
+            "https://a\"b",
+            "https://a\\b",
+            "https://caf\u{e9}",
+            "https://a\n",
+        ] {
             assert!(!valid_terms(bad), "{bad:?}");
         }
         assert!(!valid_terms(&format!("https://{}", "a".repeat(505))));
         assert!(is_token("a_b-9", 32, true) && !is_token("a_b", 32, false));
-        assert!(!is_token("", 32, true) && !is_token("A", 32, true) && !is_token(&"a".repeat(33), 32, true));
+        assert!(
+            !is_token("", 32, true)
+                && !is_token("A", 32, true)
+                && !is_token(&"a".repeat(33), 32, true)
+        );
     }
 
     #[test]
     fn charge_parsing() {
         let y = "offers:\n  o:\n    price: \"1\"\n    currency: USD\n    unit: u\n    terms: https://a.example/\n";
-        let ok = |a: &str| Policy::from_yaml(&format!("{y}routes:\n  - rules:\n      - when: 'true'\n        action: \"{a}\"\n"));
+        let ok = |a: &str| {
+            Policy::from_yaml(&format!(
+                "{y}routes:\n  - rules:\n      - when: 'true'\n        action: \"{a}\"\n"
+            ))
+        };
         assert!(ok("charge(o)").is_ok() && ok(" charge( o ) ").is_ok());
-        for bad in ["charge", "charge()", "charge(p)", "chargeo", "charge (o)", "charge(o)x"] {
+        for bad in [
+            "charge",
+            "charge()",
+            "charge(p)",
+            "chargeo",
+            "charge (o)",
+            "charge(o)x",
+        ] {
             assert!(matches!(ok(bad), Err(PolicyError::Action { .. })), "{bad}");
         }
         assert!(Policy::from_yaml(&format!("default_action: charge(o)\n{y}")).is_err());
@@ -798,9 +923,17 @@ mod tests {
         assert!(Policy::from_yaml("mode: enforce\n---\nmode: shadow\n").is_err());
         // A quota is an integer, not a string that looks like one.
         for bad in ["'3'", "\"3\"", "1_000", "3.0", "-1", "4294967296", "true"] {
-            assert!(Policy::from_yaml(&format!("quotas:\n  default: {bad}\n")).is_err(), "{bad}");
+            assert!(
+                Policy::from_yaml(&format!("quotas:\n  default: {bad}\n")).is_err(),
+                "{bad}"
+            );
         }
-        for (ok, n) in [("3", 3), ("0x10", 16), ("0o10", 8), ("4294967295", u32::MAX)] {
+        for (ok, n) in [
+            ("3", 3),
+            ("0x10", 16),
+            ("0o10", 8),
+            ("4294967295", u32::MAX),
+        ] {
             let p = Policy::from_yaml(&format!("quotas:\n  default: {ok}\n")).unwrap();
             assert_eq!(p.quota_for("any"), Some(n), "{ok}");
         }
@@ -811,7 +944,10 @@ mod tests {
         assert!(Policy::from_yaml("quotas:\n  identities:\n  default: 3\n").is_ok());
         assert!(Policy::from_yaml("offers:\n  o: {price: '1'}\n").is_err());
         let p = Policy::from_yaml("quotas:\n  default: 3\n  identities:\n    a: 0\n").unwrap();
-        assert_eq!((p.quota_for("a"), p.quota_for("b"), p.quota_for("")), (Some(0), Some(3), None));
+        assert_eq!(
+            (p.quota_for("a"), p.quota_for("b"), p.quota_for("")),
+            (Some(0), Some(3), None)
+        );
     }
 
     #[test]

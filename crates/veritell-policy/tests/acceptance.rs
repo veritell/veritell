@@ -64,14 +64,20 @@ fn first_matching_rule_in_first_matching_route_wins() {
 
     let d = p.evaluate(&input("/api/login", 5, Class::Automated));
     assert_eq!(d.action, Action::Decoy);
-    assert_eq!((d.route.as_deref(), d.rule, d.enforced), (Some("login"), Some(0), true));
+    assert_eq!(
+        (d.route.as_deref(), d.rule, d.enforced),
+        (Some("login"), Some(0), true)
+    );
     assert!(d.error.is_none());
 
     let d = p.evaluate(&input("/api/login", 80, Class::Malicious));
     assert_eq!((d.action, d.rule), (Action::Decoy, Some(0)));
 
     let d = p.evaluate(&input("/api/login", 35, Class::Human));
-    assert_eq!((d.action, d.rule), (Action::Challenge(ChallengeKind::Pow), Some(1)));
+    assert_eq!(
+        (d.action, d.rule),
+        (Action::Challenge(ChallengeKind::Pow), Some(1))
+    );
 }
 
 #[test]
@@ -84,7 +90,10 @@ fn matched_route_without_firing_rule_gives_default_and_stops() {
 
     // "assets" has no rules: always default, even at score 1.
     let d = p.evaluate(&input("/static/app.js", 1, Class::Automated));
-    assert_eq!((d.action, d.route.as_deref(), d.rule), (Action::Pass, Some("assets"), None));
+    assert_eq!(
+        (d.action, d.route.as_deref(), d.rule),
+        (Action::Pass, Some("assets"), None)
+    );
     let d = p.evaluate(&input("/theme/site.css", 1, Class::Automated));
     assert_eq!(d.route.as_deref(), Some("assets"));
 }
@@ -100,7 +109,10 @@ fn catalog_rules_use_every_variable_kind() {
     let i = input("/products/42", 70, Class::UnverifiedAgent);
     assert_eq!(p.evaluate(&i).action, Action::Throttle { per_minute: 30 });
 
-    let dets = vec!["missing_client_hints".to_string(), "tls_known_tool".to_string()];
+    let dets = vec![
+        "missing_client_hints".to_string(),
+        "tls_known_tool".to_string(),
+    ];
     let mut i = input("/products/42", 70, Class::Automated);
     i.detections = &dets;
     let d = p.evaluate(&i);
@@ -108,7 +120,10 @@ fn catalog_rules_use_every_variable_kind() {
 
     let mut i = input("/products/42", 50, Class::Human);
     i.net_class = "hosting";
-    assert_eq!(p.evaluate(&i).action, Action::Challenge(ChallengeKind::Silent));
+    assert_eq!(
+        p.evaluate(&i).action,
+        Action::Challenge(ChallengeKind::Silent)
+    );
     i.has_token = true;
     assert_eq!(p.evaluate(&i).action, Action::Pass);
 
@@ -116,14 +131,20 @@ fn catalog_rules_use_every_variable_kind() {
     let mut i = input("/products/42", 10, Class::Automated);
     i.method = "POST";
     let d = p.evaluate(&i);
-    assert_eq!((d.action, d.route.as_deref()), (Action::Tarpit, Some("route-3")));
+    assert_eq!(
+        (d.action, d.route.as_deref()),
+        (Action::Tarpit, Some("route-3"))
+    );
 }
 
 #[test]
 fn catch_all_route_and_no_route() {
     let p = policy();
     let d = p.evaluate(&input("/about", 10, Class::Automated));
-    assert_eq!((d.action, d.route.as_deref(), d.rule), (Action::Tarpit, Some("route-3"), Some(0)));
+    assert_eq!(
+        (d.action, d.route.as_deref(), d.rule),
+        (Action::Tarpit, Some("route-3"), Some(0))
+    );
 
     let p = Policy::from_yaml("routes: []").unwrap();
     let d = p.evaluate(&input("/about", 1, Class::Malicious));
@@ -132,10 +153,9 @@ fn catch_all_route_and_no_route() {
 
 #[test]
 fn shadow_is_the_default_mode() {
-    let p = Policy::from_yaml(
-        "routes:\n  - rules:\n      - when: score < 50\n        action: block\n",
-    )
-    .unwrap();
+    let p =
+        Policy::from_yaml("routes:\n  - rules:\n      - when: score < 50\n        action: block\n")
+            .unwrap();
     assert_eq!(p.mode(), Mode::Shadow);
     let d = p.evaluate(&input("/", 10, Class::Automated));
     // The selected action is still reported so it can be logged.
@@ -151,9 +171,13 @@ fn shadow_is_the_default_mode() {
 
 #[test]
 fn default_action_is_configurable() {
-    let p = Policy::from_yaml("mode: enforce\ndefault_action: challenge(pow)\nroutes: []\n").unwrap();
+    let p =
+        Policy::from_yaml("mode: enforce\ndefault_action: challenge(pow)\nroutes: []\n").unwrap();
     let d = p.evaluate(&input("/", 99, Class::Human));
-    assert_eq!((d.action, d.enforced), (Action::Challenge(ChallengeKind::Pow), true));
+    assert_eq!(
+        (d.action, d.enforced),
+        (Action::Challenge(ChallengeKind::Pow), true)
+    );
 }
 
 #[test]
@@ -185,7 +209,10 @@ routes:
 
 #[test]
 fn load_time_errors() {
-    assert!(matches!(Policy::from_yaml("routes: [unclosed"), Err(PolicyError::Yaml(_))));
+    assert!(matches!(
+        Policy::from_yaml("routes: [unclosed"),
+        Err(PolicyError::Yaml(_))
+    ));
 
     match Policy::from_yaml("routes:\n  - match: 'path.startsWith('\n    rules: []\n") {
         Err(PolicyError::Expression { location, .. }) => assert_eq!(location, "routes[0].match"),
@@ -211,7 +238,10 @@ fn load_time_errors() {
         Policy::from_yaml("default_action: nope\n"),
         Err(PolicyError::Action { .. })
     ));
-    assert!(matches!(Policy::from_yaml("mode: yolo\n"), Err(PolicyError::Invalid(_))));
+    assert!(matches!(
+        Policy::from_yaml("mode: yolo\n"),
+        Err(PolicyError::Invalid(_))
+    ));
     // Typos in field names must not be silently ignored.
     assert!(Policy::from_yaml("routes:\n  - mtach: 'true'\n    rules: []\n").is_err());
     // A rule needs both fields.

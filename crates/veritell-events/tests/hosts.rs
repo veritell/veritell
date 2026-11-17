@@ -36,10 +36,30 @@ fn event(ts_ms: u64, host: &str, class: Class, kind: EventKind) -> Event {
 
 fn ring() -> MemoryRing {
     let ring = MemoryRing::new(100);
-    ring.record(&event(100, "shop.example", Class::Human, EventKind::Request));
-    ring.record(&event(200, "shop.example", Class::Automated, EventKind::Request));
-    ring.record(&event(300, "Shop.Example", Class::Automated, EventKind::Request));
-    ring.record(&event(400, "blog.example", Class::Human, EventKind::Request));
+    ring.record(&event(
+        100,
+        "shop.example",
+        Class::Human,
+        EventKind::Request,
+    ));
+    ring.record(&event(
+        200,
+        "shop.example",
+        Class::Automated,
+        EventKind::Request,
+    ));
+    ring.record(&event(
+        300,
+        "Shop.Example",
+        Class::Automated,
+        EventKind::Request,
+    ));
+    ring.record(&event(
+        400,
+        "blog.example",
+        Class::Human,
+        EventKind::Request,
+    ));
     ring.record(&event(500, "blog.example", Class::Human, EventKind::Probe));
     ring.record(&event(50, "old.example", Class::Human, EventKind::Request));
     ring
@@ -49,25 +69,50 @@ fn ring() -> MemoryRing {
 fn the_host_filter_matches_one_site_ignoring_case() {
     let r = ring();
     let ts = |host: &str| -> Vec<u64> {
-        r.recent(100, &Filter { host: Some(host.into()), ..Filter::default() })
-            .iter()
-            .map(|e| e.ts_ms)
-            .collect()
+        r.recent(
+            100,
+            &Filter {
+                host: Some(host.into()),
+                ..Filter::default()
+            },
+        )
+        .iter()
+        .map(|e| e.ts_ms)
+        .collect()
     };
     assert_eq!(ts("shop.example"), [300, 200, 100]);
     assert_eq!(ts("SHOP.EXAMPLE"), [300, 200, 100]);
     assert_eq!(ts("blog.example"), [500, 400]);
     assert_eq!(ts("nowhere.example"), Vec::<u64>::new());
-    let both = Filter { host: Some("shop.example".into()), class: Some(Class::Human), ..Filter::default() };
-    assert_eq!(r.recent(100, &both).iter().map(|e| e.ts_ms).collect::<Vec<_>>(), [100]);
+    let both = Filter {
+        host: Some("shop.example".into()),
+        class: Some(Class::Human),
+        ..Filter::default()
+    };
+    assert_eq!(
+        r.recent(100, &both)
+            .iter()
+            .map(|e| e.ts_ms)
+            .collect::<Vec<_>>(),
+        [100]
+    );
 }
 
 #[test]
 fn the_summary_for_one_site_counts_only_it_but_lists_every_site() {
     let r = ring();
     let all = r.summary(100);
-    assert_eq!(all.total, 4, "requests at or after 100; the probe is not counted");
-    assert_eq!(all.by_host, vec![("shop.example".to_string(), 3), ("blog.example".to_string(), 1)]);
+    assert_eq!(
+        all.total, 4,
+        "requests at or after 100; the probe is not counted"
+    );
+    assert_eq!(
+        all.by_host,
+        vec![
+            ("shop.example".to_string(), 3),
+            ("blog.example".to_string(), 1)
+        ]
+    );
     assert_eq!(r.summary_for(100, None), all);
 
     let shop = r.summary_for(100, Some("shop.example"));
@@ -86,7 +131,12 @@ fn the_site_list_is_capped_and_ordered() {
     let r = MemoryRing::new(1000);
     for i in 0..25u64 {
         for _ in 0..=i {
-            r.record(&event(1000, &format!("s{i:02}.example"), Class::Human, EventKind::Request));
+            r.record(&event(
+                1000,
+                &format!("s{i:02}.example"),
+                Class::Human,
+                EventKind::Request,
+            ));
         }
     }
     let s = r.summary(0);

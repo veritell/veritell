@@ -103,10 +103,16 @@ pub struct SystemResolver {
 
 impl SystemResolver {
     pub fn new(timeout: Duration, max_in_flight: usize) -> Self {
-        SystemResolver { timeout, slots: Slots::new(max_in_flight) }
+        SystemResolver {
+            timeout,
+            slots: Slots::new(max_in_flight),
+        }
     }
 
-    async fn run<T: Send + 'static>(&self, lookup: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    async fn run<T: Send + 'static>(
+        &self,
+        lookup: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
         let slot = self.slots.take()?;
         let task = tokio::task::spawn_blocking(move || {
             let _slot = slot;
@@ -133,12 +139,17 @@ impl Drop for Slot {
 
 impl Slots {
     fn new(max: usize) -> Self {
-        Slots { used: Arc::new(AtomicUsize::new(0)), max }
+        Slots {
+            used: Arc::new(AtomicUsize::new(0)),
+            max,
+        }
     }
 
     fn take(&self) -> Option<Slot> {
         self.used
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < self.max).then_some(n + 1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < self.max).then_some(n + 1)
+            })
             .ok()
             .map(|_| Slot(Arc::clone(&self.used)))
     }
@@ -183,7 +194,10 @@ mod tests {
         assert!(t.allow(b, 2, 60));
         assert!(t.allow(c, 2, 60));
         assert!(!t.allow(b, 2, 60), "the same /64");
-        assert!(t.allow("2001:db8:1:3::1".parse().unwrap(), 2, 60), "another /64");
+        assert!(
+            t.allow("2001:db8:1:3::1".parse().unwrap(), 2, 60),
+            "another /64"
+        );
     }
 
     #[test]
@@ -208,7 +222,10 @@ mod tests {
         let _b = slots.take().unwrap();
         assert!(slots.take().is_none(), "over the cap");
         drop(a);
-        assert!(slots.take().is_some(), "a finished lookup gives its slot back");
+        assert!(
+            slots.take().is_some(),
+            "a finished lookup gives its slot back"
+        );
     }
 
     #[test]
@@ -246,13 +263,19 @@ mod tests {
         assert_eq!(cookie_value(h, "veritell"), None);
         assert_eq!(cookie_value("", "__Host-veritell"), None);
         assert_eq!(
-            cookie_value("x__Host-veritell=evil; __Host-veritell=good", "__Host-veritell"),
+            cookie_value(
+                "x__Host-veritell=evil; __Host-veritell=good",
+                "__Host-veritell"
+            ),
             Some("good")
         );
         // The known-person mark shares the prefix but is another cookie.
         let both = "__Host-veritell-known=p01.ab; __Host-veritell=tok";
         assert_eq!(cookie_value(both, "__Host-veritell"), Some("tok"));
-        assert_eq!(cookie_value("__Host-veritell-known=p01.ab", "__Host-veritell"), None);
+        assert_eq!(
+            cookie_value("__Host-veritell-known=p01.ab", "__Host-veritell"),
+            None
+        );
     }
 
     #[test]

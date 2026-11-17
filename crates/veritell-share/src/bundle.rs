@@ -2,11 +2,13 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use serde_json::Value;
 use veritell_core::{Class, Detection, Layer};
 use veritell_feed::FeedKey;
-use serde_json::Value;
 
-use crate::{Entry, ShareError, ShareKey, DETECTION_ID, FILE_NAME, HASH_BYTES, MAX_ENTRIES, PENALTY};
+use crate::{
+    Entry, ShareError, ShareKey, DETECTION_ID, FILE_NAME, HASH_BYTES, MAX_ENTRIES, PENALTY,
+};
 
 fn shareable(class: Class) -> Option<&'static str> {
     match class {
@@ -47,7 +49,9 @@ pub fn encode(entries: &[Entry]) -> Vec<u8> {
     let mut out = String::from("{\"v\":1,\"entries\":[");
     let mut first = true;
     for e in entries {
-        let Some(class) = shareable(e.class) else { continue };
+        let Some(class) = shareable(e.class) else {
+            continue;
+        };
         if !first {
             out.push(',');
         }
@@ -73,7 +77,9 @@ pub fn encode(entries: &[Entry]) -> Vec<u8> {
 pub fn decode(bytes: &[u8]) -> Result<Vec<Entry>, ShareError> {
     let text = std::str::from_utf8(bytes).map_err(|_| ShareError::Format("not UTF-8"))?;
     let value: Value = serde_json::from_str(text).map_err(|_| ShareError::Format("not JSON"))?;
-    let Value::Object(top) = value else { return Err(ShareError::Format("not an object")) };
+    let Value::Object(top) = value else {
+        return Err(ShareError::Format("not an object"));
+    };
     if top.len() != 2 {
         return Err(ShareError::Format("members are not exactly v and entries"));
     }
@@ -89,7 +95,9 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Entry>, ShareError> {
     let mut seen = HashSet::with_capacity(list.len());
     let mut out = Vec::with_capacity(list.len());
     for item in list {
-        let Value::Object(obj) = item else { return Err(ShareError::Format("entry is not an object")) };
+        let Value::Object(obj) = item else {
+            return Err(ShareError::Format("entry is not an object"));
+        };
         if obj.len() != 2 {
             return Err(ShareError::Format("entry members are not exactly h and c"));
         }
@@ -161,7 +169,11 @@ impl Imported {
 
     pub fn new(entries: &[Entry]) -> Imported {
         let mut by_hash: HashMap<[u8; HASH_BYTES], Class> = HashMap::new();
-        for e in entries.iter().filter(|e| shareable(e.class).is_some()).take(MAX_ENTRIES) {
+        for e in entries
+            .iter()
+            .filter(|e| shareable(e.class).is_some())
+            .take(MAX_ENTRIES)
+        {
             let slot = by_hash.entry(e.hash).or_insert(e.class);
             if e.class == Class::Malicious {
                 *slot = Class::Malicious;
@@ -190,7 +202,10 @@ impl Imported {
             DETECTION_ID,
             Layer::Population,
             PENALTY,
-            format!("another install reported this fingerprint as {}", class.as_str()),
+            format!(
+                "another install reported this fingerprint as {}",
+                class.as_str()
+            ),
         ))
     }
 }

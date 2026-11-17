@@ -8,7 +8,15 @@ const TTL: u64 = 1000;
 
 fn ledger() -> Ledger {
     let key = ShareKey::new(b"0123456789abcdef0123456789abcdef").unwrap();
-    Ledger::new(key, Config { min_networks: 5, max_fingerprints: 100, ttl_secs: TTL }).unwrap()
+    Ledger::new(
+        key,
+        Config {
+            min_networks: 5,
+            max_fingerprints: 100,
+            ttl_secs: TTL,
+        },
+    )
+    .unwrap()
 }
 
 fn net(n: u32) -> [u8; 8] {
@@ -23,7 +31,11 @@ fn networks_spread_over_many_windows_are_not_exported() {
     for n in 0..20u32 {
         let now = T + u64::from(n) * (TTL * 9 / 10);
         l.record("fp", net(n), Class::Automated, now);
-        assert!(l.export(now).is_empty(), "exported after {} networks", n + 1);
+        assert!(
+            l.export(now).is_empty(),
+            "exported after {} networks",
+            n + 1
+        );
     }
 }
 

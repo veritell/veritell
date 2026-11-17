@@ -62,7 +62,11 @@ fn input<'a>(path: &'a str, identity: &'a str, quota_left: u32) -> PolicyInput<'
         method: "GET",
         host: "shop.example",
         score: 99,
-        class: if identity.is_empty() { Class::Human } else { Class::SignedAgent },
+        class: if identity.is_empty() {
+            Class::Human
+        } else {
+            Class::SignedAgent
+        },
         detections: &[],
         ja4: "",
         user_agent: "",
@@ -124,10 +128,20 @@ fn quota_lookup() {
 fn rules_can_name_an_identity() {
     let p = policy();
     let d = p.evaluate(&input("/data/1", "big-agent", 4000));
-    assert_eq!((d.action, d.rule, d.route.as_deref()), (Action::Throttle { per_minute: 600 }, Some(1), Some("priced")));
+    assert_eq!(
+        (d.action, d.rule, d.route.as_deref()),
+        (
+            Action::Throttle { per_minute: 600 },
+            Some(1),
+            Some("priced")
+        )
+    );
     assert_eq!(d.offer, None);
     let d = p.evaluate(&input("/data/1", "small-agent", 50));
-    assert_eq!((d.action, d.rule), (Action::Throttle { per_minute: 60 }, Some(2)));
+    assert_eq!(
+        (d.action, d.rule),
+        (Action::Throttle { per_minute: 60 }, Some(2))
+    );
 }
 
 #[test]
@@ -149,9 +163,15 @@ fn quota_left_is_a_number_and_no_quota_is_large() {
     .unwrap();
     assert_eq!(p.evaluate(&input("/", "a", 9)).action, Action::Block);
     assert_eq!(p.evaluate(&input("/", "a", 0)).action, Action::Block);
-    assert_eq!(p.evaluate(&input("/", "a", NO_QUOTA)).action, Action::Tarpit);
+    assert_eq!(
+        p.evaluate(&input("/", "a", NO_QUOTA)).action,
+        Action::Tarpit
+    );
     assert_eq!(p.evaluate(&input("/", "", NO_QUOTA)).action, Action::Tarpit);
-    assert_eq!(p.evaluate(&input("/", "big-agent", 10)).action, Action::Decoy);
+    assert_eq!(
+        p.evaluate(&input("/", "big-agent", 10)).action,
+        Action::Decoy
+    );
     assert_eq!(p.evaluate(&input("/", "a", 10)).action, Action::Pass);
 }
 
@@ -163,7 +183,10 @@ fn an_empty_quota_is_charged() {
     let d = p.evaluate(&input("/data/1", "small-agent", 0));
     assert_eq!(d.action, Action::Charge);
     assert_eq!(d.offer, Some(crawl()));
-    assert_eq!((d.rule, d.route.as_deref(), d.enforced, d.error), (Some(0), Some("priced"), true, None));
+    assert_eq!(
+        (d.rule, d.route.as_deref(), d.enforced, d.error),
+        (Some(0), Some("priced"), true, None)
+    );
 }
 
 #[test]
@@ -179,7 +202,10 @@ fn nobody_unproven_is_charged() {
     assert_eq!((d.action, d.rule, d.offer), (Action::Block, Some(3), None));
 
     let d = p.evaluate(&input("/bulk/x", "", NO_QUOTA));
-    assert_eq!((d.action, d.rule, d.offer), (Action::Challenge(ChallengeKind::Pow), Some(1), None));
+    assert_eq!(
+        (d.action, d.rule, d.offer),
+        (Action::Challenge(ChallengeKind::Pow), Some(1), None)
+    );
 }
 
 #[test]
@@ -243,15 +269,27 @@ fn with_action(action: &str) -> String {
 fn charge_must_name_a_known_offer() {
     assert!(Policy::from_yaml(&with_action("charge(crawl)")).is_ok());
     assert!(Policy::from_yaml(&with_action("' charge( crawl ) '")).is_ok());
-    for bad in ["charge", "charge()", "charge(nope)", "charge(Crawl)", "charge(crawl", "charge(crawl)x", "charge(crawl, crawl)"] {
+    for bad in [
+        "charge",
+        "charge()",
+        "charge(nope)",
+        "charge(Crawl)",
+        "charge(crawl",
+        "charge(crawl)x",
+        "charge(crawl, crawl)",
+    ] {
         match Policy::from_yaml(&with_action(bad)) {
-            Err(PolicyError::Action { location, .. }) => assert_eq!(location, "routes[0].rules[0].action", "{bad}"),
+            Err(PolicyError::Action { location, .. }) => {
+                assert_eq!(location, "routes[0].rules[0].action", "{bad}")
+            }
             other => panic!("{bad} should be an action error, got {:?}", other.err()),
         }
     }
     // An offer must exist even when no offers are defined at all.
     assert!(matches!(
-        Policy::from_yaml("routes:\n  - rules:\n      - when: 'true'\n        action: charge(crawl)\n"),
+        Policy::from_yaml(
+            "routes:\n  - rules:\n      - when: 'true'\n        action: charge(crawl)\n"
+        ),
         Err(PolicyError::Action { .. })
     ));
 }
@@ -289,11 +327,37 @@ fn offers_within_the_limits_load() {
     let header_64 = format!("receipt_header: {}", "h".repeat(64));
     let good: Vec<String> = vec![
         with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS]),
-        with_offer("a_b-9", &["price: \"123456789.123456\"", CURRENCY, "unit: gb_month-1", TERMS]),
-        with_offer("crawl", &["price: \"0\"", "currency: JPY", UNIT, TERMS, "receipt_header: payment-receipt"]),
-        with_offer("crawl", &["price: \"0.5\"", CURRENCY, UNIT, long_terms.as_str()]),
-        with_offer(&name_32, &[PRICE, CURRENCY, unit_32.as_str(), TERMS, header_64.as_str()]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: x-receipt"]),
+        with_offer(
+            "a_b-9",
+            &[
+                "price: \"123456789.123456\"",
+                CURRENCY,
+                "unit: gb_month-1",
+                TERMS,
+            ],
+        ),
+        with_offer(
+            "crawl",
+            &[
+                "price: \"0\"",
+                "currency: JPY",
+                UNIT,
+                TERMS,
+                "receipt_header: payment-receipt",
+            ],
+        ),
+        with_offer(
+            "crawl",
+            &["price: \"0.5\"", CURRENCY, UNIT, long_terms.as_str()],
+        ),
+        with_offer(
+            &name_32,
+            &[PRICE, CURRENCY, unit_32.as_str(), TERMS, header_64.as_str()],
+        ),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: x-receipt"],
+        ),
     ];
     for y in &good {
         if let Err(e) = Policy::from_yaml(y) {
@@ -302,10 +366,14 @@ fn offers_within_the_limits_load() {
     }
     let mut many = String::from("offers:\n");
     for n in 0..64 {
-        many.push_str(&format!("  o{n}:\n    {PRICE}\n    {CURRENCY}\n    {UNIT}\n    {TERMS}\n"));
+        many.push_str(&format!(
+            "  o{n}:\n    {PRICE}\n    {CURRENCY}\n    {UNIT}\n    {TERMS}\n"
+        ));
     }
     assert!(Policy::from_yaml(&many).is_ok());
-    many.push_str(&format!("  o64:\n    {PRICE}\n    {CURRENCY}\n    {UNIT}\n    {TERMS}\n"));
+    many.push_str(&format!(
+        "  o64:\n    {PRICE}\n    {CURRENCY}\n    {UNIT}\n    {TERMS}\n"
+    ));
     assert!(Policy::from_yaml(&many).is_err());
 }
 
@@ -348,20 +416,78 @@ fn offers_outside_the_limits_are_refused() {
         with_offer("crawl", &[PRICE, CURRENCY, "unit: Per Request", TERMS]),
         with_offer("crawl", &[PRICE, CURRENCY, unit_33.as_str(), TERMS]),
         // Terms.
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, "terms: http://shop.example/"]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, "terms: shop.example/terms"]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, "terms: \"https://shop.example/a b\""]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, "terms: 'https://shop.example/\"x'"]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, "terms: 'https://shop.example/\\x'"]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, "terms: \"https://shop.example/caf\u{e9}\""]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, "terms: \"https://shop.example/\\r\\nSet-Cookie: a=b\""]),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, "terms: http://shop.example/"],
+        ),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, "terms: shop.example/terms"],
+        ),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, "terms: \"https://shop.example/a b\""],
+        ),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, "terms: 'https://shop.example/\"x'"],
+        ),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, "terms: 'https://shop.example/\\x'"],
+        ),
+        with_offer(
+            "crawl",
+            &[
+                PRICE,
+                CURRENCY,
+                UNIT,
+                "terms: \"https://shop.example/caf\u{e9}\"",
+            ],
+        ),
+        with_offer(
+            "crawl",
+            &[
+                PRICE,
+                CURRENCY,
+                UNIT,
+                "terms: \"https://shop.example/\\r\\nSet-Cookie: a=b\"",
+            ],
+        ),
         with_offer("crawl", &[PRICE, CURRENCY, UNIT, long_terms.as_str()]),
         // Receipt headers.
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: \"\""]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: Payment-Receipt"]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: x-veritell-receipt"]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: a b"]),
-        with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: \"a:b\""]),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: \"\""],
+        ),
+        with_offer(
+            "crawl",
+            &[
+                PRICE,
+                CURRENCY,
+                UNIT,
+                TERMS,
+                "receipt_header: Payment-Receipt",
+            ],
+        ),
+        with_offer(
+            "crawl",
+            &[
+                PRICE,
+                CURRENCY,
+                UNIT,
+                TERMS,
+                "receipt_header: x-veritell-receipt",
+            ],
+        ),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: a b"],
+        ),
+        with_offer(
+            "crawl",
+            &[PRICE, CURRENCY, UNIT, TERMS, "receipt_header: \"a:b\""],
+        ),
         with_offer("crawl", &[PRICE, CURRENCY, UNIT, TERMS, header_65.as_str()]),
     ];
     for y in &bad {
@@ -398,6 +524,9 @@ fn quota_limits() {
     assert!(Policy::from_yaml(&many).is_err());
 
     // An identity may be any text the identity layer can produce.
-    let p = Policy::from_yaml("quotas:\n  identities:\n    \"Example Agent/2 (https://a.example)\": 9\n").unwrap();
+    let p = Policy::from_yaml(
+        "quotas:\n  identities:\n    \"Example Agent/2 (https://a.example)\": 9\n",
+    )
+    .unwrap();
     assert_eq!(p.quota_for("Example Agent/2 (https://a.example)"), Some(9));
 }

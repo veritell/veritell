@@ -34,7 +34,10 @@ use veritell_quota::Quotas;
 use veritell_token::MemoryBudgetStore;
 
 pub fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// A store whose contents survive a restart.
@@ -69,7 +72,10 @@ pub struct Events {
 
 impl Events {
     pub fn new(ring: Arc<veritell_events::MemoryRing>) -> Events {
-        Events { ring, last_save: AtomicU64::new(0) }
+        Events {
+            ring,
+            last_save: AtomicU64::new(0),
+        }
     }
 }
 
@@ -80,7 +86,9 @@ impl Snapshot for Events {
         let mut lines = Vec::new();
         let mut size = 0;
         for event in self.ring.events().iter().rev().filter(|e| fresh(e, now)) {
-            let Ok(line) = serde_json::to_vec(event) else { continue };
+            let Ok(line) = serde_json::to_vec(event) else {
+                continue;
+            };
             size += line.len() + 1;
             if size > EVENTS_MAX_BYTES {
                 break;
@@ -152,7 +160,11 @@ pub struct Replays {
 
 impl Replays {
     pub fn new(cache: veritell_wba::ReplayCache) -> Replays {
-        Replays { cache: std::sync::Mutex::new(cache), generation: AtomicU64::new(0), saved: AtomicU64::new(0) }
+        Replays {
+            cache: std::sync::Mutex::new(cache),
+            generation: AtomicU64::new(0),
+            saved: AtomicU64::new(0),
+        }
     }
 
     /// The cache. A caller that adds a signature must call `mark_changed`.
@@ -173,7 +185,8 @@ impl Snapshot for Replays {
         // Read before the copy: a signature added meanwhile is either in the
         // copy or leaves the store due again. The lock is held for the copy
         // only; the bytes are built after it is released.
-        self.saved.store(self.generation.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.saved
+            .store(self.generation.load(Ordering::Relaxed), Ordering::Relaxed);
         let entries = self.lock().entries(now);
         let mut out = Vec::with_capacity(4 + entries.len() * 40);
         out.extend_from_slice(REPLAYS_MAGIC);
@@ -185,9 +198,14 @@ impl Snapshot for Replays {
     }
 
     fn import(&self, bytes: &[u8], now: u64) -> Result<usize, String> {
-        let body = bytes.strip_prefix(REPLAYS_MAGIC.as_slice()).ok_or("not a replay cache file")?;
+        let body = bytes
+            .strip_prefix(REPLAYS_MAGIC.as_slice())
+            .ok_or("not a replay cache file")?;
         if body.len() % 40 != 0 {
-            return Err(format!("{} bytes is not a whole number of entries", body.len()));
+            return Err(format!(
+                "{} bytes is not a whole number of entries",
+                body.len()
+            ));
         }
         let mut cache = self.lock();
         let mut kept = 0;
@@ -216,8 +234,16 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(dir: PathBuf, quotas: Arc<Quotas>, stores: Vec<(&'static str, Arc<dyn Snapshot>)>) -> State {
-        State { dir, quotas, stores }
+    pub fn new(
+        dir: PathBuf,
+        quotas: Arc<Quotas>,
+        stores: Vec<(&'static str, Arc<dyn Snapshot>)>,
+    ) -> State {
+        State {
+            dir,
+            quotas,
+            stores,
+        }
     }
 
     fn path(&self, kind: &str) -> PathBuf {
@@ -229,7 +255,11 @@ impl State {
         let moved = std::fs::rename(path, &aside).is_ok();
         eprintln!(
             "veritell: state {kind} refused ({why}); starting empty{}",
-            if moved { ", the file is kept as .refused" } else { "" }
+            if moved {
+                ", the file is kept as .refused"
+            } else {
+                ""
+            }
         );
     }
 
@@ -330,7 +360,11 @@ mod tests {
     }
 
     fn state(d: &Path, q: &Arc<Quotas>, s: &Arc<MemoryBudgetStore>) -> State {
-        State::new(d.to_path_buf(), Arc::clone(q), vec![("used-tokens", Arc::clone(s) as Arc<dyn Snapshot>)])
+        State::new(
+            d.to_path_buf(),
+            Arc::clone(q),
+            vec![("used-tokens", Arc::clone(s) as Arc<dyn Snapshot>)],
+        )
     }
 
     #[test]
@@ -368,7 +402,11 @@ mod tests {
         // Interval saves skip an unchanged file; shutdown writes it anyway.
         let d = dir("replays-due");
         let r = Arc::new(r);
-        let st = State::new(d.clone(), quotas(), vec![("wba-replays", Arc::clone(&r) as Arc<dyn Snapshot>)]);
+        let st = State::new(
+            d.clone(),
+            quotas(),
+            vec![("wba-replays", Arc::clone(&r) as Arc<dyn Snapshot>)],
+        );
         assert!(st.save_due(NOW + 3));
         let file = d.join("wba-replays.state");
         assert!(file.exists());
@@ -389,7 +427,10 @@ mod tests {
         let (q2, s2) = (quotas(), Arc::new(MemoryBudgetStore::new(10)));
         state(&d, &q2, &s2).load(NOW + 1);
         assert_eq!(q2.left("agent", 10, NOW + 1), 9);
-        assert!(!s2.consume(&[1; 16], 1, NOW + 600, NOW + 1), "a spent token came back");
+        assert!(
+            !s2.consume(&[1; 16], 1, NOW + 600, NOW + 1),
+            "a spent token came back"
+        );
     }
 
     #[test]
@@ -399,7 +440,10 @@ mod tests {
         state(&d, &q, &s).load(NOW);
         assert_eq!(q.tracked(), 0);
         assert!(s.is_empty());
-        assert!(std::fs::read_dir(&d).unwrap().next().is_none(), "load wrote something");
+        assert!(
+            std::fs::read_dir(&d).unwrap().next().is_none(),
+            "load wrote something"
+        );
     }
 
     #[test]
@@ -433,11 +477,24 @@ mod tests {
         let d = dir("probes");
         let probes = Arc::new(crate::probe::ProbeStore::new(10));
         probes.put([7; 16], Vec::new(), NOW + 600, NOW);
-        let st = State::new(d.clone(), quotas(), vec![("probe-results", Arc::clone(&probes) as Arc<dyn Snapshot>)]);
+        let st = State::new(
+            d.clone(),
+            quotas(),
+            vec![("probe-results", Arc::clone(&probes) as Arc<dyn Snapshot>)],
+        );
         assert!(st.save(NOW));
         let again = Arc::new(crate::probe::ProbeStore::new(10));
-        State::new(d, quotas(), vec![("probe-results", Arc::clone(&again) as Arc<dyn Snapshot>)]).load(NOW + 1);
-        assert_eq!(again.get(&[7; 16], NOW + 1), Some(Vec::new()), "the client's clean report is still on record");
+        State::new(
+            d,
+            quotas(),
+            vec![("probe-results", Arc::clone(&again) as Arc<dyn Snapshot>)],
+        )
+        .load(NOW + 1);
+        assert_eq!(
+            again.get(&[7; 16], NOW + 1),
+            Some(Vec::new()),
+            "the client's clean report is still on record"
+        );
     }
 
     /// An event `ms` milliseconds after `NOW`.
@@ -480,10 +537,25 @@ mod tests {
         use veritell_events::EventSink;
         ring.record(&event(1, "/a"));
         ring.record(&event(2, "/b"));
-        let st = State::new(d.clone(), quotas(), vec![("events", Arc::new(Events::new(Arc::clone(&ring))) as Arc<dyn Snapshot>)]);
+        let st = State::new(
+            d.clone(),
+            quotas(),
+            vec![(
+                "events",
+                Arc::new(Events::new(Arc::clone(&ring))) as Arc<dyn Snapshot>,
+            )],
+        );
         assert!(st.save(NOW));
         let again = Arc::new(veritell_events::MemoryRing::new(10));
-        State::new(d, quotas(), vec![("events", Arc::new(Events::new(Arc::clone(&again))) as Arc<dyn Snapshot>)]).load(NOW + 1);
+        State::new(
+            d,
+            quotas(),
+            vec![(
+                "events",
+                Arc::new(Events::new(Arc::clone(&again))) as Arc<dyn Snapshot>,
+            )],
+        )
+        .load(NOW + 1);
         let paths: Vec<String> = again.events().into_iter().map(|e| e.path).collect();
         assert_eq!(paths, ["/a", "/b"], "same events, oldest first");
     }
@@ -498,7 +570,11 @@ mod tests {
         assert!(events.due(NOW + EVENTS_EVERY_SECS));
         // `save` (shutdown) writes whatever `due` says.
         let d = dir("events-due");
-        let st = State::new(d.clone(), quotas(), vec![("events", Arc::new(events) as Arc<dyn Snapshot>)]);
+        let st = State::new(
+            d.clone(),
+            quotas(),
+            vec![("events", Arc::new(events) as Arc<dyn Snapshot>)],
+        );
         assert!(st.save(NOW + 1));
         assert!(d.join("events.state").exists());
     }
@@ -517,7 +593,11 @@ mod tests {
         let again = Arc::new(veritell_events::MemoryRing::new(100_000));
         let kept = Events::new(Arc::clone(&again)).import(&bytes, NOW).unwrap();
         assert!(kept > 0 && kept < n);
-        assert_eq!(again.events().last().unwrap().ts_ms, NOW * 1000 + n as u64 - 1, "the newest is kept");
+        assert_eq!(
+            again.events().last().unwrap().ts_ms,
+            NOW * 1000 + n as u64 - 1,
+            "the newest is kept"
+        );
     }
 
     #[test]
@@ -529,18 +609,30 @@ mod tests {
         let later = NOW + EVENTS_MAX_AGE_SECS + 1;
         let bytes = Events::new(Arc::clone(&ring)).export(later);
         let again = Arc::new(veritell_events::MemoryRing::new(10));
-        assert_eq!(Events::new(Arc::clone(&again)).import(&bytes, later).unwrap(), 1);
+        assert_eq!(
+            Events::new(Arc::clone(&again))
+                .import(&bytes, later)
+                .unwrap(),
+            1
+        );
         assert_eq!(again.events()[0].path, "/new");
         // A file saved long ago loads nothing that has aged out since.
         let all = Events::new(ring).export(NOW);
         let empty = Arc::new(veritell_events::MemoryRing::new(10));
-        assert_eq!(Events::new(Arc::clone(&empty)).import(&all, NOW + 2 * EVENTS_MAX_AGE_SECS).unwrap(), 0);
+        assert_eq!(
+            Events::new(Arc::clone(&empty))
+                .import(&all, NOW + 2 * EVENTS_MAX_AGE_SECS)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
     fn a_bad_events_line_leaves_the_ring_empty() {
         let ring = Arc::new(veritell_events::MemoryRing::new(10));
-        assert!(Events::new(Arc::clone(&ring)).import(b"{\"ts_ms\":1}\nnot json\n", NOW).is_err());
+        assert!(Events::new(Arc::clone(&ring))
+            .import(b"{\"ts_ms\":1}\nnot json\n", NOW)
+            .is_err());
         assert!(ring.is_empty());
     }
 

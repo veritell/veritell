@@ -38,20 +38,41 @@ fn tsval(data: &[u8]) -> Option<u32> {
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    let Some(fp) = veritell_fp::syn::parse(data) else { return };
+    let Some(fp) = veritell_fp::syn::parse(data) else {
+        return;
+    };
     let fields: Vec<&str> = fp.signature.split(':').collect();
-    assert_eq!(fields.len(), 7, "signature {:?} does not have 7 fields", fp.signature);
+    assert_eq!(
+        fields.len(),
+        7,
+        "signature {:?} does not have 7 fields",
+        fp.signature
+    );
     let version = data[0] >> 4;
     assert_eq!(fields[0], version.to_string());
     assert_eq!(fields[1], veritell_fp::syn::initial_ttl(fp.ttl).to_string());
     let (ttl, src) = if version == 4 {
-        (data[8], IpAddr::from(<[u8; 4]>::try_from(&data[12..16]).unwrap()))
+        (
+            data[8],
+            IpAddr::from(<[u8; 4]>::try_from(&data[12..16]).unwrap()),
+        )
     } else {
-        (data[7], IpAddr::from(<[u8; 16]>::try_from(&data[8..24]).unwrap()))
+        (
+            data[7],
+            IpAddr::from(<[u8; 16]>::try_from(&data[8..24]).unwrap()),
+        )
     };
     assert_eq!((fp.ttl, fp.src), (ttl, src));
-    assert!(fp.signature.bytes().all(|b| b.is_ascii_graphic()), "signature {:?} is not plain text", fp.signature);
+    assert!(
+        fp.signature.bytes().all(|b| b.is_ascii_graphic()),
+        "signature {:?} is not plain text",
+        fp.signature
+    );
     if let Some(ts) = tsval(data).filter(|&t| t >= 100_000) {
-        assert!(!fp.signature.contains(&ts.to_string()), "timestamp clock {ts} kept in {:?}", fp.signature);
+        assert!(
+            !fp.signature.contains(&ts.to_string()),
+            "timestamp clock {ts} kept in {:?}",
+            fp.signature
+        );
     }
 });

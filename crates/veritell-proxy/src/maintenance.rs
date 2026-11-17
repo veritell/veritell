@@ -44,7 +44,8 @@ impl ProbeBuilds {
     }
 
     fn rotate(&self) {
-        self.current.store(self.builder.build(now_secs(), self.ttl_secs));
+        self.current
+            .store(self.builder.build(now_secs(), self.ttl_secs));
     }
 }
 
@@ -94,7 +95,10 @@ pub fn apply_feed(
         .map(|t| TruthTable::from_json(t).map_err(|e| FeedProblem::File(FEED_TRUTH, e.to_string())))
         .transpose()?;
     let engine = text(FEED_ENGINE)?
-        .map(|t| veritell_probe::parse_truth(t).map_err(|e| FeedProblem::File(FEED_ENGINE, e.to_string())))
+        .map(|t| {
+            veritell_probe::parse_truth(t)
+                .map_err(|e| FeedProblem::File(FEED_ENGINE, e.to_string()))
+        })
         .transpose()?;
     if let Some(t) = truth {
         data.truth.store(t);
@@ -112,7 +116,9 @@ pub fn apply_feed(
 type Stamp = Option<(SystemTime, u64)>;
 
 fn stamp(path: &std::path::Path) -> Stamp {
-    std::fs::metadata(path).ok().and_then(|m| m.modified().ok().map(|t| (t, m.len())))
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok().map(|t| (t, m.len())))
 }
 
 /// One look at the feed file. Applies it if it changed since `last_seen`
@@ -143,7 +149,12 @@ fn check_feed(
 }
 
 /// Runs forever on its own thread.
-pub fn run(builds: Arc<ProbeBuilds>, data: Arc<LiveData>, feed: Option<FeedSource>, mut version: u64) {
+pub fn run(
+    builds: Arc<ProbeBuilds>,
+    data: Arc<LiveData>,
+    feed: Option<FeedSource>,
+    mut version: u64,
+) {
     let mut last_rotation = std::time::Instant::now();
     let mut last_seen: Stamp = feed.as_ref().and_then(|f| stamp(&f.path));
     loop {
@@ -186,7 +197,10 @@ mod tests {
     }
 
     fn bundle(files: &[(&str, &[u8])], version: u64) -> Vec<u8> {
-        let files: BTreeMap<String, Vec<u8>> = files.iter().map(|(n, b)| (n.to_string(), b.to_vec())).collect();
+        let files: BTreeMap<String, Vec<u8>> = files
+            .iter()
+            .map(|(n, b)| (n.to_string(), b.to_vec()))
+            .collect();
         veritell_feed::seal(&files, version, NOW, NOW + 3600, &SEED).unwrap()
     }
 
@@ -198,10 +212,19 @@ mod tests {
     fn a_good_bundle_replaces_both_tables() {
         let d = data();
         let truth_before = d.truth.load();
-        let b = bundle(&[(FEED_TRUTH, truth_json().as_bytes()), (FEED_ENGINE, engine_json(ENGINE_NOTE).as_bytes())], 3);
+        let b = bundle(
+            &[
+                (FEED_TRUTH, truth_json().as_bytes()),
+                (FEED_ENGINE, engine_json(ENGINE_NOTE).as_bytes()),
+            ],
+            3,
+        );
         assert_eq!(apply_feed(&b, &keys(), &d, 0, NOW).unwrap(), 3);
         assert_eq!(d.engine_truth.load().note, ENGINE_NOTE);
-        assert!(!Arc::ptr_eq(&truth_before, &d.truth.load()), "the UA truth was swapped");
+        assert!(
+            !Arc::ptr_eq(&truth_before, &d.truth.load()),
+            "the UA truth was swapped"
+        );
     }
 
     #[test]
@@ -211,18 +234,30 @@ mod tests {
         let b = bundle(&[(FEED_ENGINE, engine_json(ENGINE_NOTE).as_bytes())], 1);
         apply_feed(&b, &keys(), &d, 0, NOW).unwrap();
         assert_eq!(d.engine_truth.load().note, ENGINE_NOTE);
-        assert!(Arc::ptr_eq(&truth_before, &d.truth.load()), "no truth file, no swap");
+        assert!(
+            Arc::ptr_eq(&truth_before, &d.truth.load()),
+            "no truth file, no swap"
+        );
     }
 
     #[test]
     fn one_bad_file_changes_nothing() {
         let d = data();
         let truth_before = d.truth.load();
-        let b = bundle(&[(FEED_TRUTH, truth_json().as_bytes()), (FEED_ENGINE, b"{not json")], 2);
+        let b = bundle(
+            &[
+                (FEED_TRUTH, truth_json().as_bytes()),
+                (FEED_ENGINE, b"{not json"),
+            ],
+            2,
+        );
         let e = apply_feed(&b, &keys(), &d, 0, NOW).unwrap_err();
         assert!(matches!(e, FeedProblem::File(FEED_ENGINE, _)), "{e:?}");
         assert!(e.to_string().starts_with("engine_v1.json: "), "{e}");
-        assert!(Arc::ptr_eq(&truth_before, &d.truth.load()), "the good truth file was not applied either");
+        assert!(
+            Arc::ptr_eq(&truth_before, &d.truth.load()),
+            "the good truth file was not applied either"
+        );
         assert_eq!(d.engine_truth.load().note, "built in");
     }
 
@@ -234,7 +269,10 @@ mod tests {
         assert!(matches!(e, FeedProblem::File(FEED_TRUTH, _)), "{e:?}");
         let b = bundle(&[(FEED_ENGINE, &[0xff, 0xfe])], 1);
         let e = apply_feed(&b, &keys(), &d, 0, NOW).unwrap_err();
-        assert!(matches!(e, FeedProblem::File(FEED_ENGINE, _)), "not UTF-8: {e:?}");
+        assert!(
+            matches!(e, FeedProblem::File(FEED_ENGINE, _)),
+            "not UTF-8: {e:?}"
+        );
     }
 
     #[test]
@@ -245,15 +283,26 @@ mod tests {
         let e = apply_feed(&b, &other_key, &d, 0, NOW).unwrap_err();
         assert_eq!(e.to_string(), "bundle signature does not verify");
         let e = apply_feed(&b, &keys(), &d, 5, NOW).unwrap_err();
-        assert_eq!(e.to_string(), "bundle version 4 is older than 5", "no rollback");
-        assert_eq!(FeedProblem::Read("gone".into()).to_string(), "cannot read: gone");
+        assert_eq!(
+            e.to_string(),
+            "bundle version 4 is older than 5",
+            "no rollback"
+        );
+        assert_eq!(
+            FeedProblem::Read("gone".into()).to_string(),
+            "cannot read: gone"
+        );
         assert_eq!(d.engine_truth.load().note, "built in");
     }
 
     fn temp_feed(name: &str) -> FeedSource {
-        let dir = std::env::temp_dir().join(format!("veritell-feed-test-{}-{name}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("veritell-feed-test-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        FeedSource { path: dir.join("feed.json"), keys: keys() }
+        FeedSource {
+            path: dir.join("feed.json"),
+            keys: keys(),
+        }
     }
 
     #[test]
@@ -261,16 +310,40 @@ mod tests {
         let source = temp_feed("changes");
         let d = data();
         let (mut last_seen, mut version) = (None, 0u64);
-        assert!(check_feed(&source, &d, &mut last_seen, &mut version, NOW).is_none(), "no file yet");
+        assert!(
+            check_feed(&source, &d, &mut last_seen, &mut version, NOW).is_none(),
+            "no file yet"
+        );
 
-        std::fs::write(&source.path, bundle(&[(FEED_ENGINE, engine_json("v1").as_bytes())], 1)).unwrap();
-        assert_eq!(check_feed(&source, &d, &mut last_seen, &mut version, NOW).unwrap().unwrap(), 1);
+        std::fs::write(
+            &source.path,
+            bundle(&[(FEED_ENGINE, engine_json("v1").as_bytes())], 1),
+        )
+        .unwrap();
+        assert_eq!(
+            check_feed(&source, &d, &mut last_seen, &mut version, NOW)
+                .unwrap()
+                .unwrap(),
+            1
+        );
         assert_eq!(version, 1);
-        assert!(check_feed(&source, &d, &mut last_seen, &mut version, NOW).is_none(), "unchanged");
+        assert!(
+            check_feed(&source, &d, &mut last_seen, &mut version, NOW).is_none(),
+            "unchanged"
+        );
 
         // A different size is a change even within the same second.
-        std::fs::write(&source.path, bundle(&[(FEED_ENGINE, engine_json("version two").as_bytes())], 2)).unwrap();
-        assert_eq!(check_feed(&source, &d, &mut last_seen, &mut version, NOW).unwrap().unwrap(), 2);
+        std::fs::write(
+            &source.path,
+            bundle(&[(FEED_ENGINE, engine_json("version two").as_bytes())], 2),
+        )
+        .unwrap();
+        assert_eq!(
+            check_feed(&source, &d, &mut last_seen, &mut version, NOW)
+                .unwrap()
+                .unwrap(),
+            2
+        );
         assert_eq!(d.engine_truth.load().note, "version two");
         std::fs::remove_dir_all(source.path.parent().unwrap()).unwrap();
     }
@@ -280,11 +353,21 @@ mod tests {
         let source = temp_feed("refused");
         let d = data();
         let (mut last_seen, mut version) = (None, 3u64);
-        std::fs::write(&source.path, bundle(&[(FEED_ENGINE, engine_json("old").as_bytes())], 2)).unwrap();
+        std::fs::write(
+            &source.path,
+            bundle(&[(FEED_ENGINE, engine_json("old").as_bytes())], 2),
+        )
+        .unwrap();
         let outcome = check_feed(&source, &d, &mut last_seen, &mut version, NOW).unwrap();
-        assert!(matches!(outcome, Err(FeedProblem::Bundle(_))), "older than 3");
+        assert!(
+            matches!(outcome, Err(FeedProblem::Bundle(_))),
+            "older than 3"
+        );
         assert_eq!(version, 3);
-        assert!(check_feed(&source, &d, &mut last_seen, &mut version, NOW).is_none(), "not tried again");
+        assert!(
+            check_feed(&source, &d, &mut last_seen, &mut version, NOW).is_none(),
+            "not tried again"
+        );
         std::fs::remove_dir_all(source.path.parent().unwrap()).unwrap();
     }
 

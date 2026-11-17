@@ -14,9 +14,14 @@ fn main() {
         Ok(a) => a,
         Err(_) => fail("usage: make_build <template path> <secret> <unix now> <ttl secs>"),
     };
-    let now: u64 = now.parse().unwrap_or_else(|_| fail("unix now must be an integer"));
-    let ttl: u64 = ttl.parse().unwrap_or_else(|_| fail("ttl must be an integer"));
+    let now: u64 = now
+        .parse()
+        .unwrap_or_else(|_| fail("unix now must be an integer"));
+    let ttl: u64 = ttl
+        .parse()
+        .unwrap_or_else(|_| fail("ttl must be an integer"));
     let template = std::fs::read_to_string(&path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
-    let builder = Builder::new(&template, secret.as_bytes()).unwrap_or_else(|e| fail(&e.to_string()));
+    let builder =
+        Builder::new(&template, secret.as_bytes()).unwrap_or_else(|e| fail(&e.to_string()));
     print!("{}", builder.build(now, ttl).script);
 }

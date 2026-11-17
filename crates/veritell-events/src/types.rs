@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use veritell_core::{Class, Detection};
 use serde::{Deserialize, Serialize};
+use veritell_core::{Class, Detection};
 
 /// What happened to produce an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

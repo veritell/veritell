@@ -8,8 +8,8 @@
 //! `ids`, in order: `has_<id>` (1 when a detection with that id is present,
 //! else 0). A detection whose id is not listed still counts in its layer.
 
-use veritell_core::{Detection, Layer};
 use serde::Deserialize;
+use veritell_core::{Detection, Layer};
 
 pub const BUILTIN_FEATURES: &str = include_str!("../data/features_v1.json");
 

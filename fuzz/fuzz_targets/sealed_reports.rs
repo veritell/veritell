@@ -69,9 +69,17 @@ fn builds() -> &'static [(Build, [u8; 32])] {
 /// The build key as the script carries it: `{"id":"<id>","k":"<base64>",...`.
 fn leaked_key(build: &Build) -> [u8; 32] {
     let head = format!("{{\"id\":\"{}\",\"k\":\"", build.id);
-    let start = build.script.find(&head).expect("build configuration in the script") + head.len();
+    let start = build
+        .script
+        .find(&head)
+        .expect("build configuration in the script")
+        + head.len();
     let end = start + build.script[start..].find('"').expect("end of k");
-    STANDARD.decode(&build.script[start..end]).expect("k is base64").try_into().expect("k is 32 bytes")
+    STANDARD
+        .decode(&build.script[start..end])
+        .expect("k is base64")
+        .try_into()
+        .expect("k is 32 bytes")
 }
 
 fn split(data: &[u8]) -> (&[u8], &[u8]) {
@@ -87,7 +95,10 @@ fn only_vocab(value: &Value) {
         match v {
             Value::Object(map) => {
                 for (key, child) in map {
-                    assert!(VOCAB.contains(&key.as_str()), "opened report has key {key:?}");
+                    assert!(
+                        VOCAB.contains(&key.as_str()),
+                        "opened report has key {key:?}"
+                    );
                     work.push(child);
                 }
             }
@@ -107,7 +118,9 @@ fn same(a: &Value, b: &Value) -> bool {
             (Some(x), Some(y)) => (x - y).abs() <= x.abs().max(y.abs()) * 1e-12,
             _ => false,
         },
-        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same(x, y)),
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same(x, y))
+        }
         (Value::Object(x), Value::Object(y)) => {
             x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
         }
@@ -124,14 +137,35 @@ fn check_opened(body: &[u8], build: &Build, report_json: &[u8], tweak: usize) {
     let opened = builder().open(body, NOW).expect("opens once, opens twice");
     assert_eq!(opened.report_json, report_json, "open is not deterministic");
     if let Ok(again) = builder().seal(&build.id, &opened.nonce, report_json, [7; 12]) {
-        let reopened = builder().open(&again, NOW).expect("a resealed report does not open");
-        let reopened: Value = serde_json::from_slice(&reopened.report_json).expect("reopened report is not JSON");
-        assert!(same(&reopened, &report), "open(seal(open(x))) differs from open(x)");
+        let reopened = builder()
+            .open(&again, NOW)
+            .expect("a resealed report does not open");
+        let reopened: Value =
+            serde_json::from_slice(&reopened.report_json).expect("reopened report is not JSON");
+        assert!(
+            same(&reopened, &report),
+            "open(seal(open(x))) differs from open(x)"
+        );
     }
 
-    assert_eq!(builder().open(body, build.expires_at + 1).err(), Some(OpenError::ExpiredBuild), "opens after expiry");
-    assert_eq!(builder().open(body, build.expires_at).map(|o| o.report_json).ok().as_deref(), Some(report_json));
-    assert_eq!(other().open(body, NOW).err(), Some(OpenError::UnknownBuild), "opens under another secret");
+    assert_eq!(
+        builder().open(body, build.expires_at + 1).err(),
+        Some(OpenError::ExpiredBuild),
+        "opens after expiry"
+    );
+    assert_eq!(
+        builder()
+            .open(body, build.expires_at)
+            .map(|o| o.report_json)
+            .ok()
+            .as_deref(),
+        Some(report_json)
+    );
+    assert_eq!(
+        other().open(body, NOW).err(),
+        Some(OpenError::UnknownBuild),
+        "opens under another secret"
+    );
 
     // Any one byte changed: refused, or the same report (no change to what
     // the gateway reads can get through).
@@ -140,8 +174,14 @@ fn check_opened(body: &[u8], build: &Build, report_json: &[u8], tweak: usize) {
         let at = tweak % changed.len();
         changed[at] ^= 1 << (tweak / changed.len() % 8);
         if let Ok(o) = builder().open(&changed, NOW) {
-            assert_eq!(o.report_json, report_json, "a changed byte at {at} opened to another report");
-            assert_eq!(o.build_id, build.id, "a changed byte at {at} opened under another build");
+            assert_eq!(
+                o.report_json, report_json,
+                "a changed byte at {at} opened to another report"
+            );
+            assert_eq!(
+                o.build_id, build.id,
+                "a changed byte at {at} opened under another build"
+            );
         }
     }
 }
@@ -151,46 +191,83 @@ fn forge(build: &Build, key: &[u8; 32], nonce: &str, plaintext: &[u8], iv: [u8; 
     hash.update(key);
     hash.update(nonce.as_bytes());
     let cipher = Aes256Gcm::new_from_slice(&hash.finalize()).expect("32-byte key");
-    let ct = cipher.encrypt(&Nonce::from(iv), Payload { msg: plaintext, aad: build.id.as_bytes() }).expect("encrypt");
+    let ct = cipher
+        .encrypt(
+            &Nonce::from(iv),
+            Payload {
+                msg: plaintext,
+                aad: build.id.as_bytes(),
+            },
+        )
+        .expect("encrypt");
     let mut data = iv.to_vec();
     data.extend_from_slice(&ct);
-    serde_json::to_vec(&serde_json::json!({ "b": build.id, "n": nonce, "d": STANDARD.encode(data) })).expect("body")
+    serde_json::to_vec(
+        &serde_json::json!({ "b": build.id, "n": nonce, "d": STANDARD.encode(data) }),
+    )
+    .expect("body")
 }
 
 /// Size limits, with a body and a report past `MAX_SEALED_BYTES`.
 fn size_limits(build: &Build, body: &[u8]) {
     let mut padded = body.to_vec();
     padded.resize(MAX_SEALED_BYTES + 1, b' ');
-    assert_eq!(builder().open(&padded, NOW).err(), Some(OpenError::TooLarge), "an oversized body was read");
-    let long = format!("{{\"v\":1,\"main\":{{\"ua\":\"{}\"}}}}", "x".repeat(MAX_SEALED_BYTES));
     assert_eq!(
-        builder().seal(&build.id, "n", long.as_bytes(), [0; 12]).err(),
+        builder().open(&padded, NOW).err(),
+        Some(OpenError::TooLarge),
+        "an oversized body was read"
+    );
+    let long = format!(
+        "{{\"v\":1,\"main\":{{\"ua\":\"{}\"}}}}",
+        "x".repeat(MAX_SEALED_BYTES)
+    );
+    assert_eq!(
+        builder()
+            .seal(&build.id, "n", long.as_bytes(), [0; 12])
+            .err(),
         Some(OpenError::TooLarge),
         "seal made an oversized body"
     );
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    let Some((&pick, rest)) = data.split_first() else { return };
+    let Some((&pick, rest)) = data.split_first() else {
+        return;
+    };
     let index = usize::from(pick >> 2) % 8;
     let (build, key) = &builds()[index];
     let tweak = usize::from(pick >> 5) * 7919 + rest.len();
     match pick & 3 {
         0 => {
-            assert!(builder().open(rest, NOW).is_err(), "a body made without the secret opened");
+            assert!(
+                builder().open(rest, NOW).is_err(),
+                "a body made without the secret opened"
+            );
             if let Ok(text) = std::str::from_utf8(rest) {
-                assert!(builder().key_order(text).is_none(), "{text:?} passed as a genuine build id");
+                assert!(
+                    builder().key_order(text).is_none(),
+                    "{text:?} passed as a genuine build id"
+                );
             }
         }
         1 => {
             let (report, nonce) = split(rest);
             let nonce = String::from_utf8_lossy(nonce);
-            let Ok(body) = builder().seal(&build.id, &nonce, report, [pick; 12]) else { return };
-            let opened = builder().open(&body, NOW).expect("a sealed report does not open");
+            let Ok(body) = builder().seal(&build.id, &nonce, report, [pick; 12]) else {
+                return;
+            };
+            let opened = builder()
+                .open(&body, NOW)
+                .expect("a sealed report does not open");
             assert_eq!(opened.nonce, nonce, "nonce changed");
-            let sent: Value = serde_json::from_slice(report).expect("seal took a report that is not JSON");
-            let got: Value = serde_json::from_slice(&opened.report_json).expect("opened report is not JSON");
-            assert!(same(&got, &sent), "a sealed report opened to another value: {got} vs {sent}");
+            let sent: Value =
+                serde_json::from_slice(report).expect("seal took a report that is not JSON");
+            let got: Value =
+                serde_json::from_slice(&opened.report_json).expect("opened report is not JSON");
+            assert!(
+                same(&got, &sent),
+                "a sealed report opened to another value: {got} vs {sent}"
+            );
             check_opened(&body, build, &opened.report_json, tweak);
             if rest.len() % 64 == 63 {
                 size_limits(build, &body);
@@ -210,10 +287,20 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 }
             }
             // The key of the next build, under this build's id.
-            let wrong = forge(build, &builds()[(index + 1) % 8].1, &nonce, &plain, [pick; 12]);
+            let wrong = forge(
+                build,
+                &builds()[(index + 1) % 8].1,
+                &nonce,
+                &plain,
+                [pick; 12],
+            );
             let got = builder().open(&wrong, NOW).err();
             if nonce.len() <= MAX_NONCE_BYTES && wrong.len() <= MAX_SEALED_BYTES {
-                assert_eq!(got, Some(OpenError::Decrypt), "another build's key opened a report");
+                assert_eq!(
+                    got,
+                    Some(OpenError::Decrypt),
+                    "another build's key opened a report"
+                );
             } else {
                 assert!(got.is_some(), "another build's key opened a report");
             }
@@ -221,7 +308,10 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
             match builder().open(&body, NOW) {
                 Ok(opened) => check_opened(&body, build, &opened.report_json, tweak),
                 Err(e) => assert!(
-                    matches!(e, OpenError::Keys | OpenError::Malformed | OpenError::TooLarge),
+                    matches!(
+                        e,
+                        OpenError::Keys | OpenError::Malformed | OpenError::TooLarge
+                    ),
                     "a body encrypted with the build key failed with {e:?}"
                 ),
             }

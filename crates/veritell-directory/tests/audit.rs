@@ -13,18 +13,33 @@ struct Multi {
     gets: RefCell<Vec<SocketAddr>>,
 }
 
-const BODY: &str = r#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"}]}"#;
+const BODY: &str =
+    r#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"}]}"#;
 
 impl Transport for Multi {
     fn resolve(&self, _: &str, _: u16) -> Result<Vec<IpAddr>, String> {
         Ok(self.addrs.clone())
     }
-    fn get(&self, addr: SocketAddr, _: &DirectoryUrl, _: usize, _: Duration) -> Result<Response, String> {
+    fn get(
+        &self,
+        addr: SocketAddr,
+        _: &DirectoryUrl,
+        _: usize,
+        _: Duration,
+    ) -> Result<Response, String> {
         self.gets.borrow_mut().push(addr);
-        let (_, r) = self.outcome.iter().find(|(ip, _)| *ip == addr.ip()).expect("unexpected address");
+        let (_, r) = self
+            .outcome
+            .iter()
+            .find(|(ip, _)| *ip == addr.ip())
+            .expect("unexpected address");
         match r {
             Err(e) => Err(e.clone()),
-            Ok(status) => Ok(Response { status: *status, cache_control: None, body: BODY.as_bytes().to_vec() }),
+            Ok(status) => Ok(Response {
+                status: *status,
+                cache_control: None,
+                body: BODY.as_bytes().to_vec(),
+            }),
         }
     }
 }
@@ -40,14 +55,20 @@ fn url() -> DirectoryUrl {
 fn multi(outcome: &[(&str, Result<u16, &str>)]) -> Multi {
     Multi {
         addrs: outcome.iter().map(|(a, _)| ip(a)).collect(),
-        outcome: outcome.iter().map(|(a, r)| (ip(a), (*r).map_err(str::to_string))).collect(),
+        outcome: outcome
+            .iter()
+            .map(|(a, r)| (ip(a), (*r).map_err(str::to_string)))
+            .collect(),
         gets: RefCell::new(Vec::new()),
     }
 }
 
 #[test]
 fn next_address_is_tried_after_a_transport_failure() {
-    let t = multi(&[("93.184.216.34", Err("connection refused")), ("1.1.1.1", Ok(200))]);
+    let t = multi(&[
+        ("93.184.216.34", Err("connection refused")),
+        ("1.1.1.1", Ok(200)),
+    ]);
     let r = fetch_with(&t, &url(), &FetchConfig::default());
     assert!(r.is_ok(), "{r:?}");
     assert_eq!(t.gets.borrow().len(), 2);
@@ -57,7 +78,10 @@ fn next_address_is_tried_after_a_transport_failure() {
 #[test]
 fn an_http_answer_ends_the_attempts() {
     let t = multi(&[("93.184.216.34", Ok(503)), ("1.1.1.1", Ok(200))]);
-    assert_eq!(fetch_with(&t, &url(), &FetchConfig::default()), Err(FetchError::Status(503)));
+    assert_eq!(
+        fetch_with(&t, &url(), &FetchConfig::default()),
+        Err(FetchError::Status(503))
+    );
     assert_eq!(t.gets.borrow().len(), 1);
 }
 

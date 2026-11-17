@@ -58,7 +58,9 @@ fn is_grease(v: u16) -> bool {
 
 fn u16_list(bytes: &[u8]) -> Vec<u16> {
     bytes
-        .as_chunks::<2>().0.iter()
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_be_bytes([c[0], c[1]]))
         .filter(|v| !is_grease(*v))
         .collect()
@@ -250,8 +252,8 @@ mod tests {
     #[test]
     fn spec_cipher_hash() {
         let ciphers = [
-            0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013,
-            0xc014, 0x009c, 0x009d, 0x002f, 0x0035,
+            0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014,
+            0x009c, 0x009d, 0x002f, 0x0035,
         ];
         assert_eq!(cipher_hash(&ciphers), "8daaf6152771");
     }
@@ -259,8 +261,8 @@ mod tests {
     #[test]
     fn spec_extension_hash() {
         let exts = [
-            0x001b, 0x0000, 0x0033, 0x0010, 0x4469, 0x0017, 0x002d, 0x000d, 0x0005, 0x0023,
-            0x0012, 0x002b, 0xff01, 0x000b, 0x000a, 0x0015,
+            0x001b, 0x0000, 0x0033, 0x0010, 0x4469, 0x0017, 0x002d, 0x000d, 0x0005, 0x0023, 0x0012,
+            0x002b, 0xff01, 0x000b, 0x000a, 0x0015,
         ];
         let sig = [
             0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601,
@@ -291,6 +293,9 @@ mod tests {
         h.extend_from_slice(&[0x00, 0x04, 0x13, 0x01, 0x0a, 0x0a]); // 1 cipher + GREASE
         h.extend_from_slice(&[0x01, 0x00]); // compression
         let fp = compute(&h, false).unwrap();
-        assert_eq!(fp.ja4, "t12i010000_".to_string() + &cipher_hash(&[0x1301]) + "_000000000000");
+        assert_eq!(
+            fp.ja4,
+            "t12i010000_".to_string() + &cipher_hash(&[0x1301]) + "_000000000000"
+        );
     }
 }

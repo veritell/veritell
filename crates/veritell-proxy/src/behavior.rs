@@ -28,8 +28,13 @@ pub enum Refusal {
 impl Refusal {
     #[cfg(test)]
     pub const ALL: [Refusal; 7] = [
-        Refusal::TooLarge, Refusal::Malformed, Refusal::NonceExpired, Refusal::NonceOtherClient,
-        Refusal::NonceInvalid, Refusal::NonceSpent, Refusal::StoreFull,
+        Refusal::TooLarge,
+        Refusal::Malformed,
+        Refusal::NonceExpired,
+        Refusal::NonceOtherClient,
+        Refusal::NonceInvalid,
+        Refusal::NonceSpent,
+        Refusal::StoreFull,
     ];
 
     /// The event outcome.
@@ -49,7 +54,10 @@ impl Refusal {
     /// what a page left open overnight sends, and a full store is not the
     /// client's doing.
     pub fn strikes(self) -> bool {
-        !matches!(self, Refusal::NonceExpired | Refusal::StoreFull | Refusal::TooLarge)
+        !matches!(
+            self,
+            Refusal::NonceExpired | Refusal::StoreFull | Refusal::TooLarge
+        )
     }
 }
 /// Most behaviour detections remembered for one client.
@@ -87,7 +95,14 @@ pub struct Seen {
 pub type BehaviorStore = BindingStore<Seen>;
 
 impl BehaviorStore {
-    pub fn put(&self, binding: [u8; 16], detections: Vec<Detection>, has_input: bool, expires_at: u64, now: u64) {
+    pub fn put(
+        &self,
+        binding: [u8; 16],
+        detections: Vec<Detection>,
+        has_input: bool,
+        expires_at: u64,
+        now: u64,
+    ) {
         self.update(binding, expires_at, now, |seen| {
             seen.any_input |= has_input;
             add_detections(&mut seen.detections, detections, MAX_DETECTIONS);
@@ -105,8 +120,19 @@ mod tests {
         unique.dedup();
         assert_eq!(unique.len(), names.len(), "one name each");
         assert!(names.iter().all(|n| n.starts_with("behavior_")));
-        let no_strike: Vec<&str> = Refusal::ALL.iter().filter(|r| !r.strikes()).map(|r| r.as_str()).collect();
-        assert_eq!(no_strike, ["behavior_too_large", "behavior_nonce_expired", "behavior_store_full"]);
+        let no_strike: Vec<&str> = Refusal::ALL
+            .iter()
+            .filter(|r| !r.strikes())
+            .map(|r| r.as_str())
+            .collect();
+        assert_eq!(
+            no_strike,
+            [
+                "behavior_too_large",
+                "behavior_nonce_expired",
+                "behavior_store_full"
+            ]
+        );
     }
 
     use super::*;
@@ -152,7 +178,11 @@ mod tests {
         s.put([3; 16], vec![], false, 900, 10);
         assert!(s.get(&[2; 16], 10).is_none(), "the one ending soonest went");
         let kept = s.get(&[1; 16], 10).unwrap();
-        assert_eq!((kept.detections.len(), kept.any_input), (1, true), "the others are untouched");
+        assert_eq!(
+            (kept.detections.len(), kept.any_input),
+            (1, true),
+            "the others are untouched"
+        );
         assert!(s.get(&[3; 16], 10).is_some());
     }
 
@@ -162,7 +192,9 @@ mod tests {
         let b = [1u8; 16];
         s.put(b, vec![det("a")], false, 500, 0);
         s.put(b, vec![], true, 100, 10);
-        let seen = s.get(&b, 400).expect("still on record past the shorter expiry");
+        let seen = s
+            .get(&b, 400)
+            .expect("still on record past the shorter expiry");
         assert_eq!((seen.detections.len(), seen.any_input), (1, true));
         assert!(s.get(&b, 501).is_none());
     }

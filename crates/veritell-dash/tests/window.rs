@@ -28,7 +28,10 @@ impl EventQuery for Fake {
 
 fn since_for(query: &str) -> u64 {
     let f = Fake::default();
-    assert_eq!(handle("GET", &format!("/api/summary{query}"), &f, NOW).status, 200);
+    assert_eq!(
+        handle("GET", &format!("/api/summary{query}"), &f, NOW).status,
+        200
+    );
     let since = *f.since.lock().unwrap().last().unwrap();
     since
 }

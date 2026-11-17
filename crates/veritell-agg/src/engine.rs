@@ -18,12 +18,15 @@ mod table;
 use std::hash::Hasher;
 use std::sync::{Mutex, MutexGuard};
 
-use veritell_core::{Class, Detection, Layer};
 use siphasher::sip::SipHasher13;
+use veritell_core::{Class, Detection, Layer};
 
 use self::sketch::{count_ring_bytes, sketch_ring_bytes, CountRing, SketchRing};
 use self::table::{Table, Tracked};
-use crate::{network_of, Config, ConfigError, Observation, CLIENT_REJECTIONS, FP_SPREAD, MAX_KEY_BYTES, NET_FANOUT, ROUTE_SURGE};
+use crate::{
+    network_of, Config, ConfigError, Observation, CLIENT_REJECTIONS, FP_SPREAD, MAX_KEY_BYTES,
+    NET_FANOUT, ROUTE_SURGE,
+};
 
 const TAG_FP: u8 = 1;
 const TAG_NET: u8 = 2;
@@ -108,10 +111,17 @@ fn table_bytes<E>(max_keys: usize, entry_heap: usize) -> usize {
     let buckets = match max_keys {
         0..=3 => 4,
         4..=7 => 8,
-        n => n.saturating_mul(8).saturating_div(7).saturating_add(1).next_power_of_two(),
+        n => n
+            .saturating_mul(8)
+            .saturating_div(7)
+            .saturating_add(1)
+            .next_power_of_two(),
     };
     let slot = std::mem::size_of::<(u64, E)>().saturating_add(1);
-    let map = buckets.saturating_mul(slot).saturating_add(64).saturating_mul(3);
+    let map = buckets
+        .saturating_mul(slot)
+        .saturating_add(64)
+        .saturating_mul(3);
     let order = max_keys.saturating_mul(2).saturating_mul(8);
     let entries = max_keys.saturating_mul(entry_heap.saturating_add(ALLOC_OVERHEAD));
     map.saturating_add(order).saturating_add(entries)
@@ -144,7 +154,13 @@ impl Aggregates {
             latest: 0,
             first: None,
         };
-        Ok(Aggregates { cfg: config, key, w, bound, inner: Mutex::new(inner) })
+        Ok(Aggregates {
+            cfg: config,
+            key,
+            w,
+            bound,
+            inner: Mutex::new(inner),
+        })
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -189,13 +205,18 @@ impl Aggregates {
         let (total_cur, total_prev) = (g.total.est_cur(), g.total.est_prev());
 
         // One fingerprint over many networks.
-        let e = g.fps.get_or_insert_with(h_fp, now, s, w2, || SketchEntry { ring: SketchRing::new(w), last_slot: s, rep_until: 0 });
+        let e = g.fps.get_or_insert_with(h_fp, now, s, w2, || SketchEntry {
+            ring: SketchRing::new(w),
+            last_slot: s,
+            rep_until: 0,
+        });
         e.ring.record(s, w, h_net);
         e.last_slot = s;
         let (cur, prev) = (e.ring.est_cur(), e.ring.est_prev());
         let holds = warm
             && cur >= c.spread_min_networks
-            && u128::from(cur) * u128::from(total_prev) >= u128::from(c.spread_growth) * u128::from(prev) * u128::from(total_cur);
+            && u128::from(cur) * u128::from(total_prev)
+                >= u128::from(c.spread_growth) * u128::from(prev) * u128::from(total_cur);
         if holds {
             e.rep_until = until;
         }
@@ -212,12 +233,20 @@ impl Aggregates {
         }
 
         // One network producing many fingerprints.
-        let e = g.nets.get_or_insert_with(h_net, now, s, w2, || SketchEntry { ring: SketchRing::new(w), last_slot: s, rep_until: 0 });
+        let e = g
+            .nets
+            .get_or_insert_with(h_net, now, s, w2, || SketchEntry {
+                ring: SketchRing::new(w),
+                last_slot: s,
+                rep_until: 0,
+            });
         e.ring.record(s, w, h_fp);
         e.last_slot = s;
         let fps = e.ring.est_cur();
         let requests = e.ring.requests(s, w);
-        let holds = warm && fps >= c.fanout_min_fingerprints && u128::from(fps) * 100 >= u128::from(requests) * u128::from(c.fanout_ratio_pct);
+        let holds = warm
+            && fps >= c.fanout_min_fingerprints
+            && u128::from(fps) * 100 >= u128::from(requests) * u128::from(c.fanout_ratio_pct);
         if holds {
             e.rep_until = until;
         }
@@ -243,18 +272,32 @@ impl Aggregates {
             }
             if holds || e.rep_until > now {
                 out.push(
-                    Detection::new(CLIENT_REJECTIONS, Layer::Population, 40, format!("client rejected {strikes} times in the window"))
-                        .with_class(Class::Automated),
+                    Detection::new(
+                        CLIENT_REJECTIONS,
+                        Layer::Population,
+                        40,
+                        format!("client rejected {strikes} times in the window"),
+                    )
+                    .with_class(Class::Automated),
                 );
             }
         }
 
         // A route that suddenly gets much busier. No reputation entry.
-        let e = g.routes.get_or_insert_with(h_route, now, s, w2, || CountEntry { ring: CountRing::new(w), last_slot: s, rep_until: 0 });
+        let e = g
+            .routes
+            .get_or_insert_with(h_route, now, s, w2, || CountEntry {
+                ring: CountRing::new(w),
+                last_slot: s,
+                rep_until: 0,
+            });
         e.ring.add(s, w);
         e.last_slot = s;
         let (cur, prev) = (e.ring.cur(s, w), e.ring.prev(s, w));
-        if warm && cur >= u64::from(c.route_min_requests) && u128::from(cur) >= u128::from(c.route_growth) * u128::from(prev.max(1)) {
+        if warm
+            && cur >= u64::from(c.route_min_requests)
+            && u128::from(cur) >= u128::from(c.route_growth) * u128::from(prev.max(1))
+        {
             out.push(Detection::new(
                 ROUTE_SURGE,
                 Layer::Population,
@@ -276,11 +319,13 @@ impl Aggregates {
         let now = now.max(g.latest);
         g.latest = now;
         let s = now / c.slot_secs;
-        let e = g.clients.get_or_insert_with(h, now, s, w.saturating_mul(2), || CountEntry {
-            ring: CountRing::new(w),
-            last_slot: s,
-            rep_until: 0,
-        });
+        let e = g
+            .clients
+            .get_or_insert_with(h, now, s, w.saturating_mul(2), || CountEntry {
+                ring: CountRing::new(w),
+                last_slot: s,
+                rep_until: 0,
+            });
         e.ring.add(s, w);
         e.last_slot = s;
         if e.ring.cur(s, w) >= u64::from(c.strikes_max) {
@@ -296,7 +341,9 @@ impl Aggregates {
         let h = self.hash_text(TAG_FP, fingerprint);
         let g = self.lock();
         let s = now.max(g.latest) / self.cfg.slot_secs;
-        g.fps.get(h).map_or(0, |e| u64::from(e.ring.union_est(s, self.w, false)))
+        g.fps
+            .get(h)
+            .map_or(0, |e| u64::from(e.ring.union_est(s, self.w, false)))
     }
 
     /// Exact requests seen for this fingerprint in the current window.
@@ -311,7 +358,11 @@ impl Aggregates {
     /// Never above `4 * max_keys`.
     pub fn tracked(&self) -> usize {
         let g = self.lock();
-        g.fps.len().saturating_add(g.nets.len()).saturating_add(g.clients.len()).saturating_add(g.routes.len())
+        g.fps
+            .len()
+            .saturating_add(g.nets.len())
+            .saturating_add(g.clients.len())
+            .saturating_add(g.routes.len())
     }
 
     /// The most heap memory this instance can ever use, in bytes, computed

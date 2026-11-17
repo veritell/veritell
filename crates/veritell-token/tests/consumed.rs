@@ -23,7 +23,10 @@ fn a_full_store_says_full_not_spent() {
     // An id already there is still judged on its own budget.
     assert_eq!(s.try_consume(&[1; 16], 1, NOW + 60, NOW), Consumed::Spent);
     // Once entries expire there is room again.
-    assert_eq!(s.try_consume(&[3; 16], 1, NOW + 200, NOW + 61), Consumed::Used);
+    assert_eq!(
+        s.try_consume(&[3; 16], 1, NOW + 200, NOW + 61),
+        Consumed::Used
+    );
 }
 
 #[test]

@@ -51,12 +51,16 @@ impl HttpsTransport {
     /// certificate). Fails with a description if the PEM holds no usable
     /// certificate.
     pub fn new(extra_roots_pem: Option<&[u8]>) -> Result<HttpsTransport, String> {
-        let mut roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+        let mut roots = rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
         if let Some(pem) = extra_roots_pem {
             let mut added = 0usize;
             for item in CertificateDer::pem_slice_iter(pem) {
                 let der = item.map_err(|e| format!("extra root certificate PEM: {e}"))?;
-                roots.add(der).map_err(|e| format!("extra root certificate refused: {e}"))?;
+                roots
+                    .add(der)
+                    .map_err(|e| format!("extra root certificate refused: {e}"))?;
                 added = added.saturating_add(1);
             }
             if added == 0 {
@@ -70,27 +74,39 @@ impl HttpsTransport {
         .map_err(|e| format!("TLS configuration: {e}"))?
         .with_root_certificates(roots)
         .with_no_client_auth();
-        Ok(HttpsTransport { tls: Arc::new(config), resolve_timeout: FetchConfig::DEFAULT_TIMEOUT })
+        Ok(HttpsTransport {
+            tls: Arc::new(config),
+            resolve_timeout: FetchConfig::DEFAULT_TIMEOUT,
+        })
     }
 
     /// How long a name lookup may take before it is given up (default
     /// `FetchConfig::DEFAULT_TIMEOUT`; zero means the default). Set it to the
     /// fetch deadline so that DNS is inside it.
     pub fn with_resolve_timeout(mut self, timeout: Duration) -> HttpsTransport {
-        self.resolve_timeout = if timeout.is_zero() { FetchConfig::DEFAULT_TIMEOUT } else { timeout };
+        self.resolve_timeout = if timeout.is_zero() {
+            FetchConfig::DEFAULT_TIMEOUT
+        } else {
+            timeout
+        };
         self
     }
 }
 
 impl Transport for HttpsTransport {
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<IpAddr>, String> {
-        let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
+        let bare = host
+            .strip_prefix('[')
+            .and_then(|h| h.strip_suffix(']'))
+            .unwrap_or(host);
         if let Ok(ip) = bare.parse::<IpAddr>() {
             return Ok(vec![ip]);
         }
         let host = host.to_string();
         lookup_with_deadline(self.resolve_timeout, move || {
-            let found = (host.as_str(), port).to_socket_addrs().map_err(|e| e.to_string())?;
+            let found = (host.as_str(), port)
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?;
             let mut out: Vec<IpAddr> = Vec::new();
             for sa in found {
                 if !out.contains(&sa.ip()) {
@@ -108,7 +124,11 @@ impl Transport for HttpsTransport {
         max_bytes: usize,
         timeout: Duration,
     ) -> Result<Response, String> {
-        let timeout = if timeout.is_zero() { FetchConfig::DEFAULT_TIMEOUT } else { timeout };
+        let timeout = if timeout.is_zero() {
+            FetchConfig::DEFAULT_TIMEOUT
+        } else {
+            timeout
+        };
         let agent = ureq::AgentBuilder::new()
             .redirects(0)
             .try_proxy_from_env(false)
@@ -136,7 +156,11 @@ impl Transport for HttpsTransport {
             .take((max_bytes as u64).saturating_add(1))
             .read_to_end(&mut body)
             .map_err(|e| format!("reading the body: {e}"))?;
-        Ok(Response { status, cache_control, body })
+        Ok(Response {
+            status,
+            cache_control,
+            body,
+        })
     }
 }
 
@@ -158,8 +182,14 @@ mod tests {
     #[test]
     fn address_literals_resolve_to_themselves() {
         let t = HttpsTransport::new(None).unwrap();
-        assert_eq!(t.resolve("127.0.0.1", 443).unwrap(), vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
-        assert_eq!(t.resolve("::1", 443).unwrap(), vec!["::1".parse::<IpAddr>().unwrap()]);
+        assert_eq!(
+            t.resolve("127.0.0.1", 443).unwrap(),
+            vec!["127.0.0.1".parse::<IpAddr>().unwrap()]
+        );
+        assert_eq!(
+            t.resolve("::1", 443).unwrap(),
+            vec!["::1".parse::<IpAddr>().unwrap()]
+        );
     }
 
     #[test]
@@ -170,18 +200,26 @@ mod tests {
             Ok(vec!["93.184.216.34".parse().unwrap()])
         });
         assert!(r.unwrap_err().contains("timed out"));
-        assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
     fn a_fast_lookup_is_returned() {
-        let r = lookup_with_deadline(Duration::from_secs(2), || Ok(vec!["1.1.1.1".parse().unwrap()]));
+        let r = lookup_with_deadline(Duration::from_secs(2), || {
+            Ok(vec!["1.1.1.1".parse().unwrap()])
+        });
         assert_eq!(r.unwrap(), vec!["1.1.1.1".parse::<IpAddr>().unwrap()]);
     }
 
     #[test]
     fn the_transport_resolve_honours_its_deadline_setting() {
-        let t = HttpsTransport::new(None).unwrap().with_resolve_timeout(Duration::from_secs(1));
+        let t = HttpsTransport::new(None)
+            .unwrap()
+            .with_resolve_timeout(Duration::from_secs(1));
         assert_eq!(t.resolve_timeout, Duration::from_secs(1));
         let t = t.with_resolve_timeout(Duration::ZERO);
         assert_eq!(t.resolve_timeout, FetchConfig::DEFAULT_TIMEOUT);

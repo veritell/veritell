@@ -9,9 +9,9 @@
 //! returns it as JSON strings; the page must only ever put it into the
 //! document with `textContent`.
 
-use veritell_events::{EventQuery, Filter};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use veritell_events::{EventQuery, Filter};
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 const APP_JS: &str = include_str!("../assets/app.js");
@@ -72,18 +72,29 @@ pub struct Response {
 /// absent or not a number, clamped to [`MAX_WINDOW_SECS`]) and `host` (one
 /// site; empty or absent is every site). The summary
 /// covers events with `ts_ms >= now_ms - window_secs * 1000` (saturating).
-pub fn handle(method: &str, path_and_query: &str, events: &dyn EventQuery, now_ms: u64) -> Response {
+pub fn handle(
+    method: &str,
+    path_and_query: &str,
+    events: &dyn EventQuery,
+    now_ms: u64,
+) -> Response {
     if method != "GET" {
         return text(405, "method not allowed");
     }
-    let (path, query) = path_and_query.split_once('?').unwrap_or((path_and_query, ""));
+    let (path, query) = path_and_query
+        .split_once('?')
+        .unwrap_or((path_and_query, ""));
     if query.len() > MAX_QUERY_BYTES {
         return text(414, "query string too long");
     }
     let params = parse_query(query);
     match path {
         "/" => respond(200, "text/html; charset=utf-8", index_html().into_bytes()),
-        "/app.js" => respond(200, "text/javascript; charset=utf-8", APP_JS.as_bytes().to_vec()),
+        "/app.js" => respond(
+            200,
+            "text/javascript; charset=utf-8",
+            APP_JS.as_bytes().to_vec(),
+        ),
         "/app.css" => respond(200, "text/css; charset=utf-8", APP_CSS.as_bytes().to_vec()),
         "/api/events" => events_api(&params, events),
         "/api/summary" => summary_api(&params, events, now_ms),
@@ -114,7 +125,11 @@ fn respond(status: u16, content_type: &'static str, body: Vec<u8>) -> Response {
 
 /// Fixed short text bodies only; never repeats any part of the request.
 fn text(status: u16, message: &'static str) -> Response {
-    respond(status, "text/plain; charset=utf-8", message.as_bytes().to_vec())
+    respond(
+        status,
+        "text/plain; charset=utf-8",
+        message.as_bytes().to_vec(),
+    )
 }
 
 fn json<T: Serialize>(value: &T) -> Response {
@@ -149,7 +164,10 @@ fn text_param(params: &[(String, String)], name: &str) -> Option<String> {
 }
 
 /// Absent is `Ok(None)`; present but not a valid name is `Err`.
-fn enum_param<T: DeserializeOwned>(params: &[(String, String)], name: &str) -> Result<Option<T>, ()> {
+fn enum_param<T: DeserializeOwned>(
+    params: &[(String, String)],
+    name: &str,
+) -> Result<Option<T>, ()> {
     param(params, name).map_or(Ok(None), |value| {
         serde_json::from_value(serde_json::Value::String(value.to_string()))
             .map(Some)

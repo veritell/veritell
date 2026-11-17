@@ -82,7 +82,10 @@ fn check_realm(r: &Realm, f: &RealmNames) -> Check {
     }
     s(&r.engine.err_msg, f.err_msg)?;
     n(r.engine.features.len(), f.features)?;
-    r.engine.features.keys().try_for_each(|k| s(k, f.features))?;
+    r.engine
+        .features
+        .keys()
+        .try_for_each(|k| s(k, f.features))?;
     s(&r.engine.math, f.math)?;
     n(r.tamper.len(), f.tamper)?;
     for t in &r.tamper {
@@ -177,14 +180,45 @@ mod tests {
         assert!(parse_report(base().to_string().as_bytes()).is_ok());
         let cases: Vec<(Vec<&str>, serde_json::Value, &str)> = vec![
             (vec!["nonce"], long.clone().into(), "nonce"),
-            (vec!["main", "languages"], many.clone().into(), "main.languages"),
-            (vec!["main", "uad", "brands"], many.clone().into(), "main.uad.brands"),
-            (vec!["main", "uad", "platform"], long.clone().into(), "main.uad.platform"),
-            (vec!["main", "engine", "err_msg"], long.clone().into(), "main.engine.err_msg"),
-            (vec!["main", "engine", "math"], long.clone().into(), "main.engine.math"),
+            (
+                vec!["main", "languages"],
+                many.clone().into(),
+                "main.languages",
+            ),
+            (
+                vec!["main", "uad", "brands"],
+                many.clone().into(),
+                "main.uad.brands",
+            ),
+            (
+                vec!["main", "uad", "platform"],
+                long.clone().into(),
+                "main.uad.platform",
+            ),
+            (
+                vec!["main", "engine", "err_msg"],
+                long.clone().into(),
+                "main.engine.err_msg",
+            ),
+            (
+                vec!["main", "engine", "math"],
+                long.clone().into(),
+                "main.engine.math",
+            ),
             (vec!["page", "tz"], long.clone().into(), "page.tz"),
-            (vec!["main", "tamper"], serde_json::json!(vec![serde_json::json!({"target":"t","kinds":[]}); MAX_ITEMS + 1]), "main.tamper"),
-            (vec!["main", "tamper"], serde_json::json!([{"target": long, "kinds": []}]), "main.tamper.target"),
+            (
+                vec!["main", "tamper"],
+                serde_json::json!(vec![
+                    serde_json::json!({"target":"t","kinds":[]});
+                    MAX_ITEMS + 1
+                ]),
+                "main.tamper",
+            ),
+            (
+                vec!["main", "tamper"],
+                serde_json::json!([{"target": long, "kinds": []}]),
+                "main.tamper.target",
+            ),
         ];
         for (path, value, expect) in cases {
             let mut v = base();
@@ -200,7 +234,8 @@ mod tests {
     #[test]
     fn feature_keys_count_as_strings() {
         let mut v = base();
-        v["main"]["engine"]["features"] = serde_json::json!({ "k".repeat(MAX_STRING_BYTES + 1): true });
+        v["main"]["engine"]["features"] =
+            serde_json::json!({ "k".repeat(MAX_STRING_BYTES + 1): true });
         assert_eq!(limit(&v), Some("main.engine.features"));
     }
 

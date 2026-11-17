@@ -88,7 +88,11 @@ impl Model {
         if raw.features.len() > MAX_FEATURES || raw.trees.len() > MAX_TREES {
             return Err(ModelError::Limits);
         }
-        if raw.features.iter().any(|n| n.is_empty() || n.len() > MAX_NAME_BYTES) {
+        if raw
+            .features
+            .iter()
+            .any(|n| n.is_empty() || n.len() > MAX_NAME_BYTES)
+        {
             return Err(ModelError::Limits);
         }
         for tree in &raw.trees {
@@ -142,7 +146,12 @@ impl Model {
                 });
             }
         }
-        Ok(Model { features: raw.features, base: raw.base, roots, nodes })
+        Ok(Model {
+            features: raw.features,
+            base: raw.base,
+            roots,
+            nodes,
+        })
     }
 
     /// Feature names, in the order `evaluate` expects values.
@@ -175,7 +184,11 @@ impl Model {
                 }
                 let f = usize::try_from(node.feature).ok()?;
                 let value = f64::from(*x.get(f)?);
-                let next = if value.is_nan() || value < node.threshold { node.left } else { node.right };
+                let next = if value.is_nan() || value < node.threshold {
+                    node.left
+                } else {
+                    node.right
+                };
                 at = usize::try_from(next).ok()?;
                 let child = *self.nodes.get(at)?;
                 *contributions.get_mut(f)? += child.value - node.value;
@@ -187,7 +200,12 @@ impl Model {
         }
         let p = 1.0 / (1.0 + (-raw).exp());
         let probability = if p.is_nan() { 0.5 } else { p.clamp(0.0, 1.0) };
-        Some(Evaluation { raw, probability, bias, contributions })
+        Some(Evaluation {
+            raw,
+            probability,
+            bias,
+            contributions,
+        })
     }
 }
 
@@ -201,7 +219,9 @@ fn leaf_too_deep(tree: &[RawNode]) -> bool {
         *d = Some(0);
     }
     for (i, node) in tree.iter().enumerate() {
-        let Some(d) = depth.get(i).copied().flatten() else { continue };
+        let Some(d) = depth.get(i).copied().flatten() else {
+            continue;
+        };
         match node {
             RawNode::Leaf(_) => {
                 if d > MAX_DEPTH {
@@ -210,7 +230,9 @@ fn leaf_too_deep(tree: &[RawNode]) -> bool {
             }
             RawNode::Split(s) => {
                 for c in [s.l, s.r] {
-                    let Some(c) = index(c, tree.len()).filter(|c| *c > i) else { continue };
+                    let Some(c) = index(c, tree.len()).filter(|c| *c > i) else {
+                        continue;
+                    };
                     if let Some(slot) = depth.get_mut(c) {
                         let next = d.saturating_add(1);
                         if slot.is_none_or(|old| next > old) {

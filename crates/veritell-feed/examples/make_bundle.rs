@@ -22,7 +22,10 @@ fn fail(message: &str) -> ! {
 fn seed(hex: &str) -> [u8; 32] {
     let bytes: Option<Vec<u8>> = (0..hex.len())
         .step_by(2)
-        .map(|i| hex.get(i..i + 2).and_then(|pair| u8::from_str_radix(pair, 16).ok()))
+        .map(|i| {
+            hex.get(i..i + 2)
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+        })
         .collect();
     bytes
         .and_then(|b| b.try_into().ok())
@@ -31,7 +34,11 @@ fn seed(hex: &str) -> [u8; 32] {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or_else(|| fail("missing argument"));
+    let arg = |i: usize| {
+        args.get(i)
+            .map(String::as_str)
+            .unwrap_or_else(|| fail("missing argument"))
+    };
     match arg(0) {
         "pubkey" => println!("{}", URL_SAFE_NO_PAD.encode(veritell_feed::public_key(&seed(arg(1))).0)),
         "seal" => {

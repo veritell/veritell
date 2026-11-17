@@ -74,7 +74,11 @@ impl DirectoryUrl {
     /// The URL again: `https://host[:port]/path?query`. The port is left out
     /// when it is 443 and an IPv6 host gets its brackets back.
     pub fn as_string(&self) -> String {
-        let host = if self.host.contains(':') { format!("[{}]", self.host) } else { self.host.clone() };
+        let host = if self.host.contains(':') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
         if self.port == 443 {
             format!("https://{host}{}", self.path_and_query)
         } else {
@@ -162,7 +166,9 @@ impl fmt::Display for FetchError {
             FetchError::Resolve(m) => write!(f, "name did not resolve: {m}"),
             FetchError::AddressRefused(ip) => write!(f, "address {ip} may not be fetched from"),
             FetchError::Transport(m) => write!(f, "fetch failed: {m}"),
-            FetchError::Status(s) => write!(f, "status {s}, expected 200 (redirects are not followed)"),
+            FetchError::Status(s) => {
+                write!(f, "status {s}, expected 200 (redirects are not followed)")
+            }
             FetchError::TooLarge => write!(f, "directory larger than {MAX_BODY_BYTES} bytes"),
             FetchError::Directory(m) => write!(f, "directory refused: {m}"),
         }

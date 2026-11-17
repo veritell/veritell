@@ -64,7 +64,10 @@ impl TlsAccept for TlsCallbacks {
     /// was loaded for it; otherwise the context's default stays.
     async fn certificate_callback(&self, ssl: &mut TlsRef) {
         let Some(sni) = &self.sni else { return };
-        let Some(name) = ssl.servername(boring::ssl::NameType::HOST_NAME).map(str::to_owned) else {
+        let Some(name) = ssl
+            .servername(boring::ssl::NameType::HOST_NAME)
+            .map(str::to_owned)
+        else {
             return;
         };
         if let Some(ctx) = sni.find(&name) {
@@ -170,7 +173,11 @@ impl ConnLimiter {
 
     /// As [`ConnLimiter::acquire`] at `now`; also returns the last hour's
     /// counts when this is the first connection of a new hour.
-    fn acquire_at(self: &Arc<Self>, ip: IpAddr, now: u64) -> (Option<ConnGuard>, Option<ConnStats>) {
+    fn acquire_at(
+        self: &Arc<Self>,
+        ip: IpAddr,
+        now: u64,
+    ) -> (Option<ConnGuard>, Option<ConnStats>) {
         let network = Self::network(ip);
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
         let count = open.entry(network).or_insert(0);
@@ -202,7 +209,10 @@ impl ConnLimiter {
         }
         drop(stats);
 
-        let guard = admitted.then(|| ConnGuard { limiter: Arc::clone(self), network });
+        let guard = admitted.then(|| ConnGuard {
+            limiter: Arc::clone(self),
+            network,
+        });
         (guard, finished)
     }
 
@@ -253,15 +263,20 @@ where
         stream: Stream,
         shutdown: &ShutdownWatch,
     ) -> Option<Stream> {
-        let peer = stream
-            .get_socket_digest()
-            .and_then(|d| d.peer_addr().and_then(|a| a.as_inet()).map(|a| crate::gateway::canonical(a.ip())));
+        let peer = stream.get_socket_digest().and_then(|d| {
+            d.peer_addr()
+                .and_then(|a| a.as_inet())
+                .map(|a| crate::gateway::canonical(a.ip()))
+        });
         let _guard = match peer {
             Some(ip) if !self.trusted_proxies.contains(&ip) => match self.limiter.acquire(ip) {
                 Some(guard) => Some(guard),
                 None => {
                     // Counts only: the address is not written here.
-                    println!("{}", serde_json::json!({ "kind": "conn_refused", "reason": "per_network_cap" }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "kind": "conn_refused", "reason": "per_network_cap" })
+                    );
                     return None;
                 }
             },
@@ -271,7 +286,10 @@ where
         // where the platform has none).
         if let (Some(digest), Some(cookie)) = (
             stream.get_ssl_digest(),
-            stream.get_socket_digest().and_then(|d| d.socket_cookie().ok()).filter(|&c| c != 0),
+            stream
+                .get_socket_digest()
+                .and_then(|d| d.socket_cookie().ok())
+                .filter(|&c| c != 0),
         ) {
             if let Some(ci) = digest.extension.get::<ConnInfo>() {
                 if let Some(seen) = self.syn.take(cookie) {
@@ -332,12 +350,18 @@ mod tests {
         let a = l.acquire(ip("203.0.113.9")).unwrap();
         let b = l.acquire(ip("203.0.113.9")).unwrap();
         assert!(l.acquire(ip("203.0.113.9")).is_none());
-        assert!(l.acquire(ip("203.0.113.10")).is_some(), "another address is another network");
+        assert!(
+            l.acquire(ip("203.0.113.10")).is_some(),
+            "another address is another network"
+        );
         drop(a);
         assert!(l.acquire(ip("203.0.113.9")).is_some());
         drop(b);
         assert_eq!(l.open_for(ip("203.0.113.9")), 0);
-        assert!(l.open.lock().unwrap().is_empty(), "no entry is left for a network with nothing open");
+        assert!(
+            l.open.lock().unwrap().is_empty(),
+            "no entry is left for a network with nothing open"
+        );
     }
 
     #[test]
@@ -349,15 +373,25 @@ mod tests {
             held.push(l.acquire_at(ip("203.0.113.9"), t).0.unwrap());
         }
         let (refused, none) = l.acquire_at(ip("203.0.113.9"), t + 10);
-        assert!(refused.is_none() && none.is_none(), "same hour: nothing reported yet");
+        assert!(
+            refused.is_none() && none.is_none(),
+            "same hour: nothing reported yet"
+        );
         let (_, report) = l.acquire_at(ip("198.51.100.1"), t + 3600);
         let report = report.expect("the first connection of the next hour reports the last");
-        assert_eq!((report.peak, report.reached, report.refused), (17, [1, 0, 0, 0], 1));
+        assert_eq!(
+            (report.peak, report.reached, report.refused),
+            (17, [1, 0, 0, 0], 1)
+        );
         let line = report.line().to_string();
         assert!(!line.contains("203.0.113"), "{line}");
         // The new hour starts from zero, and a quiet hour is not reported.
         let (_, again) = l.acquire_at(ip("198.51.100.1"), t + 3 * 3600);
-        assert_eq!(again.map(|s| s.peak), Some(1), "the hour of t + 3600 held one");
+        assert_eq!(
+            again.map(|s| s.peak),
+            Some(1),
+            "the hour of t + 3600 held one"
+        );
         drop(held);
     }
 

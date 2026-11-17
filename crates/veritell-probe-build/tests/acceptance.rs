@@ -7,8 +7,8 @@ use std::collections::BTreeSet;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use veritell_probe_build::*;
 use serde_json::{json, Value};
+use veritell_probe_build::*;
 
 const SECRET: &[u8] = b"0123456789abcdef0123456789abcdef";
 const NOW: u64 = 1_700_000_000;
@@ -76,40 +76,60 @@ fn v1() -> Value {
 }
 
 fn sealed(b: &Builder, build: &Build, nonce: &str) -> Vec<u8> {
-    b.seal(&build.id, nonce, v1().to_string().as_bytes(), [3; 12]).unwrap()
+    b.seal(&build.id, nonce, v1().to_string().as_bytes(), [3; 12])
+        .unwrap()
 }
 
 // ---------- template validation ----------
 
 #[test]
 fn template_is_validated() {
-    assert_eq!(Builder::new(TEMPLATE, &SECRET[..31]).err(), Some(BuildError::WeakSecret));
+    assert_eq!(
+        Builder::new(TEMPLATE, &SECRET[..31]).err(),
+        Some(BuildError::WeakSecret)
+    );
     let big = format!("{TEMPLATE}{}", " ".repeat(MAX_TEMPLATE_BYTES));
     assert_eq!(Builder::new(&big, SECRET).err(), Some(BuildError::TooLarge));
 
     let no_build = TEMPLATE.replace("\"__VERITELL_BUILD__\"", "0");
-    assert_eq!(Builder::new(&no_build, SECRET).err(), Some(BuildError::Token(BUILD_TOKEN)));
+    assert_eq!(
+        Builder::new(&no_build, SECRET).err(),
+        Some(BuildError::Token(BUILD_TOKEN))
+    );
     let two_build = format!("{TEMPLATE}\nvar x = \"__VERITELL_BUILD__\";");
-    assert_eq!(Builder::new(&two_build, SECRET).err(), Some(BuildError::Token(BUILD_TOKEN)));
+    assert_eq!(
+        Builder::new(&two_build, SECRET).err(),
+        Some(BuildError::Token(BUILD_TOKEN))
+    );
     let no_config = TEMPLATE.replace("\"__VERITELL_CONFIG__\"", "0");
-    assert_eq!(Builder::new(&no_config, SECRET).err(), Some(BuildError::Token(CONFIG_TOKEN)));
+    assert_eq!(
+        Builder::new(&no_config, SECRET).err(),
+        Some(BuildError::Token(CONFIG_TOKEN))
+    );
     let two_config = format!("{TEMPLATE}\nvar x = \"__VERITELL_CONFIG__\";");
-    assert_eq!(Builder::new(&two_config, SECRET).err(), Some(BuildError::Token(CONFIG_TOKEN)));
+    assert_eq!(
+        Builder::new(&two_config, SECRET).err(),
+        Some(BuildError::Token(CONFIG_TOKEN))
+    );
 }
 
 #[test]
 fn shuffle_markers_are_validated() {
     let base = "var c = \"__VERITELL_CONFIG__\", b = \"__VERITELL_BUILD__\";\n";
     let cases = [
-        ("/*@shuffle*/\na;\n", 2),                            // never closed
-        ("/*@end*/\n", 2),                                    // closed without being open
+        ("/*@shuffle*/\na;\n", 2),                             // never closed
+        ("/*@end*/\n", 2),                                     // closed without being open
         ("/*@shuffle*/\na;\n/*@shuffle*/\nb;\n/*@end*/\n", 4), // nested
-        ("/*@shuffle*/\n/*@end*/\n", 2),                      // empty
-        ("a;\n  /*@shuffle*/  \n\n   \n/*@end*/\n", 3),       // only blank lines inside
+        ("/*@shuffle*/\n/*@end*/\n", 2),                       // empty
+        ("a;\n  /*@shuffle*/  \n\n   \n/*@end*/\n", 3),        // only blank lines inside
     ];
     for (tail, line) in cases {
         let t = format!("{base}{tail}");
-        assert_eq!(Builder::new(&t, SECRET).err(), Some(BuildError::Marker(line)), "{tail:?}");
+        assert_eq!(
+            Builder::new(&t, SECRET).err(),
+            Some(BuildError::Marker(line)),
+            "{tail:?}"
+        );
     }
     let ok = format!("{base}/*@shuffle*/\na;\n/*@end*/\n/*@shuffle*/\nb;\nc;\n/*@end*/\n");
     assert!(Builder::new(&ok, SECRET).is_ok());
@@ -123,7 +143,12 @@ fn build_is_deterministic_for_a_seed() {
     let b = builder().build_with_seed(seed(1), NOW, TTL);
     assert_eq!(a, b);
     assert_eq!(a.expires_at, NOW + TTL);
-    assert_eq!(builder().build_with_seed(seed(1), u64::MAX - 1, TTL).expires_at, u64::MAX);
+    assert_eq!(
+        builder()
+            .build_with_seed(seed(1), u64::MAX - 1, TTL)
+            .expires_at,
+        u64::MAX
+    );
 }
 
 #[test]
@@ -141,7 +166,14 @@ fn id_shape() {
     for n in 0..20 {
         let build = builder().build_with_seed(seed(n), NOW, TTL);
         assert!(!build.id.is_empty() && build.id.len() <= 64, "{}", build.id);
-        assert!(build.id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-'), "{}", build.id);
+        assert!(
+            build
+                .id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-'),
+            "{}",
+            build.id
+        );
     }
 }
 
@@ -171,16 +203,30 @@ fn tokens_and_comments() {
 fn embedded_build_configuration() {
     let build = builder().build_with_seed(seed(1), NOW, TTL);
     // The line that held the build token now holds a JSON object.
-    let line = build.script.split('\n').find(|l| l.contains("\"map\"")).expect("no config line");
+    let line = build
+        .script
+        .split('\n')
+        .find(|l| l.contains("\"map\""))
+        .expect("no config line");
     let start = line.find('{').unwrap();
     let end = line.rfind('}').unwrap();
     let config: Value = serde_json::from_str(&line[start..=end]).unwrap();
     assert_eq!(config["id"], build.id.as_str());
-    assert_eq!(STANDARD.decode(config["k"].as_str().unwrap()).unwrap().len(), 32);
+    assert_eq!(
+        STANDARD
+            .decode(config["k"].as_str().unwrap())
+            .unwrap()
+            .len(),
+        32
+    );
     let map = config["map"].as_object().unwrap();
     assert_eq!(map.len(), VOCAB.len());
     for key in VOCAB {
-        assert_eq!(map[key].as_str(), build.key_map.get(key).map(String::as_str), "{key}");
+        assert_eq!(
+            map[key].as_str(),
+            build.key_map.get(key).map(String::as_str),
+            "{key}"
+        );
     }
 }
 
@@ -192,7 +238,10 @@ fn key_map_names() {
         let names: BTreeSet<&str> = build.key_map.values().map(String::as_str).collect();
         assert_eq!(names.len(), VOCAB.len(), "duplicate key map names");
         for name in names {
-            assert!((2..=4).contains(&name.len()) && name.bytes().all(|c| c.is_ascii_lowercase()), "{name}");
+            assert!(
+                (2..=4).contains(&name.len()) && name.bytes().all(|c| c.is_ascii_lowercase()),
+                "{name}"
+            );
         }
     }
     let a = builder().build_with_seed(seed(1), NOW, TTL);
@@ -202,7 +251,10 @@ fn key_map_names() {
 
 /// The renamed identifiers on the `return [...]` line, in order.
 fn returned_names(script: &str) -> Vec<String> {
-    let line = script.split('\n').find(|l| l.starts_with("return [")).unwrap();
+    let line = script
+        .split('\n')
+        .find(|l| l.starts_with("return ["))
+        .unwrap();
     line.trim_start_matches("return [")
         .trim_end_matches("];")
         .split(", ")
@@ -220,19 +272,39 @@ fn identifiers_are_renamed_consistently() {
         let distinct: BTreeSet<&String> = names.iter().collect();
         assert_eq!(distinct.len(), 6, "{names:?}");
         for name in &names {
-            let body = name.strip_prefix('_').unwrap_or_else(|| panic!("{name} lacks the prefix"));
+            let body = name
+                .strip_prefix('_')
+                .unwrap_or_else(|| panic!("{name} lacks the prefix"));
             assert!((6..=10).contains(&body.len()), "{name}");
-            assert!(body.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()), "{name}");
+            assert!(
+                body.bytes()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+                "{name}"
+            );
             assert!(body.as_bytes()[0].is_ascii_lowercase(), "{name}");
         }
         // $$a, $$ab and $$a_b are three different variables everywhere.
         let (a, ab, a_b) = (&names[0], &names[1], &names[2]);
-        assert!(build.script.contains(&format!("var {a} = 1, {ab} = 2, {a_b} = 3;")), "{}", build.script);
+        assert!(
+            build
+                .script
+                .contains(&format!("var {a} = 1, {ab} = 2, {a_b} = 3;")),
+            "{}",
+            build.script
+        );
         for (name, add) in [(a, 10), (ab, 20), (a_b, 30)] {
-            assert!(build.script.split('\n').any(|l| l == format!("{name} += {add};")), "{name} += {add}");
+            assert!(
+                build
+                    .script
+                    .split('\n')
+                    .any(|l| l == format!("{name} += {add};")),
+                "{name} += {add}"
+            );
         }
         assert!(build.script.contains(&format!("var {} = [", names[3])));
-        assert!(build.script.contains(&format!("var {} = \"__VERITELL_CONFIG__\";", names[4])));
+        assert!(build
+            .script
+            .contains(&format!("var {} = \"__VERITELL_CONFIG__\";", names[4])));
         seen.insert(names);
     }
     assert!(seen.len() >= 19, "names barely vary between builds");
@@ -240,7 +312,14 @@ fn identifiers_are_renamed_consistently() {
 
 #[test]
 fn shuffle_regions_keep_their_lines_and_vary() {
-    let words = ["\"alpha\",", "\"bravo\",", "\"charlie\",", "\"delta\",", "\"echo\",", "\"foxtrot\","];
+    let words = [
+        "\"alpha\",",
+        "\"bravo\",",
+        "\"charlie\",",
+        "\"delta\",",
+        "\"echo\",",
+        "\"foxtrot\",",
+    ];
     let mut orders = BTreeSet::new();
     for n in 0..20 {
         let build = builder().build_with_seed(seed(n), NOW, TTL);
@@ -253,7 +332,11 @@ fn shuffle_regions_keep_their_lines_and_vary() {
         assert_eq!(lines[open + 7], "];");
         orders.insert(region.join(" "));
     }
-    assert!(orders.len() >= 10, "only {} distinct orders in 20 builds", orders.len());
+    assert!(
+        orders.len() >= 10,
+        "only {} distinct orders in 20 builds",
+        orders.len()
+    );
 }
 
 // ---------- sealed reports ----------
@@ -288,10 +371,15 @@ fn the_wire_does_not_show_report_text() {
     let build = b.build_with_seed(seed(1), NOW, TTL);
     let body = String::from_utf8(sealed(&b, &build, "the-nonce")).unwrap();
     for needle in ["webdriver", "platform", "macOS", "to_string", "eval_len"] {
-        assert!(!body.contains(needle), "{needle} visible in the sealed body");
+        assert!(
+            !body.contains(needle),
+            "{needle} visible in the sealed body"
+        );
     }
     // A different IV gives a different body for the same report.
-    let again = b.seal(&build.id, "the-nonce", v1().to_string().as_bytes(), [4; 12]).unwrap();
+    let again = b
+        .seal(&build.id, "the-nonce", v1().to_string().as_bytes(), [4; 12])
+        .unwrap();
     assert_ne!(body.as_bytes(), again.as_slice());
 }
 
@@ -304,14 +392,23 @@ fn a_report_is_bound_to_its_nonce_and_build() {
 
     let mut wrong_nonce = body.clone();
     wrong_nonce["n"] = json!("another-nonce");
-    assert_eq!(b.open(wrong_nonce.to_string().as_bytes(), NOW), Err(OpenError::Decrypt));
+    assert_eq!(
+        b.open(wrong_nonce.to_string().as_bytes(), NOW),
+        Err(OpenError::Decrypt)
+    );
 
     let mut wrong_build = body.clone();
     wrong_build["b"] = json!(other.id);
-    assert_eq!(b.open(wrong_build.to_string().as_bytes(), NOW), Err(OpenError::Decrypt));
+    assert_eq!(
+        b.open(wrong_build.to_string().as_bytes(), NOW),
+        Err(OpenError::Decrypt)
+    );
 
     let different_secret = Builder::new(TEMPLATE, b"ffffffffffffffffffffffffffffffff").unwrap();
-    assert_eq!(different_secret.open(body.to_string().as_bytes(), NOW), Err(OpenError::UnknownBuild));
+    assert_eq!(
+        different_secret.open(body.to_string().as_bytes(), NOW),
+        Err(OpenError::UnknownBuild)
+    );
 }
 
 #[test]
@@ -332,9 +429,15 @@ fn build_ids_cannot_be_forged_or_extended() {
         let mut forged = body.clone();
         forged["b"] = json!(id);
         let result = b.open(forged.to_string().as_bytes(), NOW);
-        assert!(matches!(result, Err(OpenError::UnknownBuild | OpenError::Malformed)), "{id:?}: {result:?}");
+        assert!(
+            matches!(result, Err(OpenError::UnknownBuild | OpenError::Malformed)),
+            "{id:?}: {result:?}"
+        );
     }
-    assert_eq!(b.seal("not-a-build", "n", b"{}", [0; 12]), Err(OpenError::UnknownBuild));
+    assert_eq!(
+        b.seal("not-a-build", "n", b"{}", [0; 12]),
+        Err(OpenError::UnknownBuild)
+    );
 }
 
 #[test]
@@ -348,12 +451,20 @@ fn altered_ciphertext_is_refused() {
         changed[i] ^= 0x80;
         let mut forged = body.clone();
         forged["d"] = json!(STANDARD.encode(&changed));
-        assert_eq!(b.open(forged.to_string().as_bytes(), NOW), Err(OpenError::Decrypt), "byte {i}");
+        assert_eq!(
+            b.open(forged.to_string().as_bytes(), NOW),
+            Err(OpenError::Decrypt),
+            "byte {i}"
+        );
     }
     for short in [0usize, 1, 12, 27] {
         let mut forged = body.clone();
         forged["d"] = json!(STANDARD.encode(&data[..short]));
-        assert_eq!(b.open(forged.to_string().as_bytes(), NOW), Err(OpenError::Malformed), "{short}");
+        assert_eq!(
+            b.open(forged.to_string().as_bytes(), NOW),
+            Err(OpenError::Malformed),
+            "{short}"
+        );
     }
 }
 
@@ -364,11 +475,20 @@ fn only_the_builds_key_names_are_accepted() {
     // A report with a key outside the vocabulary cannot be sealed...
     let mut extra = v1();
     extra["surprise"] = json!(1);
-    assert_eq!(b.seal(&build.id, "n", extra.to_string().as_bytes(), [0; 12]), Err(OpenError::Keys));
+    assert_eq!(
+        b.seal(&build.id, "n", extra.to_string().as_bytes(), [0; 12]),
+        Err(OpenError::Keys)
+    );
     let mut nested = v1();
     nested["main"]["engine"]["features"]["new_feature"] = json!(true);
-    assert_eq!(b.seal(&build.id, "n", nested.to_string().as_bytes(), [0; 12]), Err(OpenError::Keys));
-    assert_eq!(b.seal(&build.id, "n", b"not json", [0; 12]), Err(OpenError::Keys));
+    assert_eq!(
+        b.seal(&build.id, "n", nested.to_string().as_bytes(), [0; 12]),
+        Err(OpenError::Keys)
+    );
+    assert_eq!(
+        b.seal(&build.id, "n", b"not json", [0; 12]),
+        Err(OpenError::Keys)
+    );
 
     // ...and a plain version 1 report, encrypted correctly but with its keys
     // left unmapped, is refused when opened.
@@ -381,8 +501,13 @@ fn only_the_builds_key_names_are_accepted() {
 
 /// The build key as embedded in the script.
 fn embedded_key(build: &Build) -> Vec<u8> {
-    let line = build.script.split('\n').find(|l| l.contains("\"map\"")).unwrap();
-    let config: Value = serde_json::from_str(&line[line.find('{').unwrap()..=line.rfind('}').unwrap()]).unwrap();
+    let line = build
+        .script
+        .split('\n')
+        .find(|l| l.contains("\"map\""))
+        .unwrap();
+    let config: Value =
+        serde_json::from_str(&line[line.find('{').unwrap()..=line.rfind('}').unwrap()]).unwrap();
     STANDARD.decode(config["k"].as_str().unwrap()).unwrap()
 }
 
@@ -398,11 +523,19 @@ fn seal_by_hand(build: &Build, nonce: &str, plaintext: &[u8]) -> Vec<u8> {
     let cipher = Aes256Gcm::new_from_slice(&h.finalize()).unwrap();
     let iv = [9u8; 12];
     let ct = cipher
-        .encrypt(Nonce::from_slice(&iv), Payload { msg: plaintext, aad: build.id.as_bytes() })
+        .encrypt(
+            Nonce::from_slice(&iv),
+            Payload {
+                msg: plaintext,
+                aad: build.id.as_bytes(),
+            },
+        )
         .unwrap();
     let mut data = iv.to_vec();
     data.extend_from_slice(&ct);
-    json!({ "b": build.id, "n": nonce, "d": STANDARD.encode(data) }).to_string().into_bytes()
+    json!({ "b": build.id, "n": nonce, "d": STANDARD.encode(data) })
+        .to_string()
+        .into_bytes()
 }
 
 #[test]
@@ -411,7 +544,11 @@ fn the_documented_wire_format_interoperates() {
     // opens to the original. This is the contract the browser relies on.
     fn map_keys(v: &Value, map: &std::collections::BTreeMap<String, String>) -> Value {
         match v {
-            Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (map[k].clone(), map_keys(x, map))).collect()),
+            Value::Object(o) => Value::Object(
+                o.iter()
+                    .map(|(k, x)| (map[k].clone(), map_keys(x, map)))
+                    .collect(),
+            ),
             Value::Array(a) => Value::Array(a.iter().map(|x| map_keys(x, map)).collect()),
             other => other.clone(),
         }
@@ -419,8 +556,16 @@ fn the_documented_wire_format_interoperates() {
     let b = builder();
     let build = b.build_with_seed(seed(5), NOW, TTL);
     let mapped = map_keys(&v1(), &build.key_map);
-    let opened = b.open(&seal_by_hand(&build, "nonce-1", mapped.to_string().as_bytes()), NOW).unwrap();
-    assert_eq!(serde_json::from_slice::<Value>(&opened.report_json).unwrap(), v1());
+    let opened = b
+        .open(
+            &seal_by_hand(&build, "nonce-1", mapped.to_string().as_bytes()),
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&opened.report_json).unwrap(),
+        v1()
+    );
     assert_eq!(opened.nonce, "nonce-1");
 
     // And the crate's own sealer produces something the same recipe opens.
@@ -447,7 +592,11 @@ fn hostile_bodies() {
         json!({ "b": 7, "n": "n", "d": STANDARD.encode([0u8; 64]) }),
     ];
     for case in cases {
-        assert_eq!(b.open(case.to_string().as_bytes(), NOW), Err(OpenError::Malformed), "{case}");
+        assert_eq!(
+            b.open(case.to_string().as_bytes(), NOW),
+            Err(OpenError::Malformed),
+            "{case}"
+        );
     }
     for raw in [&b""[..], b"{", b"\xff\xfe", b"\"string\""] {
         assert_eq!(b.open(raw, NOW), Err(OpenError::Malformed));
@@ -458,7 +607,10 @@ fn hostile_bodies() {
     // Every truncation of a good body fails without panicking.
     let good = sealed(&b, &build, "n");
     for cut in 0..good.len() {
-        assert!(b.open(&good[..cut], NOW).is_err(), "prefix of {cut} bytes opened");
+        assert!(
+            b.open(&good[..cut], NOW).is_err(),
+            "prefix of {cut} bytes opened"
+        );
     }
 }
 

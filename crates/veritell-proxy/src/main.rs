@@ -191,8 +191,8 @@ use veritell_events::clickhouse::{ClickHouseConfig, ClickHouseSink};
 use veritell_events::{EventSink, Fanout, MemoryRing};
 use veritell_feed::{FeedKey, Live};
 use veritell_identity::{AsnDb, CrawlerVerifier};
-use veritell_probe::ProbeKey;
 use veritell_policy::{Mode, Policy};
+use veritell_probe::ProbeKey;
 use veritell_token::{Keys, MemoryBudgetStore};
 use veritell_ua::TruthTable;
 
@@ -245,7 +245,9 @@ fn check_bindable(flag: &str, addr: &str) {
             Err(e) => fail(format!("--{flag} {addr}: {e}")),
         }
     }
-    fail(format!("--{flag} {addr} is still in use: is another gateway running?"));
+    fail(format!(
+        "--{flag} {addr} is still in use: is another gateway running?"
+    ));
 }
 
 /// Whether `--name` is one of the flags USAGE lists.
@@ -254,7 +256,9 @@ const DEFAULT_SOURCE_URL: &str = "https://github.com/veritell/veritell";
 
 fn known_flag(name: &str) -> bool {
     !name.is_empty()
-        && USAGE.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).any(|w| w.strip_prefix("--") == Some(name))
+        && USAGE
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .any(|w| w.strip_prefix("--") == Some(name))
 }
 
 /// The command line, with the settings file (`--config`) under it.
@@ -303,7 +307,11 @@ fn parse_args() -> Args {
     // A flag wins over the file, an empty one too (it means "none").
     let mut flags = loaded.flags;
     flags.extend(given);
-    Args { flags, secrets: settings::Secrets::new(loaded.secret_files), check }
+    Args {
+        flags,
+        secrets: settings::Secrets::new(loaded.secret_files),
+        check,
+    }
 }
 
 /// A secret from its environment variable or its `[secrets]` file.
@@ -316,7 +324,10 @@ fn read_secret(secrets: &settings::Secrets, env: &str) -> Option<String> {
 /// starts, not here.
 fn check_config(flags: &HashMap<String, String>, secrets: &settings::Secrets) -> ! {
     use settings::{Kind, Source, KEYS};
-    for settings::Key { path, flag, kind, .. } in KEYS {
+    for settings::Key {
+        path, flag, kind, ..
+    } in KEYS
+    {
         if *kind == Kind::Secret {
             let from = match secrets.source(flag) {
                 Source::Environment => "environment".to_string(),
@@ -356,11 +367,16 @@ fn load_keys(secrets: &settings::Secrets) -> (Keys, ProbeKey, Vec<u8>) {
 }
 
 fn read_file(what: &str, path: &str) -> String {
-    std::fs::read_to_string(path).unwrap_or_else(|e| fail(format!("cannot read {what} {path}: {e}")))
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|e| fail(format!("cannot read {what} {path}: {e}")))
 }
 
 fn main() {
-    let Args { flags: args, secrets, check } = parse_args();
+    let Args {
+        flags: args,
+        secrets,
+        check,
+    } = parse_args();
     if check {
         check_config(&args, &secrets);
     }
@@ -392,7 +408,8 @@ fn main() {
         Some(path) => {
             let text = std::fs::read_to_string(path)
                 .unwrap_or_else(|e| fail(format!("cannot read ASN database {path}: {e}")));
-            let db = AsnDb::from_iptoasn_tsv(&text).unwrap_or_else(|e| fail(format!("{path}: {e}")));
+            let db =
+                AsnDb::from_iptoasn_tsv(&text).unwrap_or_else(|e| fail(format!("{path}: {e}")));
             eprintln!("veritell: ASN database {path}: {} ranges", db.len());
             db
         }
@@ -419,9 +436,11 @@ fn main() {
             Some(raw) => raw
                 .split(',')
                 .map(|a| {
-                    a.trim().parse::<std::net::SocketAddr>().unwrap_or_else(|_| {
-                        fail(format!("--wba-directory-allow: {a:?} is not ip:port"))
-                    })
+                    a.trim()
+                        .parse::<std::net::SocketAddr>()
+                        .unwrap_or_else(|_| {
+                            fail(format!("--wba-directory-allow: {a:?} is not ip:port"))
+                        })
                 })
                 .collect(),
         },
@@ -470,7 +489,9 @@ fn main() {
                 ip.trim()
                     .parse()
                     .map(gateway::canonical)
-                    .unwrap_or_else(|_| fail(format!("--trusted-proxy: {ip:?} is not an IP address")))
+                    .unwrap_or_else(|_| {
+                        fail(format!("--trusted-proxy: {ip:?} is not an IP address"))
+                    })
             })
             .collect(),
     };
@@ -500,15 +521,22 @@ fn main() {
         .unwrap_or_else(|e| fail(format!("population settings: {e}")));
 
     let model = args.get("model").map(|path| {
-        let bytes = std::fs::read(path).unwrap_or_else(|e| fail(format!("cannot read model {path}: {e}")));
-        let model = veritell_model::Model::from_json(&bytes).unwrap_or_else(|e| fail(format!("{path}: {e}")));
+        let bytes =
+            std::fs::read(path).unwrap_or_else(|e| fail(format!("cannot read model {path}: {e}")));
+        let model = veritell_model::Model::from_json(&bytes)
+            .unwrap_or_else(|e| fail(format!("{path}: {e}")));
         let features = veritell_model::FeatureSpec::builtin()
             .unwrap_or_else(|| fail("built-in feature definition is invalid"));
         // A model trained on other features would be fed the wrong numbers.
         if model.features() != features.names().as_slice() {
-            fail(format!("{path}: the model's features are not the ones this gateway computes"));
+            fail(format!(
+                "{path}: the model's features are not the ones this gateway computes"
+            ));
         }
-        eprintln!("veritell: model with {} trees loaded (shadow)", model.trees());
+        eprintln!(
+            "veritell: model with {} trees loaded (shadow)",
+            model.trees()
+        );
         gateway::ShadowModel { model, features }
     });
     let sidecar = args.get("sidecar-listen").map(|raw| {
@@ -531,7 +559,10 @@ fn main() {
                         .unwrap_or_else(|| fail("--feed-key: not a base64url Ed25519 public key"))
                 })
                 .collect();
-            Some(maintenance::FeedSource { path: path.into(), keys })
+            Some(maintenance::FeedSource {
+                path: path.into(),
+                keys,
+            })
         }
         _ => fail("--feed and --feed-key must be given together"),
     };
@@ -547,20 +578,21 @@ fn main() {
     // token is set (see `admin::check_bind`). The token's length is checked
     // below.
     let admin_token = read_secret(&secrets, "VERITELL_ADMIN_TOKEN");
-    let admin = args.get("admin").map(|raw| {
-        match raw.parse::<std::net::SocketAddr>() {
+    let admin = args
+        .get("admin")
+        .map(|raw| match raw.parse::<std::net::SocketAddr>() {
             Ok(addr) => match admin::check_bind(addr, admin_token.is_some()) {
                 Ok(()) => raw.clone(),
                 Err(message) => fail(message),
             },
             Err(_) => fail(format!("--admin {raw:?} is not ip:port")),
-        }
-    });
+        });
 
     let ring = Arc::new(MemoryRing::new(RING_CAPACITY));
     let mut sinks: Vec<Arc<dyn EventSink>> = vec![ring.clone() as Arc<dyn EventSink>];
     if let Some(url) = args.get("clickhouse-url") {
-        let arg = |name: &str, default: &str| args.get(name).map_or(default, String::as_str).to_string();
+        let arg =
+            |name: &str, default: &str| args.get(name).map_or(default, String::as_str).to_string();
         let sink = ClickHouseSink::start(ClickHouseConfig {
             url: url.clone(),
             database: arg("clickhouse-database", "veritell"),
@@ -621,18 +653,26 @@ fn main() {
         }
     }
     if !agents_config.fetched.is_empty() {
-        eprintln!("veritell: fetching key directories for {} agents", agents_config.fetched.len());
+        eprintln!(
+            "veritell: fetching key directories for {} agents",
+            agents_config.fetched.len()
+        );
         let live = agents.clone();
         let spawned = std::thread::Builder::new()
             .name("veritell-directories".to_string())
-            .spawn(move || directories::run(agents_config, live, directory_transport, directory_fetch));
+            .spawn(move || {
+                directories::run(agents_config, live, directory_transport, directory_fetch)
+            });
         if spawned.is_err() {
             fail("could not start the key directory thread");
         }
     }
     let admin_token = admin_token.map(|t| {
         if t.len() < admin_auth::MIN_TOKEN_BYTES {
-            fail(format!("VERITELL_ADMIN_TOKEN must be at least {} bytes", admin_auth::MIN_TOKEN_BYTES));
+            fail(format!(
+                "VERITELL_ADMIN_TOKEN must be at least {} bytes",
+                admin_auth::MIN_TOKEN_BYTES
+            ));
         }
         t.into_bytes()
     });
@@ -650,8 +690,9 @@ fn main() {
             keys: raw
                 .split(',')
                 .map(|k| {
-                    FeedKey::from_base64url(k.trim())
-                        .unwrap_or_else(|| fail("--share-import-key: not a base64url Ed25519 public key"))
+                    FeedKey::from_base64url(k.trim()).unwrap_or_else(|| {
+                        fail("--share-import-key: not a base64url Ed25519 public key")
+                    })
                 })
                 .collect(),
         }),
@@ -693,15 +734,26 @@ fn main() {
     // are for tests of what happens when one is full.
     let single_use_capacity: usize = match args.get("single-use-capacity") {
         None => 200_000,
-        Some(raw) => raw.parse().ok().filter(|n| *n > 0)
+        Some(raw) => raw
+            .parse()
+            .ok()
+            .filter(|n| *n > 0)
             .unwrap_or_else(|| fail("--single-use-capacity must be a positive number")),
     };
     let pass = args.get("privacy-pass-issuer").map(|raw| {
-        let keys = pass::parse_issuers(raw).unwrap_or_else(|e| fail(format!("--privacy-pass-issuer: {e}")));
-        eprintln!("veritell: Privacy Pass tokens accepted from {} issuer keys", keys.len());
+        let keys = pass::parse_issuers(raw)
+            .unwrap_or_else(|e| fail(format!("--privacy-pass-issuer: {e}")));
+        eprintln!(
+            "veritell: Privacy Pass tokens accepted from {} issuer keys",
+            keys.len()
+        );
         let mut context_secret = b"privacy-pass ".to_vec();
         context_secret.extend_from_slice(&secret);
-        pass::PrivacyPass { keys, secret: context_secret, used: Arc::new(MemoryBudgetStore::new(single_use_capacity)) }
+        pass::PrivacyPass {
+            keys,
+            secret: context_secret,
+            used: Arc::new(MemoryBudgetStore::new(single_use_capacity)),
+        }
     });
     let header_timeout = seconds("header-timeout", 15);
     let body_timeout = Duration::from_secs(seconds("body-timeout", 60));
@@ -710,8 +762,12 @@ fn main() {
     // gateway must point this at its own changed source.
     let source_link = match args.get("source-url").map(String::as_str) {
         Some("off") => "</body>".to_string(),
-        raw => gateway::source_link(raw.unwrap_or(DEFAULT_SOURCE_URL))
-            .unwrap_or_else(|| fail(format!("--source-url: {:?} is not a plain http(s) URL", raw.unwrap_or("")))),
+        raw => gateway::source_link(raw.unwrap_or(DEFAULT_SOURCE_URL)).unwrap_or_else(|| {
+            fail(format!(
+                "--source-url: {:?} is not a plain http(s) URL",
+                raw.unwrap_or("")
+            ))
+        }),
     };
     let max_conns: u32 = match args.get("max-conns-per-network") {
         None => 256,
@@ -749,10 +805,16 @@ fn main() {
     };
     let max_in_flight = positive("max-in-flight", shed::Shedder::DEFAULT_CAP);
     if shed_mode != flood::GuardMode::Off {
-        eprintln!("veritell: load shedding {} at {max_in_flight} requests in flight", shed_mode.as_str());
+        eprintln!(
+            "veritell: load shedding {} at {max_in_flight} requests in flight",
+            shed_mode.as_str()
+        );
     }
     if flood_mode != flood::GuardMode::Off {
-        eprintln!("veritell: flood guard {} at {flood_limit} requests per network in 10 s", flood_mode.as_str());
+        eprintln!(
+            "veritell: flood guard {} at {flood_limit} requests per network in 10 s",
+            flood_mode.as_str()
+        );
     }
     // Stores that survive a restart when `--state-dir` is given.
     let quotas = Arc::new(
@@ -771,27 +833,58 @@ fn main() {
             fail(format!("--state-dir: {} is not a directory", dir.display()));
         }
         let mut stores: Vec<(&'static str, Arc<dyn state::Snapshot>)> = vec![
-            ("used-probe-nonces", Arc::clone(&used_nonces) as Arc<dyn state::Snapshot>),
-            ("used-behavior-nonces", Arc::clone(&used_behavior_nonces) as Arc<dyn state::Snapshot>),
-            ("token-budgets", Arc::clone(&token_budgets) as Arc<dyn state::Snapshot>),
-            ("used-challenges", Arc::clone(&used_challenges) as Arc<dyn state::Snapshot>),
-            ("probe-results", Arc::clone(&probes) as Arc<dyn state::Snapshot>),
-            ("events", Arc::new(state::Events::new(Arc::clone(&ring))) as Arc<dyn state::Snapshot>),
-            ("wba-replays", Arc::clone(&wba_replays) as Arc<dyn state::Snapshot>),
+            (
+                "used-probe-nonces",
+                Arc::clone(&used_nonces) as Arc<dyn state::Snapshot>,
+            ),
+            (
+                "used-behavior-nonces",
+                Arc::clone(&used_behavior_nonces) as Arc<dyn state::Snapshot>,
+            ),
+            (
+                "token-budgets",
+                Arc::clone(&token_budgets) as Arc<dyn state::Snapshot>,
+            ),
+            (
+                "used-challenges",
+                Arc::clone(&used_challenges) as Arc<dyn state::Snapshot>,
+            ),
+            (
+                "probe-results",
+                Arc::clone(&probes) as Arc<dyn state::Snapshot>,
+            ),
+            (
+                "events",
+                Arc::new(state::Events::new(Arc::clone(&ring))) as Arc<dyn state::Snapshot>,
+            ),
+            (
+                "wba-replays",
+                Arc::clone(&wba_replays) as Arc<dyn state::Snapshot>,
+            ),
         ];
         if let Some(p) = &pass {
-            stores.push(("used-tokens", Arc::clone(&p.used) as Arc<dyn state::Snapshot>));
+            stores.push((
+                "used-tokens",
+                Arc::clone(&p.used) as Arc<dyn state::Snapshot>,
+            ));
         }
         let state = Arc::new(state::State::new(dir, Arc::clone(&quotas), stores));
         state.load(state::now_secs());
-        state::Saver { state, every: Duration::from_secs(seconds("state-flush", 10)) }
+        state::Saver {
+            state,
+            every: Duration::from_secs(seconds("state-flush", 10)),
+        }
     });
     let addr_mode = match args.get("ip-mode") {
         None => veritell_events::addr::AddrMode::Full,
-        Some(raw) => veritell_events::addr::AddrMode::parse(raw)
-            .unwrap_or_else(|| fail(format!("--ip-mode: {raw:?} is not full, truncated or keyed"))),
+        Some(raw) => veritell_events::addr::AddrMode::parse(raw).unwrap_or_else(|| {
+            fail(format!(
+                "--ip-mode: {raw:?} is not full, truncated or keyed"
+            ))
+        }),
     };
-    let known_key = known::KnownKey::from_secret(read_secret(&secrets, "VERITELL_KNOWN_KEY")).map(|k| k.unwrap_or_else(|e| fail(e)));
+    let known_key = known::KnownKey::from_secret(read_secret(&secrets, "VERITELL_KNOWN_KEY"))
+        .map(|k| k.unwrap_or_else(|e| fail(e)));
     if known_key.is_some() {
         eprintln!("veritell: known-person marks on (VERITELL_KNOWN_KEY)");
     }
@@ -813,28 +906,41 @@ fn main() {
     let forwarded_replace = match args.get("forwarded-for").map(String::as_str) {
         None | Some("append") => false,
         Some("replace") => true,
-        Some(other) => fail(format!("--forwarded-for: {other:?} is not append or replace")),
+        Some(other) => fail(format!(
+            "--forwarded-for: {other:?} is not append or replace"
+        )),
     };
     let upstream_sni = args.get("upstream-sni").cloned();
     // An empty value is the same as none: the system roots. (A deployment
     // file can always pass the flag that way.)
-    let upstream_ca = args.get("upstream-ca").filter(|p| !p.is_empty()).map(|path| {
-        let pem = std::fs::read(path).unwrap_or_else(|e| fail(format!("cannot read upstream CA {path}: {e}")));
-        let certs = boring::x509::X509::stack_from_pem(&pem)
-            .unwrap_or_else(|e| fail(format!("--upstream-ca {path}: not PEM certificates: {e}")));
-        if certs.is_empty() {
-            fail(format!("--upstream-ca {path}: no certificates in it"));
-        }
-        Arc::new(certs.into_boxed_slice())
-    });
+    let upstream_ca = args
+        .get("upstream-ca")
+        .filter(|p| !p.is_empty())
+        .map(|path| {
+            let pem = std::fs::read(path)
+                .unwrap_or_else(|e| fail(format!("cannot read upstream CA {path}: {e}")));
+            let certs = boring::x509::X509::stack_from_pem(&pem).unwrap_or_else(|e| {
+                fail(format!("--upstream-ca {path}: not PEM certificates: {e}"))
+            });
+            if certs.is_empty() {
+                fail(format!("--upstream-ca {path}: no certificates in it"));
+            }
+            Arc::new(certs.into_boxed_slice())
+        });
     // Other sites behind the same gateway, by host name, over plain HTTP.
     // An empty value is the same as none (a deployment file can pass it so).
     let mut host_upstreams = HashMap::new();
-    for item in args.get("upstream-host").map_or("", String::as_str).split(',').filter(|s| !s.trim().is_empty()) {
+    for item in args
+        .get("upstream-host")
+        .map_or("", String::as_str)
+        .split(',')
+        .filter(|s| !s.trim().is_empty())
+    {
         let parsed = item.trim().split_once('=').and_then(|(name, addr)| {
             let (h, p) = addr.rsplit_once(':')?;
             let name = name.trim().trim_end_matches('.').to_ascii_lowercase();
-            (!name.is_empty() && !h.is_empty()).then_some((name, (h.to_string(), p.parse::<u16>().ok()?)))
+            (!name.is_empty() && !h.is_empty())
+                .then_some((name, (h.to_string(), p.parse::<u16>().ok()?)))
         });
         let Some((name, addr)) = parsed else {
             fail(format!("--upstream-host {item:?} is not name=host:port"));
@@ -887,7 +993,12 @@ fn main() {
         used_challenges: Arc::clone(&used_challenges),
         throttle: Throttle::new(100_000),
         flood: flood::FloodGuard::new(flood_mode, flood_limit, 100_000),
-        page_rates: flood::PageRates::new(rate_net_limit, rate_client_limit, no_probe_pages, 100_000),
+        page_rates: flood::PageRates::new(
+            rate_net_limit,
+            rate_client_limit,
+            no_probe_pages,
+            100_000,
+        ),
         shed: shed::Shedder::new(shed_mode, max_in_flight),
         fp_surge: flood::FpSurge::new(fp_surge_min, fp_surge_growth, 100_000),
         token_budget,
@@ -943,7 +1054,11 @@ fn main() {
     service.add_tls_with_settings(listen, None, tls);
     // The client's TCP SYN, measured and never scored (Linux only).
     #[cfg(target_os = "linux")]
-    match listen.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) {
+    match listen
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse::<u16>().ok())
+    {
         Some(port) => service
             .endpoints()
             .set_pre_tls_callback(Arc::new(syn::SynHook::new(Arc::clone(&syn_store), port))),
@@ -952,11 +1067,16 @@ fn main() {
     if let Some(addr) = &sidecar {
         check_bindable("sidecar-listen", addr);
         service.add_tcp(addr);
-        eprintln!("veritell: authorization endpoint on http://{addr}{}", gateway::AUTHZ_PATH);
+        eprintln!(
+            "veritell: authorization endpoint on http://{addr}{}",
+            gateway::AUTHZ_PATH
+        );
     }
     server.add_service(service);
     if let Some(saver) = saver {
-        server.add_service(pingora::services::background::background_service("state", saver));
+        server.add_service(pingora::services::background::background_service(
+            "state", saver,
+        ));
     }
 
     if let Some(addr) = &admin {
@@ -965,7 +1085,10 @@ fn main() {
             admin::AdminApp {
                 events: ring.clone(),
                 token: admin_token.clone(),
-                hosts: admin::allowed_hosts(addr.parse().unwrap_or_else(|_| fail(format!("--admin {addr:?} is not ip:port")))),
+                hosts: admin::allowed_hosts(
+                    addr.parse()
+                        .unwrap_or_else(|_| fail(format!("--admin {addr:?} is not ip:port"))),
+                ),
             },
         );
         check_bindable("admin", addr);
@@ -973,8 +1096,15 @@ fn main() {
         server.add_service(admin_service);
         eprintln!(
             "veritell: dashboard on http://{addr}{}{}",
-            if admin_token.is_some() { " (token required)" } else { "" },
-            if addr.parse::<std::net::SocketAddr>().is_ok_and(|a| !a.ip().is_loopback()) {
+            if admin_token.is_some() {
+                " (token required)"
+            } else {
+                ""
+            },
+            if addr
+                .parse::<std::net::SocketAddr>()
+                .is_ok_and(|a| !a.ip().is_loopback())
+            {
                 " (not loopback: publish the port on the host's loopback only)"
             } else {
                 ""

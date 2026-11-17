@@ -1,5 +1,5 @@
-use veritell_behavior::*;
 use serde_json::{json, Value};
+use veritell_behavior::*;
 
 fn full() -> Value {
     json!({
@@ -18,7 +18,11 @@ fn missing_nullable_key_is_refused() {
     for k in NULLABLE {
         let mut v = full();
         v.as_object_mut().unwrap().remove(k);
-        assert_eq!(parse_summary(v.to_string().as_bytes()), Err(ParseError::Malformed), "{k}");
+        assert_eq!(
+            parse_summary(v.to_string().as_bytes()),
+            Err(ParseError::Malformed),
+            "{k}"
+        );
     }
 }
 

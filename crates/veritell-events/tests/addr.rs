@@ -4,8 +4,8 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use hmac::{Hmac, Mac};
-use veritell_events::addr::{AddrMode, AddrRedactor};
 use sha2::Sha256;
+use veritell_events::addr::{AddrMode, AddrRedactor};
 
 const DAY: u64 = 86_400;
 const T0: u64 = 1_793_000_000; // 2026-10-26 07:33 UTC
@@ -55,8 +55,14 @@ fn truncated_keeps_the_network() {
     assert_eq!(r.stored(ip("203.0.113.9"), T0), "203.0.113.0/24");
     assert_eq!(r.stored(ip("203.0.113.255"), T0), "203.0.113.0/24");
     assert_eq!(r.stored(ip("::ffff:198.51.100.7"), T0), "198.51.100.0/24");
-    assert_eq!(r.stored(ip("2001:db8:abcd:12::1"), T0), "2001:db8:abcd::/48");
-    assert_eq!(r.stored(ip("2001:db8:abcd:ffff:ffff:ffff:ffff:ffff"), T0), "2001:db8:abcd::/48");
+    assert_eq!(
+        r.stored(ip("2001:db8:abcd:12::1"), T0),
+        "2001:db8:abcd::/48"
+    );
+    assert_eq!(
+        r.stored(ip("2001:db8:abcd:ffff:ffff:ffff:ffff:ffff"), T0),
+        "2001:db8:abcd::/48"
+    );
     assert_eq!(r.stored(ip("::1"), T0), "::/48");
 }
 
@@ -65,8 +71,14 @@ fn keyed_is_hmac_of_the_octets_under_the_days_key() {
     let r = AddrRedactor::with_keys(AddrMode::Keyed, day_keys());
     let day = T0 / DAY;
     let key = (day_keys())(day);
-    assert_eq!(r.stored(ip("203.0.113.9"), T0), expected_keyed(key, &[203, 0, 113, 9]));
-    assert_eq!(r.stored(ip("::ffff:203.0.113.9"), T0), expected_keyed(key, &[203, 0, 113, 9]));
+    assert_eq!(
+        r.stored(ip("203.0.113.9"), T0),
+        expected_keyed(key, &[203, 0, 113, 9])
+    );
+    assert_eq!(
+        r.stored(ip("::ffff:203.0.113.9"), T0),
+        expected_keyed(key, &[203, 0, 113, 9])
+    );
     let v6 = ip("2001:db8::1");
     let IpAddr::V6(a) = v6 else { unreachable!() };
     assert_eq!(r.stored(v6, T0), expected_keyed(key, &a.octets()));
@@ -81,7 +93,11 @@ fn keyed_links_within_a_day_and_not_across() {
     assert_ne!(a, r.stored(ip("203.0.113.9"), start + DAY));
     assert_ne!(a, r.stored(ip("203.0.113.10"), start));
     let shape = |s: &str| {
-        s.len() == 34 && s.starts_with("k:") && s[2..].bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        s.len() == 34
+            && s.starts_with("k:")
+            && s[2..]
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     };
     assert!(shape(&a), "{a}");
     assert!(!a.contains("203.0.113"));
@@ -94,7 +110,10 @@ fn keyed_goes_back_to_an_earlier_day_without_panicking() {
     let late = r.stored(ip("203.0.113.9"), T0 + DAY);
     let early = r.stored(ip("203.0.113.9"), T0);
     assert_ne!(late, early);
-    assert_eq!(early, expected_keyed((day_keys())(T0 / DAY), &[203, 0, 113, 9]));
+    assert_eq!(
+        early,
+        expected_keyed((day_keys())(T0 / DAY), &[203, 0, 113, 9])
+    );
 }
 
 #[test]

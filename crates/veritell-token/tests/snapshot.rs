@@ -29,7 +29,10 @@ fn export_is_the_documented_format_in_id_order() {
     assert!(s.consume(&id(9), 3, NOW + 100, NOW));
     assert!(s.consume(&id(2), 1, NOW + 50, NOW));
     assert!(s.consume(&id(9), 3, NOW + 100, NOW));
-    assert_eq!(s.export(NOW), snapshot(&[(id(2), 1, NOW + 50), (id(9), 2, NOW + 100)]));
+    assert_eq!(
+        s.export(NOW),
+        snapshot(&[(id(2), 1, NOW + 50), (id(9), 2, NOW + 100)])
+    );
 }
 
 #[test]
@@ -52,10 +55,16 @@ fn a_spent_id_stays_spent_after_a_round_trip() {
     assert!(a.consume(&id(2), 3, NOW + 600, NOW)); // a session with budget 3, one used
     let b = MemoryBudgetStore::new(10);
     assert_eq!(b.import(&a.export(NOW), NOW + 1), Ok(2));
-    assert!(!b.consume(&id(1), 1, NOW + 600, NOW + 1), "the token was taken again");
+    assert!(
+        !b.consume(&id(1), 1, NOW + 600, NOW + 1),
+        "the token was taken again"
+    );
     assert!(b.consume(&id(2), 3, NOW + 600, NOW + 1));
     assert!(b.consume(&id(2), 3, NOW + 600, NOW + 1));
-    assert!(!b.consume(&id(2), 3, NOW + 600, NOW + 1), "the budget grew back");
+    assert!(
+        !b.consume(&id(2), 3, NOW + 600, NOW + 1),
+        "the budget grew back"
+    );
     assert_eq!(b.len(), 2);
 }
 
@@ -89,7 +98,11 @@ fn import_merges_with_what_is_there() {
 fn import_respects_capacity() {
     let b = MemoryBudgetStore::new(2);
     assert!(b.consume(&id(1), 1, NOW + 100, NOW));
-    let snap = snapshot(&[(id(1), 1, NOW + 100), (id(2), 1, NOW + 100), (id(3), 1, NOW + 100)]);
+    let snap = snapshot(&[
+        (id(1), 1, NOW + 100),
+        (id(2), 1, NOW + 100),
+        (id(3), 1, NOW + 100),
+    ]);
     assert_eq!(b.import(&snap, NOW), Ok(2));
     assert_eq!(b.len(), 2);
 }

@@ -99,7 +99,12 @@ pub fn write(path: &Path, kind: &str, payload: &[u8]) -> Result<(), PersistError
     let len = u64::try_from(payload.len())
         .ok()
         .filter(|n| *n <= MAX_BYTES)
-        .ok_or_else(|| PersistError::Io(io::Error::new(io::ErrorKind::InvalidInput, "payload larger than MAX_BYTES")))?;
+        .ok_or_else(|| {
+            PersistError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "payload larger than MAX_BYTES",
+            ))
+        })?;
 
     let mut buf: Vec<u8> = Vec::with_capacity(
         MAGIC

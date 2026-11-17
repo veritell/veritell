@@ -7,8 +7,8 @@
 
 use std::sync::OnceLock;
 
-use veritell_core::{Class, Detection, Layer};
 use serde::Deserialize;
+use veritell_core::{Class, Detection, Layer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Engine {
@@ -176,7 +176,9 @@ fn is_known_bot(name: &str) -> bool {
     KNOWN_BOTS.iter().any(|k| {
         name.eq_ignore_ascii_case(k)
             || (name.len() > k.len() + 1
-                && name.get(..k.len()).is_some_and(|p| p.eq_ignore_ascii_case(k))
+                && name
+                    .get(..k.len())
+                    .is_some_and(|p| p.eq_ignore_ascii_case(k))
                 && name.as_bytes().get(k.len()) == Some(&b'-'))
     })
 }
@@ -222,7 +224,8 @@ fn product_major(ua: &str, toks: &[Token<'_>], name: &str) -> Option<Option<u32>
 }
 
 fn has_product(ua: &str, toks: &[Token<'_>], name: &str) -> bool {
-    toks.iter().any(|t| t.text == name && followed_by_slash(ua, t))
+    toks.iter()
+        .any(|t| t.text == name && followed_by_slash(ua, t))
 }
 
 fn browser_kind(ua: &str, toks: &[Token<'_>], is_ios: bool) -> Option<UaKind> {
@@ -234,7 +237,11 @@ fn browser_kind(ua: &str, toks: &[Token<'_>], is_ios: bool) -> Option<UaKind> {
         })
     };
     if is_ios {
-        for (tok, name) in [("CriOS", "chrome"), ("FxiOS", "firefox"), ("EdgiOS", "edge")] {
+        for (tok, name) in [
+            ("CriOS", "chrome"),
+            ("FxiOS", "firefox"),
+            ("EdgiOS", "edge"),
+        ] {
             if let Some(v) = product_major(ua, toks, tok) {
                 return mk(Engine::WebKit, name, v);
             }
@@ -246,7 +253,12 @@ fn browser_kind(ua: &str, toks: &[Token<'_>], is_ios: bool) -> Option<UaKind> {
         }
         return None;
     }
-    for (tok, name) in [("Edg", "edge"), ("EdgA", "edge"), ("OPR", "opera"), ("SamsungBrowser", "samsung")] {
+    for (tok, name) in [
+        ("Edg", "edge"),
+        ("EdgA", "edge"),
+        ("OPR", "opera"),
+        ("SamsungBrowser", "samsung"),
+    ] {
         if let Some(v) = product_major(ua, toks, tok) {
             return mk(Engine::Chromium, name, v);
         }
@@ -470,10 +482,12 @@ impl TruthTable {
     /// are all present and all among WebKit's known values.
     fn is_webkit_stack(&self, obs: &Observed<'_>) -> bool {
         let truth = &self.engines.webkit;
-        let known = |dim: &Dimension, v: &str| !dim.values.is_empty() && dim.values.iter().any(|x| x == v);
-        let (Some(hash), Some((settings, order))) =
-            (obs.ja4.and_then(ja4_cipher_hash), obs.h2_akamai.and_then(h2_parts))
-        else {
+        let known =
+            |dim: &Dimension, v: &str| !dim.values.is_empty() && dim.values.iter().any(|x| x == v);
+        let (Some(hash), Some((settings, order))) = (
+            obs.ja4.and_then(ja4_cipher_hash),
+            obs.h2_akamai.and_then(h2_parts),
+        ) else {
             return false;
         };
         known(&truth.ja4_cipher_hash, hash)
@@ -714,7 +728,11 @@ mod tests {
 
     fn browser(ua: &str) -> (Engine, String, u32) {
         match parse_user_agent(Some(ua)).kind {
-            UaKind::Browser { engine, name, major } => (engine, name, major),
+            UaKind::Browser {
+                engine,
+                name,
+                major,
+            } => (engine, name, major),
             other => panic!("expected browser, got {other:?}"),
         }
     }
@@ -758,9 +776,16 @@ mod tests {
         for (ua, name) in [
             ("Googlebot-Image/1.0", "Googlebot-Image"),
             ("Mozilla/5.0 (compatible; Googlebot-News)", "Googlebot-News"),
-            ("Baiduspider-image+(+http://www.baidu.com/search/spider.htm)", "Baiduspider-image"),
+            (
+                "Baiduspider-image+(+http://www.baidu.com/search/spider.htm)",
+                "Baiduspider-image",
+            ),
         ] {
-            assert_eq!(parse_user_agent(Some(ua)).kind, UaKind::DeclaredBot { name: name.into() }, "{ua}");
+            assert_eq!(
+                parse_user_agent(Some(ua)).kind,
+                UaKind::DeclaredBot { name: name.into() },
+                "{ua}"
+            );
         }
         // Not a variant: no hyphen, or nothing after it.
         assert_eq!(parse_user_agent(Some("Googlebotx")).kind, UaKind::Unknown);
@@ -770,7 +795,9 @@ mod tests {
     fn generic_bot_suffix_needs_slash() {
         assert_eq!(
             parse_user_agent(Some("MyCrawler/1.0")).kind,
-            UaKind::DeclaredBot { name: "MyCrawler".into() }
+            UaKind::DeclaredBot {
+                name: "MyCrawler".into()
+            }
         );
         assert_eq!(parse_user_agent(Some("MyCrawler")).kind, UaKind::Unknown);
     }
@@ -779,15 +806,23 @@ mod tests {
     fn overflowing_version_is_unknown() {
         let ua = "Mozilla/5.0 (Windows NT 10.0) Chrome/99999999999999999999.0 Safari/537.36";
         assert_eq!(parse_user_agent(Some(ua)).kind, UaKind::Unknown);
-        assert_eq!(parse_user_agent(Some("Chrome/4294967296")).kind, UaKind::Unknown);
-        assert_eq!(browser("Chrome/4294967295"), (Engine::Chromium, "chrome".into(), u32::MAX));
+        assert_eq!(
+            parse_user_agent(Some("Chrome/4294967296")).kind,
+            UaKind::Unknown
+        );
+        assert_eq!(
+            browser("Chrome/4294967295"),
+            (Engine::Chromium, "chrome".into(), u32::MAX)
+        );
     }
 
     #[test]
     fn tool_requires_boundary() {
         assert_eq!(
             parse_user_agent(Some("curl")).kind,
-            UaKind::DeclaredTool { name: "curl".into() }
+            UaKind::DeclaredTool {
+                name: "curl".into()
+            }
         );
         assert_eq!(parse_user_agent(Some("curlify/1.0")).kind, UaKind::Unknown);
     }
@@ -800,7 +835,9 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         let d = table.check(&Observed {
-            user_agent: Some("Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"),
+            user_agent: Some(
+                "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            ),
             ja4: Some("t13d1715h2_aaaaaaaaaaaa_bbbbbbbbbbbb"),
             h2_akamai: Some("1:1|0|0|m,a,s,p"),
             header_names: &headers,

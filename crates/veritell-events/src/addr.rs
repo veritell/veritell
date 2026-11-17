@@ -126,7 +126,10 @@ impl AddrRedactor {
                         }
                     }
                 };
-                *slot = Slot { day: Some(day), key };
+                *slot = Slot {
+                    day: Some(day),
+                    key,
+                };
             }
             slot.key
         };
@@ -184,11 +187,7 @@ fn keyed_text(key: &[u8; 32], ip: IpAddr) -> String {
         },
     }
     let out = mac.finalize().into_bytes();
-    let hex: String = out
-        .iter()
-        .take(16)
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let hex: String = out.iter().take(16).map(|b| format!("{b:02x}")).collect();
     format!("k:{hex}")
 }
 
@@ -202,7 +201,11 @@ mod forward_tests {
         let ip: IpAddr = "203.0.113.9".parse().unwrap();
         let day = 20_000 * SECS_PER_DAY;
         let today = r.stored(ip, day + 10);
-        assert_eq!(r.stored(ip, day - 10), today, "a late caller from yesterday");
+        assert_eq!(
+            r.stored(ip, day - 10),
+            today,
+            "a late caller from yesterday"
+        );
         assert_eq!(r.stored(ip, day + 20), today, "and today again: no flip");
         assert_ne!(r.stored(ip, day + SECS_PER_DAY), today, "tomorrow moves on");
     }

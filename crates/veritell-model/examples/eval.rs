@@ -33,7 +33,11 @@ fn main() {
             std::process::exit(1);
         });
         let Some(result) = model.evaluate(&x) else {
-            eprintln!("vector has {} values, the model wants {}", x.len(), model.features().len());
+            eprintln!(
+                "vector has {} values, the model wants {}",
+                x.len(),
+                model.features().len()
+            );
             std::process::exit(1);
         };
         let _ = writeln!(out, "{:.9} {:.9}", result.raw, result.probability);

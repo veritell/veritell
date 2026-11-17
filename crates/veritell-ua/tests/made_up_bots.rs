@@ -20,7 +20,9 @@ fn made_up_bot_on_a_tool_tls_stack_is_caught() {
     let table = TruthTable::builtin();
     assert_eq!(
         parse_user_agent(Some("Foobot/1.0")).kind,
-        UaKind::DeclaredBot { name: "Foobot".into() }
+        UaKind::DeclaredBot {
+            name: "Foobot".into()
+        }
     );
     let d = table.check(&Observed {
         user_agent: Some("Foobot/1.0"),
@@ -96,7 +98,10 @@ fn made_up_bot_on_an_unremarkable_stack_adds_nothing() {
 #[test]
 fn known_crawler_variants_are_not_rechecked() {
     let table = TruthTable::builtin();
-    for ua in ["Googlebot-Image/1.0", "Mozilla/5.0 (compatible; bingbot/2.0)"] {
+    for ua in [
+        "Googlebot-Image/1.0",
+        "Mozilla/5.0 (compatible; bingbot/2.0)",
+    ] {
         let d = table.check(&Observed {
             user_agent: Some(ua),
             ja4: Some(CURL_JA4),

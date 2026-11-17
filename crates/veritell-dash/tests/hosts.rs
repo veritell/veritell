@@ -21,15 +21,25 @@ impl EventQuery for Fake {
         Summary::default()
     }
     fn summary_for(&self, since_ms: u64, host: Option<&str>) -> Summary {
-        self.asked_summary.lock().unwrap().push((since_ms, host.map(str::to_string)));
-        Summary { total: 7, by_host: vec![("shop.example".into(), 7)], ..Summary::default() }
+        self.asked_summary
+            .lock()
+            .unwrap()
+            .push((since_ms, host.map(str::to_string)));
+        Summary {
+            total: 7,
+            by_host: vec![("shop.example".into(), 7)],
+            ..Summary::default()
+        }
     }
 }
 
 #[test]
 fn events_take_a_host() {
     let f = Fake::default();
-    assert_eq!(handle("GET", "/api/events?host=shop.example", &f, 0).status, 200);
+    assert_eq!(
+        handle("GET", "/api/events?host=shop.example", &f, 0).status,
+        200
+    );
     assert_eq!(handle("GET", "/api/events?host=", &f, 0).status, 200);
     assert_eq!(handle("GET", "/api/events", &f, 0).status, 200);
     let asked = f.asked_recent.lock().unwrap();
@@ -41,7 +51,12 @@ fn events_take_a_host() {
 #[test]
 fn the_summary_takes_a_host_and_reports_sites() {
     let f = Fake::default();
-    let r = handle("GET", "/api/summary?window_secs=60&host=shop%2Eexample", &f, 100_000);
+    let r = handle(
+        "GET",
+        "/api/summary?window_secs=60&host=shop%2Eexample",
+        &f,
+        100_000,
+    );
     assert_eq!(r.status, 200);
     let body: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
     assert_eq!(body["total"], 7);

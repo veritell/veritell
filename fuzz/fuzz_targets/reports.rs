@@ -16,11 +16,19 @@
 // the same table; every error has a message.
 use std::sync::OnceLock;
 use veritell_core::Detection;
-use veritell_probe::{analyze, parse_report, parse_truth, Claimed, Engine, EngineTruth, Os, ReportError, MAX_REPORT_BYTES};
+use veritell_probe::{
+    analyze, parse_report, parse_truth, Claimed, Engine, EngineTruth, Os, ReportError,
+    MAX_REPORT_BYTES,
+};
 
 fn truth() -> &'static EngineTruth {
     static T: OnceLock<EngineTruth> = OnceLock::new();
-    T.get_or_init(|| parse_truth(include_str!("../../crates/veritell-probe/data/engine_v1.json")).unwrap())
+    T.get_or_init(|| {
+        parse_truth(include_str!(
+            "../../crates/veritell-probe/data/engine_v1.json"
+        ))
+        .unwrap()
+    })
 }
 
 /// The shipped table with `verified` flipped and a `math` list on every
@@ -43,22 +51,40 @@ const CHROME_UA: &str =
 
 fn sane(found: &[Detection]) {
     for d in found {
-        assert!(!d.id.is_empty() && !d.detail.is_empty(), "detection without id or detail: {d:?}");
-        assert!(d.penalty <= 99, "penalty {} over 99 for {}", d.penalty, d.id);
+        assert!(
+            !d.id.is_empty() && !d.detail.is_empty(),
+            "detection without id or detail: {d:?}"
+        );
+        assert!(
+            d.penalty <= 99,
+            "penalty {} over 99 for {}",
+            d.penalty,
+            d.id
+        );
     }
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    let Some((&pick, body)) = data.split_first() else { return };
+    let Some((&pick, body)) = data.split_first() else {
+        return;
+    };
     if pick & 1 == 0 {
         if body.len() % 64 == 63 {
             let mut big = body.to_vec();
             big.resize(MAX_REPORT_BYTES + 1, b' ');
-            assert_eq!(parse_report(&big).err(), Some(ReportError::TooLarge), "an oversized report was read");
+            assert_eq!(
+                parse_report(&big).err(),
+                Some(ReportError::TooLarge),
+                "an oversized report was read"
+            );
         }
         if let Ok(text) = std::str::from_utf8(body) {
             match parse_truth(text) {
-                Ok(t) => assert_eq!(parse_truth(text).ok(), Some(t), "truth file read twice differs"),
+                Ok(t) => assert_eq!(
+                    parse_truth(text).ok(),
+                    Some(t),
+                    "truth file read twice differs"
+                ),
                 Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
             }
         }
@@ -66,12 +92,33 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
             Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
             Ok(report) => {
                 let again = serde_json::to_vec(&report).expect("report does not serialise");
-                assert_eq!(parse_report(&again).as_ref().ok(), Some(&report), "report does not survive a round trip");
-                let engines = [None, Some(Engine::Blink), Some(Engine::Gecko), Some(Engine::Webkit)];
-                let oses = [None, Some(Os::Windows), Some(Os::MacOs), Some(Os::Linux), Some(Os::Android), Some(Os::Ios), Some(Os::ChromeOs)];
+                assert_eq!(
+                    parse_report(&again).as_ref().ok(),
+                    Some(&report),
+                    "report does not survive a round trip"
+                );
+                let engines = [
+                    None,
+                    Some(Engine::Blink),
+                    Some(Engine::Gecko),
+                    Some(Engine::Webkit),
+                ];
+                let oses = [
+                    None,
+                    Some(Os::Windows),
+                    Some(Os::MacOs),
+                    Some(Os::Linux),
+                    Some(Os::Android),
+                    Some(Os::Ios),
+                    Some(Os::ChromeOs),
+                ];
                 let own_ua = report.main.ua.clone();
                 let user_agent = [Some(CHROME_UA), Some(own_ua.as_str()), None][body.len() % 3];
-                let table = if body.len() / 3 % 2 == 0 { truth() } else { variant() };
+                let table = if body.len() / 3 % 2 == 0 {
+                    truth()
+                } else {
+                    variant()
+                };
                 let claimed = Claimed {
                     user_agent,
                     engine: engines[usize::from(pick >> 1) % engines.len()],
@@ -80,9 +127,16 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 };
                 let found = analyze(&report, &claimed, table);
                 sane(&found);
-                assert_eq!(analyze(&report, &claimed, table), found, "same report, different detections");
+                assert_eq!(
+                    analyze(&report, &claimed, table),
+                    found,
+                    "same report, different detections"
+                );
                 if user_agent == Some(own_ua.as_str()) {
-                    assert!(!found.iter().any(|d| d.id == "http_ua_mismatch"), "the report's own UA is a mismatch");
+                    assert!(
+                        !found.iter().any(|d| d.id == "http_ua_mismatch"),
+                        "the report's own UA is a mismatch"
+                    );
                 }
             }
         }
@@ -93,7 +147,11 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 let params = veritell_behavior::Params::default();
                 let found = veritell_behavior::analyze(&summary, &params);
                 sane(&found);
-                assert_eq!(veritell_behavior::analyze(&summary, &params), found, "same summary, different detections");
+                assert_eq!(
+                    veritell_behavior::analyze(&summary, &params),
+                    found,
+                    "same summary, different detections"
+                );
             }
         }
     }

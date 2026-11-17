@@ -78,7 +78,11 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { min_networks: 20, max_fingerprints: 50_000, ttl_secs: 86_400 }
+        Config {
+            min_networks: 20,
+            max_fingerprints: 50_000,
+            ttl_secs: 86_400,
+        }
     }
 }
 

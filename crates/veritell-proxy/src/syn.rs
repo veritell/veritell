@@ -45,7 +45,9 @@ pub struct SynStore {
 
 impl Default for SynStore {
     fn default() -> Self {
-        SynStore { entries: Mutex::new(HashMap::new()) }
+        SynStore {
+            entries: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -90,7 +92,10 @@ pub fn is_public(ip: IpAddr) -> bool {
         }
         IpAddr::V6(v6) => {
             let s = v6.segments()[0];
-            !(v6.is_loopback() || v6.is_unspecified() || (s & 0xfe00) == 0xfc00 || (s & 0xffc0) == 0xfe80)
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || (s & 0xfe00) == 0xfc00
+                || (s & 0xffc0) == 0xfe80)
         }
     }
 }
@@ -101,7 +106,10 @@ pub fn accept(fp: veritell_fp::syn::SynFp, peer: IpAddr) -> Option<SynSeen> {
     if !is_public(peer) || crate::gateway::canonical(fp.src) != peer {
         return None;
     }
-    Some(SynSeen { signature: fp.signature, ttl: fp.ttl })
+    Some(SynSeen {
+        signature: fp.signature,
+        ttl: fp.ttl,
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -130,7 +138,11 @@ mod linux {
 
     impl SynHook {
         pub fn new(store: Arc<SynStore>, port: u16) -> SynHook {
-            SynHook { store, port, configured: AtomicBool::new(false) }
+            SynHook {
+                store,
+                port,
+                configured: AtomicBool::new(false),
+            }
         }
     }
 
@@ -139,11 +151,18 @@ mod linux {
         async fn process(&self, stream: &mut L4Stream) -> pingora::Result<()> {
             if !self.configured.swap(true, Ordering::AcqRel) {
                 let n = save_syn_on_listeners(self.port);
-                println!("{}", serde_json::json!({ "kind": "tcp_syn", "listeners": n }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "kind": "tcp_syn", "listeners": n })
+                );
             }
             let fd = stream.as_raw_fd();
-            let Some(bytes) = saved_syn(fd) else { return Ok(()) };
-            let Some(fp) = veritell_fp::syn::parse(&bytes) else { return Ok(()) };
+            let Some(bytes) = saved_syn(fd) else {
+                return Ok(());
+            };
+            let Some(fp) = veritell_fp::syn::parse(&bytes) else {
+                return Ok(());
+            };
             let peer = stream
                 .get_socket_digest()
                 .and_then(|d| d.peer_addr().and_then(|a| a.as_inet()).map(|a| a.ip()));
@@ -160,7 +179,15 @@ mod linux {
         let mut v: libc::c_int = 0;
         let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
         // SAFETY: `v` and `len` are valid for writes of the sizes given.
-        let r = unsafe { libc::getsockopt(fd, level, name, (&mut v as *mut libc::c_int).cast(), &mut len) };
+        let r = unsafe {
+            libc::getsockopt(
+                fd,
+                level,
+                name,
+                (&mut v as *mut libc::c_int).cast(),
+                &mut len,
+            )
+        };
         (r == 0).then_some(v)
     }
 
@@ -169,7 +196,13 @@ mod linux {
         let mut len = std::mem::size_of::<u64>() as libc::socklen_t;
         // SAFETY: `v` and `len` are valid for writes of the sizes given.
         let r = unsafe {
-            libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_COOKIE, (&mut v as *mut u64).cast(), &mut len)
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_COOKIE,
+                (&mut v as *mut u64).cast(),
+                &mut len,
+            )
         };
         if r == 0 {
             Ok(v)
@@ -186,7 +219,13 @@ mod linux {
         let mut len = buf.len() as libc::socklen_t;
         // SAFETY: `buf` is valid for writes of `len` bytes.
         let r = unsafe {
-            libc::getsockopt(fd, libc::IPPROTO_TCP, libc::TCP_SAVED_SYN, buf.as_mut_ptr().cast(), &mut len)
+            libc::getsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_SAVED_SYN,
+                buf.as_mut_ptr().cast(),
+                &mut len,
+            )
         };
         if r != 0 || len == 0 {
             return None;
@@ -201,19 +240,27 @@ mod linux {
         // writes at most `len` bytes into it.
         let mut ss: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
         let mut len = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
-        let r = unsafe { libc::getsockname(fd, (&mut ss as *mut libc::sockaddr_storage).cast(), &mut len) };
+        let r = unsafe {
+            libc::getsockname(
+                fd,
+                (&mut ss as *mut libc::sockaddr_storage).cast(),
+                &mut len,
+            )
+        };
         if r != 0 {
             return None;
         }
         match libc::c_int::from(ss.ss_family) {
             libc::AF_INET => {
                 // SAFETY: the family says the storage holds a sockaddr_in.
-                let sin: &libc::sockaddr_in = unsafe { &*(&ss as *const libc::sockaddr_storage).cast() };
+                let sin: &libc::sockaddr_in =
+                    unsafe { &*(&ss as *const libc::sockaddr_storage).cast() };
                 Some(u16::from_be(sin.sin_port))
             }
             libc::AF_INET6 => {
                 // SAFETY: the family says the storage holds a sockaddr_in6.
-                let sin6: &libc::sockaddr_in6 = unsafe { &*(&ss as *const libc::sockaddr_storage).cast() };
+                let sin6: &libc::sockaddr_in6 =
+                    unsafe { &*(&ss as *const libc::sockaddr_storage).cast() };
                 Some(u16::from_be(sin6.sin6_port))
             }
             _ => None,
@@ -223,10 +270,16 @@ mod linux {
     /// Sets `TCP_SAVE_SYN` on every listening TCP socket of this process
     /// bound to `port`. Returns how many it set.
     fn save_syn_on_listeners(port: u16) -> usize {
-        let Ok(dir) = std::fs::read_dir("/proc/self/fd") else { return 0 };
+        let Ok(dir) = std::fs::read_dir("/proc/self/fd") else {
+            return 0;
+        };
         let mut n = 0;
         for entry in dir.flatten() {
-            let Some(fd) = entry.file_name().to_str().and_then(|s| s.parse::<RawFd>().ok()) else {
+            let Some(fd) = entry
+                .file_name()
+                .to_str()
+                .and_then(|s| s.parse::<RawFd>().ok())
+            else {
                 continue;
             };
             if getsockopt_int(fd, libc::SOL_SOCKET, libc::SO_ACCEPTCONN) != Some(1)
@@ -274,7 +327,10 @@ mod linux {
             assert_eq!(fp.ttl, 64, "loopback: no hop");
             assert_eq!(fp.src, peer.ip());
             assert!(saved_syn(s.as_raw_fd()).is_none(), "given back once only");
-            assert!(accept(fp, peer.ip()).is_none(), "loopback is not a client's SYN");
+            assert!(
+                accept(fp, peer.ip()).is_none(),
+                "loopback is not a client's SYN"
+            );
             assert_ne!(socket_cookie(s.as_raw_fd()).unwrap(), 0);
             c.write_all(b"x").unwrap();
             let mut b = [0u8; 1];
@@ -289,17 +345,45 @@ mod tests {
     use veritell_fp::syn::SynFp;
 
     fn fp(src: &str) -> SynFp {
-        SynFp { signature: "4:64:0:1460:64240,7:mss:df".into(), ttl: 52, src: src.parse().unwrap() }
+        SynFp {
+            signature: "4:64:0:1460:64240,7:mss:df".into(),
+            ttl: 52,
+            src: src.parse().unwrap(),
+        }
     }
 
     #[test]
     fn keeps_only_a_public_peers_own_syn() {
         let kept = accept(fp("203.0.113.9"), "203.0.113.9".parse().unwrap()).unwrap();
-        assert_eq!(kept, SynSeen { signature: "4:64:0:1460:64240,7:mss:df".into(), ttl: 52 });
-        assert!(accept(fp("203.0.113.9"), "::ffff:203.0.113.9".parse().unwrap()).is_some(), "mapped peer");
-        assert!(accept(fp("203.0.113.9"), "198.51.100.1".parse().unwrap()).is_none(), "not the peer's");
-        for local in ["172.20.0.1", "10.1.2.3", "192.168.1.1", "127.0.0.1", "100.64.0.1", "fd00::1", "fe80::1", "::1"] {
-            assert!(accept(fp(local), local.parse().unwrap()).is_none(), "{local}");
+        assert_eq!(
+            kept,
+            SynSeen {
+                signature: "4:64:0:1460:64240,7:mss:df".into(),
+                ttl: 52
+            }
+        );
+        assert!(
+            accept(fp("203.0.113.9"), "::ffff:203.0.113.9".parse().unwrap()).is_some(),
+            "mapped peer"
+        );
+        assert!(
+            accept(fp("203.0.113.9"), "198.51.100.1".parse().unwrap()).is_none(),
+            "not the peer's"
+        );
+        for local in [
+            "172.20.0.1",
+            "10.1.2.3",
+            "192.168.1.1",
+            "127.0.0.1",
+            "100.64.0.1",
+            "fd00::1",
+            "fe80::1",
+            "::1",
+        ] {
+            assert!(
+                accept(fp(local), local.parse().unwrap()).is_none(),
+                "{local}"
+            );
         }
         assert!(is_public("2a01:4f8::1".parse().unwrap()));
     }
@@ -307,7 +391,10 @@ mod tests {
     #[test]
     fn store_takes_once_and_stays_bounded() {
         let s = SynStore::default();
-        let seen = SynSeen { signature: "x".into(), ttl: 1 };
+        let seen = SynSeen {
+            signature: "x".into(),
+            ttl: 1,
+        };
         s.put(7, seen.clone());
         assert_eq!(s.take(7), Some(seen.clone()));
         assert_eq!(s.take(7), None);
@@ -320,7 +407,11 @@ mod tests {
         assert_eq!(s.len(), CAPACITY);
         assert!(s.take(1_000_000).is_none());
         // Once they are older than a minute they are swept.
-        s.put_at(1_000_001, seen.clone(), old + MAX_AGE + Duration::from_secs(1));
+        s.put_at(
+            1_000_001,
+            seen.clone(),
+            old + MAX_AGE + Duration::from_secs(1),
+        );
         assert_eq!(s.len(), 1);
         assert!(s.take(1_000_001).is_some());
     }

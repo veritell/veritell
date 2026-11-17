@@ -79,9 +79,32 @@ TTL toDateTime(ts) + INTERVAL 30 DAY
 
 /// Names of the columns produced by [`to_row`], in order.
 pub const COLUMNS: [&str; 26] = [
-    "ts", "kind", "ip", "method", "host", "path", "user_agent", "ja4", "h2", "score", "class",
-    "detection_ids", "detections", "identity", "asn", "net_class", "token", "action", "enforced",
-    "route", "rule", "outcome", "known", "summary", "tcp", "tcp_ttl",
+    "ts",
+    "kind",
+    "ip",
+    "method",
+    "host",
+    "path",
+    "user_agent",
+    "ja4",
+    "h2",
+    "score",
+    "class",
+    "detection_ids",
+    "detections",
+    "identity",
+    "asn",
+    "net_class",
+    "token",
+    "action",
+    "enforced",
+    "route",
+    "rule",
+    "outcome",
+    "known",
+    "summary",
+    "tcp",
+    "tcp_ttl",
 ];
 
 /// One event as a single-line JSON object for `FORMAT JSONEachRow`, without
@@ -106,7 +129,13 @@ pub fn to_row(event: &Event) -> String {
     put("class", Value::from(event.class.as_str()));
     put(
         "detection_ids",
-        Value::Array(event.detections.iter().map(|d| Value::from(d.id.as_str())).collect()),
+        Value::Array(
+            event
+                .detections
+                .iter()
+                .map(|d| Value::from(d.id.as_str()))
+                .collect(),
+        ),
     );
     let detections = serde_json::to_string(&event.detections).unwrap_or_else(|_| "[]".to_string());
     put("detections", Value::from(detections));
@@ -187,7 +216,9 @@ struct Counters {
 
 fn add(counter: &AtomicU64, n: u64) {
     // Saturating on purpose: a counter must never wrap back to zero.
-    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_add(n)));
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+        Some(v.saturating_add(n))
+    });
 }
 
 /// The host of a plain `http://` URL that leaves this machine, if it does.
@@ -336,7 +367,10 @@ impl ClickHouseSink {
             config.database,
             config.table
         );
-        let agent = ureq::AgentBuilder::new().timeout(config.timeout).redirects(0).build();
+        let agent = ureq::AgentBuilder::new()
+            .timeout(config.timeout)
+            .redirects(0)
+            .build();
         let (tx, rx) = mpsc::sync_channel::<String>(config.queue_capacity);
         let (done_tx, done) = mpsc::channel::<()>();
         let counters = Arc::new(Counters::default());
@@ -353,11 +387,17 @@ impl ClickHouseSink {
         };
         // If the thread cannot be spawned the closure (and with it the
         // receiver) is dropped, so `record` just counts drops.
-        let _ = std::thread::Builder::new().name("veritell-clickhouse".into()).spawn(move || {
-            worker.run();
-            let _ = done_tx.send(());
-        });
-        Ok(ClickHouseSink { tx, counters, done: Mutex::new(done) })
+        let _ = std::thread::Builder::new()
+            .name("veritell-clickhouse".into())
+            .spawn(move || {
+                worker.run();
+                let _ = done_tx.send(());
+            });
+        Ok(ClickHouseSink {
+            tx,
+            counters,
+            done: Mutex::new(done),
+        })
     }
 
     pub fn stats(&self) -> SinkStats {
@@ -371,7 +411,11 @@ impl ClickHouseSink {
     /// Sends what is queued and stops the background thread. Returns when
     /// the thread has finished or `wait` has passed, whichever is first.
     pub fn shutdown(self, wait: Duration) {
-        let ClickHouseSink { tx, counters: _, done } = self;
+        let ClickHouseSink {
+            tx,
+            counters: _,
+            done,
+        } = self;
         // Closing the queue lets the thread drain it, flush and exit.
         drop(tx);
         // Ok or Disconnected: the thread is gone. Timeout: it is stuck in a
@@ -422,7 +466,11 @@ mod tests {
         let event = serde_json::to_value(ev()).unwrap();
         let row: serde_json::Value = serde_json::from_str(&to_row(&ev())).unwrap();
         for field in event.as_object().unwrap().keys() {
-            let column = if field == "ts_ms" { "ts" } else { field.as_str() };
+            let column = if field == "ts_ms" {
+                "ts"
+            } else {
+                field.as_str()
+            };
             assert!(COLUMNS.contains(&column), "Event.{field} has no column");
             assert!(row.get(column).is_some(), "to_row leaves out {column}");
         }
@@ -487,8 +535,12 @@ mod tests {
     fn full_queue_counts_drops_and_drop_does_not_hang() {
         // A listener that accepts (via the backlog) and never answers keeps
         // the worker busy in its first request.
-        let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:0") else { return };
-        let Ok(addr) = listener.local_addr() else { return };
+        let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:0") else {
+            return;
+        };
+        let Ok(addr) = listener.local_addr() else {
+            return;
+        };
         let sink = ClickHouseSink::start(ClickHouseConfig {
             url: format!("http://{addr}/"),
             database: "d".into(),

@@ -61,7 +61,11 @@ impl<K: Hash + Eq + Clone> Window<K> {
             slot_secs: slot_secs.max(1),
             slots: slots.max(1),
             max_keys: max_keys.max(1),
-            inner: Mutex::new(Inner { map: HashMap::new(), latest_slot: 0, swept_slot: None }),
+            inner: Mutex::new(Inner {
+                map: HashMap::new(),
+                latest_slot: 0,
+                swept_slot: None,
+            }),
         }
     }
 
@@ -88,7 +92,9 @@ impl<K: Hash + Eq + Clone> Window<K> {
         if !inner.map.contains_key(key) && inner.map.len() >= self.max_keys {
             if inner.swept_slot != Some(slot) {
                 inner.swept_slot = Some(slot);
-                inner.map.retain(|_, e| slot.saturating_sub(e.last_slot) < slots);
+                inner
+                    .map
+                    .retain(|_, e| slot.saturating_sub(e.last_slot) < slots);
             }
             if inner.map.len() >= self.max_keys {
                 return None;
@@ -117,7 +123,9 @@ impl<K: Hash + Eq + Clone> Window<K> {
 
         let mut first = false;
         if total > limit {
-            let due = entry.reported_slot.is_none_or(|r| slot.saturating_sub(r) >= slots);
+            let due = entry
+                .reported_slot
+                .is_none_or(|r| slot.saturating_sub(r) >= slots);
             if due {
                 entry.reported_slot = Some(slot);
                 first = true;
@@ -132,12 +140,16 @@ impl<K: Hash + Eq + Clone> Window<K> {
         let slot = (now / self.slot_secs).max(inner.latest_slot);
         inner.latest_slot = slot;
         let slots = u64::from(self.slots);
-        let Some(e) = inner.map.get(key) else { return 0 };
+        let Some(e) = inner.map.get(key) else {
+            return 0;
+        };
         let start = slot.saturating_sub(slots - 1);
         if e.last_slot < start {
             return 0;
         }
-        (start..=e.last_slot).fold(0u32, |a, s| a.saturating_add(e.counts[(s % slots) as usize]))
+        (start..=e.last_slot).fold(0u32, |a, s| {
+            a.saturating_add(e.counts[(s % slots) as usize])
+        })
     }
 
     #[cfg(test)]
@@ -203,7 +215,11 @@ impl FloodGuard {
     pub const SLOTS: u32 = 10;
 
     pub fn new(mode: GuardMode, limit: u32, max_networks: usize) -> Self {
-        FloodGuard { mode, limit, window: Window::new(Self::SLOT_SECS, Self::SLOTS, max_networks) }
+        FloodGuard {
+            mode,
+            limit,
+            window: Window::new(Self::SLOT_SECS, Self::SLOTS, max_networks),
+        }
     }
 
     /// Seconds a refused client should wait.
@@ -219,7 +235,10 @@ impl FloodGuard {
         match self.window.hit_reporting(&network, now, self.limit) {
             None => GuardVerdict::Full,
             Some((hit, _)) if hit.total <= self.limit => GuardVerdict::Pass,
-            Some((hit, report)) => GuardVerdict::Over { total: hit.total, report },
+            Some((hit, report)) => GuardVerdict::Over {
+                total: hit.total,
+                report,
+            },
         }
     }
 }
@@ -274,7 +293,9 @@ impl PageRates {
                 "pages_no_probe",
                 Layer::Client,
                 30,
-                format!("{pages} pages in ten minutes, every one with the probe, and no probe report"),
+                format!(
+                    "{pages} pages in ten minutes, every one with the probe, and no probe report"
+                ),
             )
             .with_class(Class::Automated)
         })
@@ -288,21 +309,36 @@ impl PageRates {
     }
 
     /// The detections this client's pages in the last minute earn.
-    pub fn detections(&self, ip: IpAddr, client: [u8; 16], now: u64) -> Vec<veritell_core::Detection> {
+    pub fn detections(
+        &self,
+        ip: IpAddr,
+        client: [u8; 16],
+        now: u64,
+    ) -> Vec<veritell_core::Detection> {
         use veritell_core::{Class, Detection, Layer};
         let mut found = Vec::new();
         let net = self.nets.peek(&crate::conn::ConnLimiter::network(ip), now);
         if net > self.net_limit {
             found.push(
-                Detection::new("rate_net_high", Layer::Network, 20, format!("{net} pages in a minute to this network"))
-                    .with_class(Class::Automated),
+                Detection::new(
+                    "rate_net_high",
+                    Layer::Network,
+                    20,
+                    format!("{net} pages in a minute to this network"),
+                )
+                .with_class(Class::Automated),
             );
         }
         let own = self.clients.peek(&client, now);
         if own > self.client_limit {
             found.push(
-                Detection::new("rate_client_high", Layer::Behavior, 30, format!("{own} pages in a minute to this client"))
-                    .with_class(Class::Automated),
+                Detection::new(
+                    "rate_client_high",
+                    Layer::Behavior,
+                    30,
+                    format!("{own} pages in a minute to this client"),
+                )
+                .with_class(Class::Automated),
             );
         }
         found
@@ -349,13 +385,16 @@ impl FpSurge {
     pub fn key(&self, fingerprint: &str) -> u64 {
         use std::hash::BuildHasher;
         let bytes = fingerprint.as_bytes();
-        self.hasher.hash_one(&bytes[..bytes.len().min(Self::MAX_KEY_BYTES)])
+        self.hasher
+            .hash_one(&bytes[..bytes.len().min(Self::MAX_KEY_BYTES)])
     }
 
     /// Counts one page served to this fingerprint.
     pub fn record(&self, key: u64, now: u64) {
         use std::sync::atomic::Ordering;
-        let _ = self.started.compare_exchange(0, now.max(1), Ordering::AcqRel, Ordering::Acquire);
+        let _ = self
+            .started
+            .compare_exchange(0, now.max(1), Ordering::AcqRel, Ordering::Acquire);
         self.minute.hit(&key, now);
         self.eleven.hit(&key, now);
     }
@@ -448,8 +487,20 @@ mod tests {
         for _ in 0..3 {
             assert_eq!(g.check(ip("192.0.2.1"), 10), GuardVerdict::Pass);
         }
-        assert_eq!(g.check(ip("192.0.2.1"), 10), GuardVerdict::Over { total: 4, report: true });
-        assert_eq!(g.check(ip("192.0.2.1"), 10), GuardVerdict::Over { total: 5, report: false });
+        assert_eq!(
+            g.check(ip("192.0.2.1"), 10),
+            GuardVerdict::Over {
+                total: 4,
+                report: true
+            }
+        );
+        assert_eq!(
+            g.check(ip("192.0.2.1"), 10),
+            GuardVerdict::Over {
+                total: 5,
+                report: false
+            }
+        );
         // Another address has its own count.
         assert_eq!(g.check(ip("192.0.2.2"), 10), GuardVerdict::Pass);
         // After the window, the first address is under again.
@@ -461,7 +512,10 @@ mod tests {
         let g = FloodGuard::new(GuardMode::Log, 2, 100);
         assert_eq!(g.check(ip("2001:db8::1"), 10), GuardVerdict::Pass);
         assert_eq!(g.check(ip("2001:db8::2"), 10), GuardVerdict::Pass);
-        assert!(matches!(g.check(ip("2001:db8::ffff"), 10), GuardVerdict::Over { .. }));
+        assert!(matches!(
+            g.check(ip("2001:db8::ffff"), 10),
+            GuardVerdict::Over { .. }
+        ));
         assert_eq!(g.check(ip("2001:db8:0:1::1"), 10), GuardVerdict::Pass);
     }
 
@@ -489,7 +543,10 @@ mod tests {
         r.record(ip("192.0.2.1"), c, 1_060);
         assert!(r.no_probe(c, 1_060).is_none());
         r.record(ip("192.0.2.1"), c, 1_120);
-        assert_eq!(r.no_probe(c, 1_120).map(|d| d.id), Some("pages_no_probe".to_string()));
+        assert_eq!(
+            r.no_probe(c, 1_120).map(|d| d.id),
+            Some("pages_no_probe".to_string())
+        );
         // Ten minutes after the first, it has left the window.
         assert!(r.no_probe(c, 1_000 + 600).is_none());
     }
@@ -510,7 +567,10 @@ mod tests {
         for _ in 0..12 {
             s.record(k, t);
         }
-        assert_eq!(s.detection(k, t).map(|d| d.id), Some("fp_page_surge".to_string()));
+        assert_eq!(
+            s.detection(k, t).map(|d| d.id),
+            Some("fp_page_surge".to_string())
+        );
     }
 
     #[test]
@@ -548,13 +608,23 @@ mod tests {
         for _ in 0..2 {
             r.record(ip("192.0.2.1"), a, 100);
         }
-        assert!(r.detections(ip("192.0.2.1"), a, 100).is_empty(), "two pages: at the limit");
+        assert!(
+            r.detections(ip("192.0.2.1"), a, 100).is_empty(),
+            "two pages: at the limit"
+        );
         r.record(ip("192.0.2.1"), a, 100);
-        let ids = |d: Vec<veritell_core::Detection>| d.into_iter().map(|d| d.id).collect::<Vec<_>>();
-        assert_eq!(ids(r.detections(ip("192.0.2.1"), a, 100)), ["rate_client_high"]);
+        let ids =
+            |d: Vec<veritell_core::Detection>| d.into_iter().map(|d| d.id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(r.detections(ip("192.0.2.1"), a, 100)),
+            ["rate_client_high"]
+        );
         // Another client on the same network: only the network's count is past.
         r.record(ip("192.0.2.1"), [8u8; 16], 100);
-        assert_eq!(ids(r.detections(ip("192.0.2.1"), [8u8; 16], 100)), ["rate_net_high"]);
+        assert_eq!(
+            ids(r.detections(ip("192.0.2.1"), [8u8; 16], 100)),
+            ["rate_net_high"]
+        );
         // A minute later, both are under again.
         assert!(r.detections(ip("192.0.2.1"), a, 200).is_empty());
     }

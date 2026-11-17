@@ -25,8 +25,8 @@ use base64::Engine as _;
 use ed25519_dalek::{Signer, SigningKey};
 use std::sync::OnceLock;
 use veritell_wba::{
-    jwk_thumbprint_ed25519, parse_directory, signature_base, signature_info, verify, Ed25519Key, RequestParts,
-    ReplayCache, TrustedAgents, WbaVerdict, CLOCK_SKEW_SECS,
+    jwk_thumbprint_ed25519, parse_directory, signature_base, signature_info, verify, Ed25519Key,
+    ReplayCache, RequestParts, TrustedAgents, WbaVerdict, CLOCK_SKEW_SECS,
 };
 
 /// RFC 9421 B.1.4's public key, trusted directly.
@@ -59,11 +59,21 @@ fn trusted() -> &'static TrustedAgents {
     static T: OnceLock<TrustedAgents> = OnceLock::new();
     T.get_or_init(|| {
         let mut t = TrustedAgents::new();
-        t.add("direct", None, vec![Ed25519Key::from_public(RFC_KEY_X)]).unwrap();
-        let [listed, plain, dated] = signers();
-        t.add("listed", Some(LISTED_AGENT), vec![Ed25519Key::from_public(listed.0.verifying_key().to_bytes())])
+        t.add("direct", None, vec![Ed25519Key::from_public(RFC_KEY_X)])
             .unwrap();
-        t.add("plain", None, vec![Ed25519Key::from_public(plain.0.verifying_key().to_bytes())]).unwrap();
+        let [listed, plain, dated] = signers();
+        t.add(
+            "listed",
+            Some(LISTED_AGENT),
+            vec![Ed25519Key::from_public(listed.0.verifying_key().to_bytes())],
+        )
+        .unwrap();
+        t.add(
+            "plain",
+            None,
+            vec![Ed25519Key::from_public(plain.0.verifying_key().to_bytes())],
+        )
+        .unwrap();
         let mut key = Ed25519Key::from_public(dated.0.verifying_key().to_bytes());
         key.not_before = Some(CREATED + DATED_FROM);
         key.not_after = Some(CREATED + DATED_UNTIL);
@@ -88,7 +98,11 @@ struct Req {
 
 impl Req {
     fn check(&self, now: u64) -> (WbaVerdict, Option<veritell_wba::SignatureInfo>) {
-        let headers: Vec<(&str, &str)> = self.headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let headers: Vec<(&str, &str)> = self
+            .headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         let parts = RequestParts {
             method: &self.method,
             authority: &self.authority,
@@ -100,7 +114,11 @@ impl Req {
     }
 
     fn base(&self, member: &str) -> Option<String> {
-        let headers: Vec<(&str, &str)> = self.headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let headers: Vec<(&str, &str)> = self
+            .headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         let parts = RequestParts {
             method: &self.method,
             authority: &self.authority,
@@ -112,7 +130,9 @@ impl Req {
     }
 
     fn header(&self, name: &str) -> bool {
-        self.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name))
+        self.headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case(name))
     }
 }
 
@@ -127,7 +147,9 @@ fn tagged_member(req: &Req) -> Option<(String, String)> {
         .collect();
     let joined = raw.join(", ");
     let (label, member) = joined.split_once('=')?;
-    member.contains("tag=\"web-bot-auth\"").then(|| (label.trim().to_string(), member.trim().to_string()))
+    member
+        .contains("tag=\"web-bot-auth\"")
+        .then(|| (label.trim().to_string(), member.trim().to_string()))
 }
 
 /// `VERITELL_FUZZ_DEBUG=1` prints each verdict, to check that seeds reach
@@ -143,38 +165,73 @@ fn properties(req: &Req, now: u64) {
         eprintln!("verdict: {verdict:?}");
     }
     let quiet = matches!(verdict, WbaVerdict::Absent | WbaVerdict::Verified { .. });
-    assert_eq!(verdict.detection().is_none(), quiet, "detection() for {verdict:?}");
-    let WbaVerdict::Verified { agent, .. } = &verdict else { return };
+    assert_eq!(
+        verdict.detection().is_none(),
+        quiet,
+        "detection() for {verdict:?}"
+    );
+    let WbaVerdict::Verified { agent, .. } = &verdict else {
+        return;
+    };
     let info = info.expect("Verified but signature_info found no signature");
-    assert!(info.covers("@authority"), "Verified without @authority covered: {:?}", info.components);
-    assert!(info.expires.saturating_add(CLOCK_SKEW_SECS) >= now, "Verified an expired signature");
+    assert!(
+        info.covers("@authority"),
+        "Verified without @authority covered: {:?}",
+        info.components
+    );
+    assert!(
+        info.expires.saturating_add(CLOCK_SKEW_SECS) >= now,
+        "Verified an expired signature"
+    );
     if req.header("signature-agent") {
         assert!(
-            info.components.iter().any(|c| c == "signature-agent" || c.starts_with("signature-agent;key=")),
+            info.components
+                .iter()
+                .any(|c| c == "signature-agent" || c.starts_with("signature-agent;key=")),
             "Verified with an uncovered Signature-Agent: {:?}",
             info.components
         );
     }
     if agent == "listed" {
-        assert!(req.header("signature-agent"), "pinned agent verified without a Signature-Agent header");
+        assert!(
+            req.header("signature-agent"),
+            "pinned agent verified without a Signature-Agent header"
+        );
     }
     if agent == "dated" {
-        assert!((CREATED + DATED_FROM..=CREATED + DATED_UNTIL).contains(&now), "key used outside its validity");
+        assert!(
+            (CREATED + DATED_FROM..=CREATED + DATED_UNTIL).contains(&now),
+            "key used outside its validity"
+        );
     }
-    assert_eq!(req.check(now).1.map(|i| i.replay_id), Some(info.replay_id), "replay id not stable");
+    assert_eq!(
+        req.check(now).1.map(|i| i.replay_id),
+        Some(info.replay_id),
+        "replay id not stable"
+    );
     let mut cache = ReplayCache::new(4);
-    assert!(cache.first_use(&info, now), "a fresh cache refused a first use");
+    assert!(
+        cache.first_use(&info, now),
+        "a fresh cache refused a first use"
+    );
     assert!(!cache.first_use(&info, now), "a replay was accepted");
     let mut restarted = ReplayCache::new(4);
     for (id, until) in cache.entries(now) {
         restarted.restore(id, until, now);
     }
-    assert!(!restarted.first_use(&info, now), "a replay was accepted after a restart");
+    assert!(
+        !restarted.first_use(&info, now),
+        "a replay was accepted after a restart"
+    );
 
     // Change each covered part. Where the signature base changes, the
     // signature must no longer verify.
-    let Some((_, member)) = tagged_member(req) else { return };
-    let Some(base) = req.base(&member) else { return };
+    let Some((_, member)) = tagged_member(req) else {
+        return;
+    };
+    let Some(base) = req.base(&member) else {
+        return;
+    };
     let mut variants: Vec<Req> = Vec::new();
     let mut v = req.clone();
     v.method.push('X');
@@ -205,24 +262,31 @@ fn properties(req: &Req, now: u64) {
             continue;
         }
         if let (WbaVerdict::Verified { .. }, _) = v.check(now) {
-            panic!("a changed request still verifies; base was:\n{base}\nnow:\n{:?}", v.base(&member));
+            panic!(
+                "a changed request still verifies; base was:\n{base}\nnow:\n{:?}",
+                v.base(&member)
+            );
         }
     }
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    let Some((&pick, rest)) = data.split_first() else { return };
+    let Some((&pick, rest)) = data.split_first() else {
+        return;
+    };
     match pick % 8 {
-        0 => {
-            match parse_directory(text(rest)) {
-                Ok(keys) => {
-                    for k in &keys {
-                        assert_eq!(k.keyid, jwk_thumbprint_ed25519(&k.public), "key id is not the thumbprint");
-                    }
+        0 => match parse_directory(text(rest)) {
+            Ok(keys) => {
+                for k in &keys {
+                    assert_eq!(
+                        k.keyid,
+                        jwk_thumbprint_ed25519(&k.public),
+                        "key id is not the thumbprint"
+                    );
                 }
-                Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
             }
-        }
+            Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
+        },
         1 => match TrustedAgents::from_json(text(rest)) {
             Ok(t) => assert_eq!(t.is_empty(), t.len() == 0),
             Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
@@ -235,10 +299,19 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
             let (key, keyid) = &signers()[[0, 1, 2, 1][usize::from(pick >> 6)]];
             // In signed mode `%k` in Signature-Input stands for the signing
             // key's id, so the fuzzer need not find 43 exact characters.
-            let input = if signed { get(4).replace("%k", keyid) } else { get(4).to_string() };
+            let input = if signed {
+                get(4).replace("%k", keyid)
+            } else {
+                get(4).to_string()
+            };
             let mut req = Req {
                 method: if get(0).is_empty() { "GET" } else { get(0) }.to_string(),
-                authority: if get(1).is_empty() { "example.com" } else { get(1) }.to_string(),
+                authority: if get(1).is_empty() {
+                    "example.com"
+                } else {
+                    get(1)
+                }
+                .to_string(),
                 path: if get(2).is_empty() { "/" } else { get(2) }.to_string(),
                 query: (f.len() > 3 && !get(3).is_empty()).then(|| get(3).to_string()),
                 headers: Vec::new(),
@@ -249,11 +322,13 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
             // Fields 6 and 7 add a header only when not empty, so that a
             // later field can be reached without them.
             if !get(6).is_empty() {
-                req.headers.push(("signature-agent".into(), get(6).to_string()));
+                req.headers
+                    .push(("signature-agent".into(), get(6).to_string()));
             }
             // Repeated or oddly cased headers, as a client may send them.
             if !get(7).is_empty() {
-                req.headers.push(("Signature-Input".into(), get(7).to_string()));
+                req.headers
+                    .push(("Signature-Input".into(), get(7).to_string()));
             }
             if f.len() > 8 {
                 req.headers.push((get(8).to_string(), get(9).to_string()));
@@ -265,7 +340,8 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 let (label, member) = input.split_once('=').unwrap_or(("sig1", ""));
                 match req.base(member.trim()) {
                     Some(base) => {
-                        let sig = base64::engine::general_purpose::STANDARD.encode(key.sign(base.as_bytes()).to_bytes());
+                        let sig = base64::engine::general_purpose::STANDARD
+                            .encode(key.sign(base.as_bytes()).to_bytes());
                         if get(5).contains("%s") {
                             get(5).replace("%s", &format!(":{sig}:"))
                         } else {
@@ -278,7 +354,8 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 get(5).to_string()
             };
             if f.len() > 5 {
-                req.headers.insert(1.min(req.headers.len()), ("signature".into(), signature));
+                req.headers
+                    .insert(1.min(req.headers.len()), ("signature".into(), signature));
             }
             let now = CREATED + u64::from(pick) * 37;
             properties(&req, now);

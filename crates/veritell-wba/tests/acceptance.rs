@@ -28,18 +28,30 @@ const A22_INPUT: &str = "sig2=(\"@authority\" \"signature-agent\");created=17356
 const A22_SIG: &str = "sig2=:jdq0SqOwHdyHr9+r5jw3iYZH6aNGKijYp/EstF4RQTQdi5N5YYKrD+mCT1HA1nZDsi6nJKuHxUi/5Syp3rLWBA==:";
 
 fn rfc_public() -> [u8; 32] {
-    URL_SAFE_NO_PAD.decode(RFC_KEY_X).unwrap().try_into().unwrap()
+    URL_SAFE_NO_PAD
+        .decode(RFC_KEY_X)
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn rfc_signing_key() -> SigningKey {
-    let d: [u8; 32] = URL_SAFE_NO_PAD.decode(RFC_KEY_D).unwrap().try_into().unwrap();
+    let d: [u8; 32] = URL_SAFE_NO_PAD
+        .decode(RFC_KEY_D)
+        .unwrap()
+        .try_into()
+        .unwrap();
     SigningKey::from_bytes(&d)
 }
 
 fn trusted(signature_agent: Option<&str>) -> TrustedAgents {
     let mut t = TrustedAgents::new();
-    t.add("test-agent", signature_agent, vec![Ed25519Key::from_public(rfc_public())])
-        .unwrap();
+    t.add(
+        "test-agent",
+        signature_agent,
+        vec![Ed25519Key::from_public(rfc_public())],
+    )
+    .unwrap();
     t
 }
 
@@ -62,12 +74,17 @@ fn verified() -> WbaVerdict {
 
 /// Signs `base` with the RFC key and returns the `:base64:` byte sequence.
 fn sign(base: &str) -> String {
-    format!(":{}:", STANDARD.encode(rfc_signing_key().sign(base.as_bytes()).to_bytes()))
+    format!(
+        ":{}:",
+        STANDARD.encode(rfc_signing_key().sign(base.as_bytes()).to_bytes())
+    )
 }
 
 /// Parameters for a signature made by this test file.
 fn params(extra: &str) -> String {
-    format!(";created={CREATED};expires={EXPIRES};keyid=\"{DRAFT_KEYID}\"{extra};tag=\"web-bot-auth\"")
+    format!(
+        ";created={CREATED};expires={EXPIRES};keyid=\"{DRAFT_KEYID}\"{extra};tag=\"web-bot-auth\""
+    )
 }
 
 // ---------- published vectors ----------
@@ -132,7 +149,11 @@ fn draft_vector_with_signature_agent_verifies() {
     ];
     assert_eq!(verify(&req(&h), &trusted(None), NOW), verified());
     assert_eq!(
-        verify(&req(&h), &trusted(Some("https://signature-agent.test")), NOW),
+        verify(
+            &req(&h),
+            &trusted(Some("https://signature-agent.test")),
+            NOW
+        ),
         verified()
     );
 }
@@ -181,7 +202,10 @@ fn changed_authority_fails() {
 #[test]
 fn changed_signature_fails() {
     let flipped = A21_SIG.replacen("+NA/", "+NB/", 1);
-    let h = [("Signature-Input", A21_INPUT), ("Signature", flipped.as_str())];
+    let h = [
+        ("Signature-Input", A21_INPUT),
+        ("Signature", flipped.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::Invalid(WbaInvalid::BadSignature)
@@ -284,13 +308,19 @@ fn key_validity_is_enforced() {
 fn signed_authority(label: &str, params: &str) -> (String, String) {
     let member = format!("(\"@authority\"){params}");
     let base = format!("\"@authority\": example.com\n\"@signature-params\": {member}");
-    (format!("{label}={member}"), format!("{label}={}", sign(&base)))
+    (
+        format!("{label}={member}"),
+        format!("{label}={}", sign(&base)),
+    )
 }
 
 #[test]
 fn a_locally_signed_request_verifies() {
     let (input, sig) = signed_authority("s", &params(""));
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(verify(&req(&h), &trusted(None), NOW), verified());
 }
 
@@ -301,7 +331,10 @@ fn the_tagged_member_is_found_among_others() {
         "other=(\"@method\" \"x, y\");created=1;keyid=\"a,b=(c)\";tag=\"not-ours\", {input}"
     );
     let sig = format!("other=:AAAA:, {sig}");
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(verify(&req(&h), &trusted(None), NOW), verified());
 }
 
@@ -345,7 +378,10 @@ fn authority_must_be_covered() {
     let base = format!("\"@method\": GET\n\"@signature-params\": {member}");
     let input = format!("s={member}");
     let sig = format!("s={}", sign(&base));
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::Invalid(WbaInvalid::MissingAuthority)
@@ -360,7 +396,10 @@ fn required_parameters_must_be_present() {
         format!(";created={CREATED};expires={EXPIRES};tag=\"web-bot-auth\""),
     ] {
         let (input, sig) = signed_authority("s", &p);
-        let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+        let h = [
+            ("Signature-Input", input.as_str()),
+            ("Signature", sig.as_str()),
+        ];
         assert_eq!(
             verify(&req(&h), &trusted(None), NOW),
             WbaVerdict::Invalid(WbaInvalid::MissingParams),
@@ -380,7 +419,10 @@ fn window_limits() {
     );
     for p in [too_long, inverted] {
         let (input, sig) = signed_authority("s", &p);
-        let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+        let h = [
+            ("Signature-Input", input.as_str()),
+            ("Signature", sig.as_str()),
+        ];
         assert_eq!(
             verify(&req(&h), &trusted(None), CREATED),
             WbaVerdict::Invalid(WbaInvalid::WindowTooLong),
@@ -392,14 +434,20 @@ fn window_limits() {
         CREATED + MAX_WINDOW_SECS
     );
     let (input, sig) = signed_authority("s", &longest);
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(verify(&req(&h), &trusted(None), CREATED), verified());
 }
 
 #[test]
 fn other_algorithms_are_refused() {
     let (input, sig) = signed_authority("s", &params(";alg=\"rsa-pss-sha512\""));
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::Invalid(WbaInvalid::UnsupportedAlg)
@@ -432,7 +480,10 @@ fn a_covered_header_that_is_absent_is_malformed() {
     let member = format!("(\"@authority\" \"x-missing\"){}", params(""));
     let input = format!("s={member}");
     let sig = A21_SIG.replacen("sig1", "s", 1);
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::Invalid(WbaInvalid::Malformed)
@@ -446,13 +497,25 @@ fn signature_member_problems_are_malformed() {
         // No Signature header at all.
         vec![("Signature-Input", input.clone())],
         // Label does not match.
-        vec![("Signature-Input", input.clone()), ("Signature", sig.replacen("s=", "t=", 1))],
+        vec![
+            ("Signature-Input", input.clone()),
+            ("Signature", sig.replacen("s=", "t=", 1)),
+        ],
         // Not 64 bytes.
-        vec![("Signature-Input", input.clone()), ("Signature", "s=:AAAA:".to_string())],
+        vec![
+            ("Signature-Input", input.clone()),
+            ("Signature", "s=:AAAA:".to_string()),
+        ],
         // Not a byte sequence.
-        vec![("Signature-Input", input.clone()), ("Signature", "s=\"hello\"".to_string())],
+        vec![
+            ("Signature-Input", input.clone()),
+            ("Signature", "s=\"hello\"".to_string()),
+        ],
         // Not base64.
-        vec![("Signature-Input", input.clone()), ("Signature", "s=:!!!!:".to_string())],
+        vec![
+            ("Signature-Input", input.clone()),
+            ("Signature", "s=:!!!!:".to_string()),
+        ],
     ];
     for case in cases {
         let h: Vec<(&str, &str)> = case.iter().map(|(k, v)| (*k, v.as_str())).collect();
@@ -468,16 +531,23 @@ fn signature_member_problems_are_malformed() {
 fn oversized_values_are_malformed() {
     let pad = "a".repeat(MAX_HEADER_BYTES);
     let (input, sig) = signed_authority("s", &params(&format!(";nonce=\"{pad}\"")));
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::Invalid(WbaInvalid::Malformed)
     );
 
     let long_id = "k".repeat(MAX_KEYID_BYTES + 1);
-    let p = format!(";created={CREATED};expires={EXPIRES};keyid=\"{long_id}\";tag=\"web-bot-auth\"");
+    let p =
+        format!(";created={CREATED};expires={EXPIRES};keyid=\"{long_id}\";tag=\"web-bot-auth\"");
     let (input, sig) = signed_authority("s", &p);
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::Invalid(WbaInvalid::Malformed)
@@ -486,7 +556,9 @@ fn oversized_values_are_malformed() {
 
 #[test]
 fn too_many_or_duplicate_components_are_malformed() {
-    let many: Vec<String> = (0..=MAX_COMPONENTS).map(|i| format!("\"x-h{i}\"")).collect();
+    let many: Vec<String> = (0..=MAX_COMPONENTS)
+        .map(|i| format!("\"x-h{i}\""))
+        .collect();
     let member = format!("({});created=1", many.join(" "));
     let r = req(&[]);
     assert_eq!(signature_base(&r, &member), Err(WbaInvalid::Malformed));
@@ -532,7 +604,10 @@ fn garbage_never_panics_and_never_verifies() {
         let prefix: String = chars[..cut].iter().collect();
         let deleted: String = chars[..cut].iter().chain(chars[cut + 1..].iter()).collect();
         for candidate in [prefix, deleted] {
-            let h = [("Signature-Input", candidate.as_str()), ("Signature", A21_SIG)];
+            let h = [
+                ("Signature-Input", candidate.as_str()),
+                ("Signature", A21_SIG),
+            ];
             let v = verify(&req(&h), &t, NOW);
             assert!(
                 !matches!(v, WbaVerdict::Verified { .. }),
@@ -544,12 +619,18 @@ fn garbage_never_panics_and_never_verifies() {
 
 #[test]
 fn a_broken_header_that_mentions_the_tag_is_malformed_not_absent() {
-    let h = [("Signature-Input", "sig1=((((;tag=\"web-bot-auth\""), ("Signature", A21_SIG)];
+    let h = [
+        ("Signature-Input", "sig1=((((;tag=\"web-bot-auth\""),
+        ("Signature", A21_SIG),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::Invalid(WbaInvalid::Malformed)
     );
-    let h = [("Signature-Input", "sig1=((((;tag=\"other\""), ("Signature", A21_SIG)];
+    let h = [
+        ("Signature-Input", "sig1=((((;tag=\"other\""),
+        ("Signature", A21_SIG),
+    ];
     assert_eq!(verify(&req(&h), &trusted(None), NOW), WbaVerdict::Absent);
 }
 
@@ -568,11 +649,20 @@ fn directory_parsing() {
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0].keyid, DRAFT_KEYID);
     assert_eq!(keys[0].public, rfc_public());
-    assert_eq!((keys[0].not_before, keys[0].not_after), (Some(100), Some(200)));
+    assert_eq!(
+        (keys[0].not_before, keys[0].not_after),
+        (Some(100), Some(200))
+    );
 
     assert_eq!(parse_directory(r#"{"keys":[]}"#).unwrap(), vec![]);
-    assert!(matches!(parse_directory("not json"), Err(WbaError::Json(_))));
-    assert!(matches!(parse_directory(r#"{"nokeys":1}"#), Err(WbaError::Json(_))));
+    assert!(matches!(
+        parse_directory("not json"),
+        Err(WbaError::Json(_))
+    ));
+    assert!(matches!(
+        parse_directory(r#"{"nokeys":1}"#),
+        Err(WbaError::Json(_))
+    ));
     assert!(matches!(
         parse_directory(r#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"AAAA"}]}"#),
         Err(WbaError::BadKey(_))
@@ -607,7 +697,10 @@ fn trusted_agents_file() {
     assert_eq!(verify(&req(&h), &t, NOW), verified());
 
     assert!(TrustedAgents::new().is_empty());
-    assert!(matches!(TrustedAgents::from_json("{"), Err(WbaError::Json(_))));
+    assert!(matches!(
+        TrustedAgents::from_json("{"),
+        Err(WbaError::Json(_))
+    ));
     assert!(matches!(
         TrustedAgents::from_json(r#"{"agents":[{"name":"x","keys":[]}]}"#),
         Err(WbaError::BadAgent(_))
@@ -623,12 +716,16 @@ fn trusted_agents_file() {
 #[test]
 fn one_key_cannot_belong_to_two_agents() {
     let mut t = TrustedAgents::new();
-    t.add("a", None, vec![Ed25519Key::from_public(rfc_public())]).unwrap();
+    t.add("a", None, vec![Ed25519Key::from_public(rfc_public())])
+        .unwrap();
     assert!(matches!(
         t.add("b", None, vec![Ed25519Key::from_public(rfc_public())]),
         Err(WbaError::BadAgent(_))
     ));
-    assert!(matches!(t.add("", None, vec![]), Err(WbaError::BadAgent(_))));
+    assert!(matches!(
+        t.add("", None, vec![]),
+        Err(WbaError::BadAgent(_))
+    ));
     assert_eq!(t.len(), 1);
 }
 
@@ -639,10 +736,17 @@ fn detections() {
     assert_eq!(WbaVerdict::Absent.detection(), None);
     assert_eq!(verified().detection(), None);
 
-    let d = WbaVerdict::UnknownKey { keyid: "k".into() }.detection().unwrap();
+    let d = WbaVerdict::UnknownKey { keyid: "k".into() }
+        .detection()
+        .unwrap();
     assert_eq!(
         (d.id.as_str(), d.layer, d.penalty, d.class_hint),
-        ("wba_unknown_key", Layer::Identity, 20, Some(Class::UnverifiedAgent))
+        (
+            "wba_unknown_key",
+            Layer::Identity,
+            20,
+            Some(Class::UnverifiedAgent)
+        )
     );
 
     for r in [
@@ -653,7 +757,12 @@ fn detections() {
         let d = WbaVerdict::Invalid(r).detection().unwrap();
         assert_eq!(
             (d.id.as_str(), d.layer, d.penalty, d.class_hint),
-            ("wba_bad_signature", Layer::Identity, 70, Some(Class::Malicious)),
+            (
+                "wba_bad_signature",
+                Layer::Identity,
+                70,
+                Some(Class::Malicious)
+            ),
             "{r:?}"
         );
     }
@@ -691,7 +800,10 @@ fn a_long_key_id_in_an_unknown_key_verdict_is_bounded() {
     let id = "k".repeat(MAX_KEYID_BYTES);
     let p = format!(";created={CREATED};expires={EXPIRES};keyid=\"{id}\";tag=\"web-bot-auth\"");
     let (input, sig) = signed_authority("s", &p);
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     assert_eq!(
         verify(&req(&h), &trusted(None), NOW),
         WbaVerdict::UnknownKey { keyid: id }

@@ -31,7 +31,10 @@ const S551_BODY: &str = r#"{
 const RSA_ENTRY: &str = r#"{"kty":"RSA","n":"sXchDaQebHnPiGvyDOAT4saGEUetSyo9MKLOoWFsueri23bOdgWp4Dy1WlUzewbgBHod5pcM9H95GQRV3JDXboIRROSBigeC5yjU1hGzHHyXss8UDprecbAYxknTcQkhslANGRUZmdTOQ5qTRsLAt6BTYuyvVRdhS8exSZEy_c4gs_7svlJJQ4H9_NxsiIoLwAEk7-Q3UXERGYw_75IDrGA84-lA_-Ct4eTlXHBIY2EaV7t7LjJaynVJCpkv4LKjTTAumiGUIuQhrNhZLuF_RJLqHpM2kgWFLU7-VTdL1VbC2tejvcI2BlMkEpk1BzBZI0KQB0GaDWFLN-aEAw3vRw","e":"AQAB"}"#;
 
 fn ed_entry(seed: u8) -> String {
-    format!(r#"{{"kty":"OKP","crv":"Ed25519","x":"{}"}}"#, URL_SAFE_NO_PAD.encode([seed; 32]))
+    format!(
+        r#"{{"kty":"OKP","crv":"Ed25519","x":"{}"}}"#,
+        URL_SAFE_NO_PAD.encode([seed; 32])
+    )
 }
 
 fn keys_of(entries: &[String]) -> String {
@@ -51,17 +54,29 @@ fn ip(text: &str) -> IpAddr {
 #[test]
 fn urls_that_are_accepted() {
     let u = url("https://agent.example/jwks.json");
-    assert_eq!((u.host.as_str(), u.port, u.path_and_query.as_str()), ("agent.example", 443, "/jwks.json"));
+    assert_eq!(
+        (u.host.as_str(), u.port, u.path_and_query.as_str()),
+        ("agent.example", 443, "/jwks.json")
+    );
     assert_eq!(u.as_string(), "https://agent.example/jwks.json");
 
     let u = url("HTTPS://Agent.Example:8443/a/B?c=D");
-    assert_eq!((u.host.as_str(), u.port, u.path_and_query.as_str()), ("agent.example", 8443, "/a/B?c=D"));
+    assert_eq!(
+        (u.host.as_str(), u.port, u.path_and_query.as_str()),
+        ("agent.example", 8443, "/a/B?c=D")
+    );
     assert_eq!(u.as_string(), "https://agent.example:8443/a/B?c=D");
 
     assert_eq!(url("https://agent.example").path_and_query, "/");
     assert_eq!(url("https://agent.example?x=1").path_and_query, "/?x=1");
-    assert_eq!(url("https://agent.example:443/").as_string(), "https://agent.example/");
-    assert_eq!(url("https://signature-agent.test/.well-known/http-message-signatures-directory").host, "signature-agent.test");
+    assert_eq!(
+        url("https://agent.example:443/").as_string(),
+        "https://agent.example/"
+    );
+    assert_eq!(
+        url("https://signature-agent.test/.well-known/http-message-signatures-directory").host,
+        "signature-agent.test"
+    );
 
     let u = url("https://[2001:db8::1]:444/k");
     assert_eq!((u.host.as_str(), u.port), ("2001:db8::1", 444));
@@ -75,7 +90,13 @@ fn urls_that_are_accepted() {
     assert_eq!(url("https://a.example:65535/").port, 65535);
     assert_eq!(url("https://a.example:1/").port, 1);
 
-    let longest_host = format!("{}.{}.{}.{}", "a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(61));
+    let longest_host = format!(
+        "{}.{}.{}.{}",
+        "a".repeat(63),
+        "b".repeat(63),
+        "c".repeat(63),
+        "d".repeat(61)
+    );
     assert_eq!(longest_host.len(), 253);
     assert!(parse_url(&format!("https://{longest_host}/")).is_ok());
 }
@@ -83,7 +104,13 @@ fn urls_that_are_accepted() {
 #[test]
 fn urls_that_are_refused() {
     let too_long = format!("https://agent.example/{}", "a".repeat(MAX_URL_BYTES));
-    let host_254 = format!("https://{}.{}.{}.{}/", "a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(62));
+    let host_254 = format!(
+        "https://{}.{}.{}.{}/",
+        "a".repeat(63),
+        "b".repeat(63),
+        "c".repeat(63),
+        "d".repeat(62)
+    );
     let bad = [
         "",
         "agent.example/jwks.json",
@@ -142,14 +169,45 @@ fn urls_that_are_refused() {
 #[test]
 fn addresses_that_are_refused() {
     for text in [
-        "0.0.0.0", "0.255.255.255", "10.0.0.1", "10.255.255.255", "100.64.0.0", "100.127.255.255",
-        "127.0.0.1", "127.255.255.254", "169.254.0.1", "169.254.169.254", "172.16.0.1",
-        "172.31.255.255", "192.0.0.1", "192.0.2.1", "192.168.0.0", "192.168.255.255", "198.18.0.1",
-        "198.19.255.255", "198.51.100.1", "203.0.113.1", "224.0.0.1", "239.255.255.255", "240.0.0.1",
+        "0.0.0.0",
+        "0.255.255.255",
+        "10.0.0.1",
+        "10.255.255.255",
+        "100.64.0.0",
+        "100.127.255.255",
+        "127.0.0.1",
+        "127.255.255.254",
+        "169.254.0.1",
+        "169.254.169.254",
+        "172.16.0.1",
+        "172.31.255.255",
+        "192.0.0.1",
+        "192.0.2.1",
+        "192.168.0.0",
+        "192.168.255.255",
+        "198.18.0.1",
+        "198.19.255.255",
+        "198.51.100.1",
+        "203.0.113.1",
+        "224.0.0.1",
+        "239.255.255.255",
+        "240.0.0.1",
         "255.255.255.255",
-        "::", "::1", "fc00::1", "fdff::1", "fd00:ec2::254", "fe80::1", "febf::1", "ff02::1",
-        "2001:db8::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:169.254.169.254",
-        "::127.0.0.1", "64:ff9b::7f00:1", "64:ff9b::a00:1",
+        "::",
+        "::1",
+        "fc00::1",
+        "fdff::1",
+        "fd00:ec2::254",
+        "fe80::1",
+        "febf::1",
+        "ff02::1",
+        "2001:db8::1",
+        "::ffff:127.0.0.1",
+        "::ffff:10.0.0.1",
+        "::ffff:169.254.169.254",
+        "::127.0.0.1",
+        "64:ff9b::7f00:1",
+        "64:ff9b::a00:1",
     ] {
         assert!(!address_allowed(ip(text)), "{text} must be refused");
     }
@@ -158,13 +216,35 @@ fn addresses_that_are_refused() {
 #[test]
 fn addresses_that_are_allowed() {
     for text in [
-        "1.1.1.1", "8.8.8.8", "9.255.255.255", "11.0.0.0", "100.63.255.255", "100.128.0.0",
-        "126.255.255.255", "128.0.0.1", "169.253.255.255", "169.255.0.0", "172.15.255.255",
-        "172.32.0.0", "192.0.1.0", "192.0.3.0", "192.167.255.255", "192.169.0.0", "198.17.255.255",
-        "198.20.0.0", "198.51.99.255", "198.51.101.0", "203.0.112.255", "203.0.114.0",
+        "1.1.1.1",
+        "8.8.8.8",
+        "9.255.255.255",
+        "11.0.0.0",
+        "100.63.255.255",
+        "100.128.0.0",
+        "126.255.255.255",
+        "128.0.0.1",
+        "169.253.255.255",
+        "169.255.0.0",
+        "172.15.255.255",
+        "172.32.0.0",
+        "192.0.1.0",
+        "192.0.3.0",
+        "192.167.255.255",
+        "192.169.0.0",
+        "198.17.255.255",
+        "198.20.0.0",
+        "198.51.99.255",
+        "198.51.101.0",
+        "203.0.112.255",
+        "203.0.114.0",
         "223.255.255.255",
-        "2606:4700:4700::1111", "2001:4860:4860::8888", "2001:db7::1", "2001:db9::1",
-        "::ffff:8.8.8.8", "64:ff9b::808:808",
+        "2606:4700:4700::1111",
+        "2001:4860:4860::8888",
+        "2001:db7::1",
+        "2001:db9::1",
+        "::ffff:8.8.8.8",
+        "64:ff9b::808:808",
     ] {
         assert!(address_allowed(ip(text)), "{text} must be allowed");
     }
@@ -209,19 +289,31 @@ fn the_drafts_directories_parse() {
     let keys = parse_keys(E23_BODY.as_bytes()).unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0].keyid, DRAFT_KEYID);
-    assert_eq!(keys[0].public.to_vec(), URL_SAFE_NO_PAD.decode(RFC_KEY_X).unwrap());
+    assert_eq!(
+        keys[0].public.to_vec(),
+        URL_SAFE_NO_PAD.decode(RFC_KEY_X).unwrap()
+    );
     assert_eq!((keys[0].not_before, keys[0].not_after), (None, None));
 
     // `kid` is never believed: the key id is the computed thumbprint.
     let keys = parse_keys(S551_BODY.as_bytes()).unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0].keyid, DRAFT_KEYID);
-    assert_eq!((keys[0].not_before, keys[0].not_after), (Some(1_712_793_600), Some(1_715_385_600)));
+    assert_eq!(
+        (keys[0].not_before, keys[0].not_after),
+        (Some(1_712_793_600), Some(1_715_385_600))
+    );
 }
 
 #[test]
 fn keys_of_other_types_are_skipped() {
-    let body = keys_of(&[RSA_ENTRY.to_string(), ed_entry(1), r#"{"kty":"EC","crv":"P-256","x":"a","y":"b"}"#.to_string(), r#"{"kty":"OKP","crv":"X25519","x":"a"}"#.to_string(), ed_entry(2)]);
+    let body = keys_of(&[
+        RSA_ENTRY.to_string(),
+        ed_entry(1),
+        r#"{"kty":"EC","crv":"P-256","x":"a","y":"b"}"#.to_string(),
+        r#"{"kty":"OKP","crv":"X25519","x":"a"}"#.to_string(),
+        ed_entry(2),
+    ]);
     let keys = parse_keys(body.as_bytes()).unwrap();
     assert_eq!(keys.len(), 2);
     assert_eq!(keys[0].public, [1; 32]);
@@ -247,9 +339,21 @@ fn directories_that_are_refused_whole() {
         keys_of(&[ed_entry(1), "{}".to_string()]),
         keys_of(&[ed_entry(1), r#"{"kty":7}"#.to_string()]),
         keys_of(&[ed_entry(1), r#"{"kty":"OKP","crv":"Ed25519"}"#.to_string()]),
-        keys_of(&[ed_entry(1), r#"{"kty":"OKP","crv":"Ed25519","x":"AAAA"}"#.to_string()]),
-        keys_of(&[ed_entry(1), r#"{"kty":"OKP","crv":"Ed25519","x":"not base64 !"}"#.to_string()]),
-        keys_of(&[ed_entry(1), format!(r#"{{"kty":"OKP","crv":"Ed25519","x":"{}","nbf":"soon"}}"#, URL_SAFE_NO_PAD.encode([2u8; 32]))]),
+        keys_of(&[
+            ed_entry(1),
+            r#"{"kty":"OKP","crv":"Ed25519","x":"AAAA"}"#.to_string(),
+        ]),
+        keys_of(&[
+            ed_entry(1),
+            r#"{"kty":"OKP","crv":"Ed25519","x":"not base64 !"}"#.to_string(),
+        ]),
+        keys_of(&[
+            ed_entry(1),
+            format!(
+                r#"{{"kty":"OKP","crv":"Ed25519","x":"{}","nbf":"soon"}}"#,
+                URL_SAFE_NO_PAD.encode([2u8; 32])
+            ),
+        ]),
         // The same key twice.
         keys_of(&[ed_entry(1), ed_entry(1)]),
         // 65 entries.
@@ -261,7 +365,10 @@ fn directories_that_are_refused_whole() {
             other => panic!("{body:.80} should be refused, got {other:?}"),
         }
     }
-    assert!(matches!(parse_keys(&[0xff, 0xfe, b'{', b'}']), Err(FetchError::Directory(_))));
+    assert!(matches!(
+        parse_keys(&[0xff, 0xfe, b'{', b'}']),
+        Err(FetchError::Directory(_))
+    ));
 
     // 64 entries is the limit, not past it.
     let mut most: Vec<String> = vec![RSA_ENTRY.to_string(); 63];
@@ -282,7 +389,11 @@ impl Fake {
     fn new(addrs: &[&str], status: u16, body: &[u8]) -> Fake {
         Fake {
             addrs: Ok(addrs.iter().map(|a| ip(a)).collect()),
-            response: Ok(Response { status, cache_control: None, body: body.to_vec() }),
+            response: Ok(Response {
+                status,
+                cache_control: None,
+                body: body.to_vec(),
+            }),
             resolved: RefCell::new(Vec::new()),
             gets: RefCell::new(Vec::new()),
         }
@@ -299,8 +410,16 @@ impl Transport for Fake {
         self.addrs.clone()
     }
 
-    fn get(&self, addr: SocketAddr, url: &DirectoryUrl, max_bytes: usize, timeout: Duration) -> Result<Response, String> {
-        self.gets.borrow_mut().push((addr, url.as_string(), max_bytes, timeout));
+    fn get(
+        &self,
+        addr: SocketAddr,
+        url: &DirectoryUrl,
+        max_bytes: usize,
+        timeout: Duration,
+    ) -> Result<Response, String> {
+        self.gets
+            .borrow_mut()
+            .push((addr, url.as_string(), max_bytes, timeout));
         self.response.clone()
     }
 }
@@ -321,27 +440,44 @@ fn a_good_directory_is_fetched_once_from_a_checked_address() {
     assert_eq!(fetched.keys.len(), 1);
     assert_eq!(fetched.keys[0].keyid, DRAFT_KEYID);
     assert_eq!(fetched.ttl_secs, 7200);
-    assert_eq!(*fake.resolved.borrow(), vec![("agent.example".to_string(), 443)]);
+    assert_eq!(
+        *fake.resolved.borrow(),
+        vec![("agent.example".to_string(), 443)]
+    );
     assert_eq!(
         *fake.gets.borrow(),
-        vec![("93.184.216.34:443".parse().unwrap(), URL.to_string(), MAX_BODY_BYTES, FetchConfig::DEFAULT_TIMEOUT)]
+        vec![(
+            "93.184.216.34:443".parse().unwrap(),
+            URL.to_string(),
+            MAX_BODY_BYTES,
+            FetchConfig::DEFAULT_TIMEOUT
+        )]
     );
 
     // No Cache-Control: the default lifetime.
-    assert_eq!(fetch(&Fake::good(&["93.184.216.34"])).unwrap().ttl_secs, DEFAULT_TTL_SECS);
+    assert_eq!(
+        fetch(&Fake::good(&["93.184.216.34"])).unwrap().ttl_secs,
+        DEFAULT_TTL_SECS
+    );
 }
 
 #[test]
 fn the_urls_port_and_the_configured_timeout_are_used() {
     let fake = Fake::good(&["2606:4700:4700::1111", "1.1.1.1"]);
-    let config = FetchConfig { allow: Vec::new(), timeout: Duration::from_secs(2) };
+    let config = FetchConfig {
+        allow: Vec::new(),
+        timeout: Duration::from_secs(2),
+    };
     fetch_with(&fake, &url("https://agent.example:8443/k"), &config).unwrap();
     let gets = fake.gets.borrow();
     assert_eq!(gets.len(), 1);
     // The first resolved address, with the URL's port.
     assert_eq!(gets[0].0, "[2606:4700:4700::1111]:8443".parse().unwrap());
     assert_eq!(gets[0].3, Duration::from_secs(2));
-    assert_eq!(*fake.resolved.borrow(), vec![("agent.example".to_string(), 8443)]);
+    assert_eq!(
+        *fake.resolved.borrow(),
+        vec![("agent.example".to_string(), 8443)]
+    );
 }
 
 #[test]
@@ -365,12 +501,19 @@ fn refused_addresses_are_never_connected_to() {
         (vec!["::ffff:10.0.0.1"], "::ffff:10.0.0.1"),
         // One bad address among good ones refuses the fetch, wherever it is.
         (vec!["93.184.216.34", "127.0.0.1"], "127.0.0.1"),
-        (vec!["93.184.216.34", "1.1.1.1", "10.1.1.1", "8.8.8.8"], "10.1.1.1"),
+        (
+            vec!["93.184.216.34", "1.1.1.1", "10.1.1.1", "8.8.8.8"],
+            "10.1.1.1",
+        ),
         // The first one that is refused is the one reported.
         (vec!["10.0.0.5", "127.0.0.1"], "10.0.0.5"),
     ] {
         let fake = Fake::good(&addrs);
-        assert_eq!(fetch(&fake), Err(FetchError::AddressRefused(ip(refused))), "{addrs:?}");
+        assert_eq!(
+            fetch(&fake),
+            Err(FetchError::AddressRefused(ip(refused))),
+            "{addrs:?}"
+        );
         assert!(fake.gets.borrow().is_empty(), "{addrs:?}");
     }
 }
@@ -380,13 +523,19 @@ fn an_address_literal_is_checked_like_a_resolved_one() {
     let fake = Fake::good(&["127.0.0.1"]);
     let r = fetch_with(&fake, &url("https://127.0.0.1/k"), &FetchConfig::default());
     assert_eq!(r, Err(FetchError::AddressRefused(ip("127.0.0.1"))));
-    assert_eq!(*fake.resolved.borrow(), vec![("127.0.0.1".to_string(), 443)]);
+    assert_eq!(
+        *fake.resolved.borrow(),
+        vec![("127.0.0.1".to_string(), 443)]
+    );
     assert!(fake.gets.borrow().is_empty());
 }
 
 #[test]
 fn the_operator_can_allow_one_exact_address_and_port() {
-    let allow = FetchConfig { allow: vec!["127.0.0.1:8443".parse().unwrap()], timeout: Duration::ZERO };
+    let allow = FetchConfig {
+        allow: vec!["127.0.0.1:8443".parse().unwrap()],
+        timeout: Duration::ZERO,
+    };
 
     let fake = Fake::good(&["127.0.0.1"]);
     assert!(fetch_with(&fake, &url("https://agent.test:8443/k"), &allow).is_ok());
@@ -417,14 +566,21 @@ fn the_operator_can_allow_one_exact_address_and_port() {
 fn a_transport_failure_is_reported() {
     let mut fake = Fake::good(&["93.184.216.34"]);
     fake.response = Err("certificate not valid for agent.example".to_string());
-    assert_eq!(fetch(&fake), Err(FetchError::Transport("certificate not valid for agent.example".to_string())));
+    assert_eq!(
+        fetch(&fake),
+        Err(FetchError::Transport(
+            "certificate not valid for agent.example".to_string()
+        ))
+    );
     assert_eq!(fake.gets.borrow().len(), 1);
 }
 
 #[test]
 fn only_status_200_is_a_directory() {
     // The body is a perfectly good directory each time: it must not matter.
-    for status in [100u16, 201, 204, 206, 301, 302, 303, 307, 308, 304, 400, 401, 404, 429, 500, 503] {
+    for status in [
+        100u16, 201, 204, 206, 301, 302, 303, 307, 308, 304, 400, 401, 404, 429, 500, 503,
+    ] {
         let fake = Fake::new(&["93.184.216.34"], status, E23_BODY.as_bytes());
         assert_eq!(fetch(&fake), Err(FetchError::Status(status)));
         // One request: nothing was followed or retried.
@@ -440,14 +596,20 @@ fn the_body_is_capped() {
     assert!(fetch(&Fake::new(&["93.184.216.34"], 200, &body)).is_ok());
     // One byte more is refused before it is parsed.
     body.push(b' ');
-    assert_eq!(fetch(&Fake::new(&["93.184.216.34"], 200, &body)), Err(FetchError::TooLarge));
+    assert_eq!(
+        fetch(&Fake::new(&["93.184.216.34"], 200, &body)),
+        Err(FetchError::TooLarge)
+    );
 }
 
 #[test]
 fn a_body_that_is_not_a_directory() {
     for body in ["<html>moved</html>", "", r#"{"keys":[]}"#] {
         let fake = Fake::new(&["93.184.216.34"], 200, body.as_bytes());
-        assert!(matches!(fetch(&fake), Err(FetchError::Directory(_))), "{body:?}");
+        assert!(
+            matches!(fetch(&fake), Err(FetchError::Directory(_))),
+            "{body:?}"
+        );
     }
 }
 
@@ -456,7 +618,10 @@ fn a_body_that_is_not_a_directory() {
 const T: u64 = 1_800_000_000;
 
 fn fetched(seed: u8, ttl_secs: u64) -> Fetched {
-    Fetched { keys: vec![Ed25519Key::from_public([seed; 32])], ttl_secs }
+    Fetched {
+        keys: vec![Ed25519Key::from_public([seed; 32])],
+        ttl_secs,
+    }
 }
 
 fn seeds(cache: &Cache, now: u64) -> Vec<u8> {
@@ -518,7 +683,16 @@ fn failures_do_not_keep_keys_alive_for_ever() {
 #[test]
 fn a_success_replaces_every_key() {
     let mut c = Cache::new();
-    c.on_success(Fetched { keys: vec![Ed25519Key::from_public([1; 32]), Ed25519Key::from_public([2; 32])], ttl_secs: 3600 }, T);
+    c.on_success(
+        Fetched {
+            keys: vec![
+                Ed25519Key::from_public([1; 32]),
+                Ed25519Key::from_public([2; 32]),
+            ],
+            ttl_secs: 3600,
+        },
+        T,
+    );
     assert_eq!(seeds(&c, T), [1, 2]);
     c.on_success(fetched(3, 900), T + 4000);
     assert_eq!(seeds(&c, T + 4000), [3]);

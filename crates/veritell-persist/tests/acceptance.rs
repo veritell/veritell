@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use veritell_persist::{read, write, PersistError, MAX_BYTES};
 use sha2::{Digest, Sha256};
+use veritell_persist::{read, write, PersistError, MAX_BYTES};
 
 fn dir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("veritell-persist-{name}-{}", std::process::id()));
@@ -21,7 +21,12 @@ fn corrupt(r: Result<Option<Vec<u8>>, PersistError>) -> bool {
 fn round_trip() {
     let d = dir("rt");
     let p = d.join("state");
-    for payload in [&b""[..], b"x", &[0u8, 255, 10, 13][..], &vec![7u8; 100_000][..]] {
+    for payload in [
+        &b""[..],
+        b"x",
+        &[0u8, 255, 10, 13][..],
+        &vec![7u8; 100_000][..],
+    ] {
         write(&p, "quota", payload).unwrap();
         assert_eq!(read(&p, "quota").unwrap().as_deref(), Some(payload));
     }
@@ -57,7 +62,10 @@ fn every_truncation_is_refused() {
     let q = d.join("cut");
     for n in 0..whole.len() {
         fs::write(&q, &whole[..n]).unwrap();
-        assert!(corrupt(read(&q, "quota")), "accepted a file cut to {n} bytes");
+        assert!(
+            corrupt(read(&q, "quota")),
+            "accepted a file cut to {n} bytes"
+        );
     }
 }
 
@@ -72,7 +80,10 @@ fn every_flipped_byte_is_refused() {
         let mut bad = whole.clone();
         bad[i] ^= 0x01;
         fs::write(&q, &bad).unwrap();
-        assert!(corrupt(read(&q, "quota")), "accepted a file with byte {i} changed");
+        assert!(
+            corrupt(read(&q, "quota")),
+            "accepted a file with byte {i} changed"
+        );
     }
 }
 
@@ -124,7 +135,9 @@ fn bad_kinds_are_not_written() {
     for kind in ["", "Quota", "a b", "dot.ted", "slash/x", &"k".repeat(65)] {
         let p = d.join("state");
         match write(&p, kind, b"x") {
-            Err(PersistError::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{kind:?}"),
+            Err(PersistError::Io(e)) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{kind:?}")
+            }
             other => panic!("{kind:?}: {other:?}"),
         }
         assert!(!p.exists(), "{kind:?} wrote a file");
@@ -139,7 +152,10 @@ fn a_write_replaces_and_leaves_no_temporary_file() {
     write(&p, "quota", b"first").unwrap();
     write(&p, "quota", b"second").unwrap();
     assert_eq!(read(&p, "quota").unwrap().as_deref(), Some(&b"second"[..]));
-    let names: Vec<String> = fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    let names: Vec<String> = fs::read_dir(&d)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
     assert_eq!(names, vec!["state".to_string()]);
 }
 
@@ -149,7 +165,10 @@ fn a_failed_write_leaves_the_old_file() {
     let p = d.join("state");
     write(&p, "quota", b"old").unwrap();
     // Writing into a directory that does not exist fails.
-    assert!(matches!(write(&d.join("no-such-dir").join("state"), "quota", b"new"), Err(PersistError::Io(_))));
+    assert!(matches!(
+        write(&d.join("no-such-dir").join("state"), "quota", b"new"),
+        Err(PersistError::Io(_))
+    ));
     assert_eq!(read(&p, "quota").unwrap().as_deref(), Some(&b"old"[..]));
 }
 
@@ -160,7 +179,10 @@ fn the_file_is_private() {
     let d = dir("mode");
     let p = d.join("state");
     write(&p, "quota", b"x").unwrap();
-    assert_eq!(fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 }
 
 #[test]

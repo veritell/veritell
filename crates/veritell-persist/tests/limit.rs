@@ -15,6 +15,10 @@ fn a_payload_over_the_limit_is_not_written() {
         Err(PersistError::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput),
         other => panic!("expected InvalidInput, got {other:?}"),
     }
-    assert_eq!(read(&path, "big").unwrap().as_deref(), Some(&b"small"[..]), "the old file is untouched");
+    assert_eq!(
+        read(&path, "big").unwrap().as_deref(),
+        Some(&b"small"[..]),
+        "the old file is untouched"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

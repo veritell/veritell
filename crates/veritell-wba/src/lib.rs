@@ -34,8 +34,8 @@ use std::collections::{BTreeSet, HashMap};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use ed25519_dalek::{Signature, VerifyingKey};
-use veritell_core::{Class, Detection, Layer};
 use sha2::{Digest, Sha256};
+use veritell_core::{Class, Detection, Layer};
 
 mod sf;
 
@@ -222,7 +222,10 @@ impl TrustedAgents {
         }
         // Validate everything before changing any state.
         for (i, key) in keys.iter().enumerate() {
-            let dup_inside = keys.iter().skip(i.saturating_add(1)).any(|k| k.keyid == key.keyid);
+            let dup_inside = keys
+                .iter()
+                .skip(i.saturating_add(1))
+                .any(|k| k.keyid == key.keyid);
             if dup_inside || self.keys.contains_key(&key.keyid) {
                 return Err(WbaError::BadAgent(format!(
                     "{name}: key id {} is already registered",
@@ -257,12 +260,13 @@ impl TrustedAgents {
                 .get("name")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| WbaError::Json("agent without a string \"name\"".into()))?;
-            let signature_agent = match agent.get("signature_agent") {
-                None | Some(serde_json::Value::Null) => None,
-                Some(v) => Some(v.as_str().ok_or_else(|| {
-                    WbaError::Json("\"signature_agent\" is not a string".into())
-                })?),
-            };
+            let signature_agent =
+                match agent.get("signature_agent") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(v) => Some(v.as_str().ok_or_else(|| {
+                        WbaError::Json("\"signature_agent\" is not a string".into())
+                    })?),
+                };
             let keys = agent
                 .get("keys")
                 .and_then(serde_json::Value::as_array)
@@ -318,10 +322,15 @@ pub enum WbaVerdict {
     /// No signature tagged `web-bot-auth`. Not a detection.
     Absent,
     /// Signed by a trusted agent.
-    Verified { agent: String, keyid: String },
+    Verified {
+        agent: String,
+        keyid: String,
+    },
     /// Well-formed and in its time window, but the key is not trusted.
     /// The signature is not checked in this case.
-    UnknownKey { keyid: String },
+    UnknownKey {
+        keyid: String,
+    },
     Invalid(WbaInvalid),
 }
 
@@ -473,8 +482,20 @@ fn is_header_name(name: &str) -> bool {
                 || b.is_ascii_digit()
                 || matches!(
                     b,
-                    b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'.' | b'^'
-                        | b'_' | b'`' | b'|' | b'~'
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
                 )
         })
 }
@@ -487,7 +508,11 @@ fn component_value(req: &RequestParts<'_>, name: &str) -> Result<String, WbaInva
             "path" => Ok(if req.path.is_empty() { "/" } else { req.path }.to_string()),
             "query" => Ok(format!("?{}", req.query.unwrap_or(""))),
             "request-target" => Ok(request_target(req)),
-            "target-uri" => Ok(format!("https://{}{}", req.authority.to_ascii_lowercase(), request_target(req))),
+            "target-uri" => Ok(format!(
+                "https://{}{}",
+                req.authority.to_ascii_lowercase(),
+                request_target(req)
+            )),
             _ => Err(WbaInvalid::UnsupportedComponent),
         };
     }
@@ -529,7 +554,12 @@ fn dictionary_member_value(
     match &member.value {
         Value::Item(item) if item.params.is_empty() => {
             // A boolean true written as a bare key has no value text.
-            Ok(if member.text.is_empty() { "?1" } else { member.text }.to_string())
+            Ok(if member.text.is_empty() {
+                "?1"
+            } else {
+                member.text
+            }
+            .to_string())
         }
         _ => Err(WbaInvalid::UnsupportedComponent),
     }
@@ -545,7 +575,11 @@ fn joined_header(headers: &[(&str, &str)], name: &str, trim: bool) -> Option<Str
         if !k.eq_ignore_ascii_case(name) {
             continue;
         }
-        let v = if trim { v.trim_matches(|c| c == ' ' || c == '\t') } else { v };
+        let v = if trim {
+            v.trim_matches(|c| c == ' ' || c == '\t')
+        } else {
+            v
+        };
         match &mut out {
             Some(s) => {
                 if s.len() > MAX_HEADER_BYTES {
@@ -576,9 +610,17 @@ fn signature_agent_of(
     whole: bool,
     keyed: bool,
 ) -> Result<String, WbaInvalid> {
-    if let Some(Item { bare: Bare::Str(agent), params }) = sf::parse_item(raw) {
+    if let Some(Item {
+        bare: Bare::Str(agent),
+        params,
+    }) = sf::parse_item(raw)
+    {
         if params.is_empty() {
-            return if whole { Ok(agent) } else { Err(WbaInvalid::SignatureAgentUnsigned) };
+            return if whole {
+                Ok(agent)
+            } else {
+                Err(WbaInvalid::SignatureAgentUnsigned)
+            };
         }
     }
     let members = sf::parse_dictionary(raw).ok_or(WbaInvalid::Malformed)?;
@@ -587,7 +629,11 @@ fn signature_agent_of(
         .filter(|m| m.value.params().is_empty())
         .find(|m| m.key == label)
         .ok_or(WbaInvalid::SignatureAgentUnsigned)?;
-    let Value::Item(Item { bare: Bare::Str(agent), .. }) = member.value else {
+    let Value::Item(Item {
+        bare: Bare::Str(agent),
+        ..
+    }) = member.value
+    else {
         return Err(WbaInvalid::Malformed);
     };
     if whole || keyed {
@@ -660,7 +706,9 @@ fn verify_inner(
     let raw_agent = joined_header(req.headers, "signature-agent", false);
     if raw_input.len() > MAX_HEADER_BYTES
         || raw_sig.as_ref().is_some_and(|s| s.len() > MAX_HEADER_BYTES)
-        || raw_agent.as_ref().is_some_and(|s| s.len() > MAX_HEADER_BYTES)
+        || raw_agent
+            .as_ref()
+            .is_some_and(|s| s.len() > MAX_HEADER_BYTES)
     {
         return Err(Malformed);
     }
@@ -739,7 +787,8 @@ fn verify_inner(
     }
 
     // 5. The signature itself.
-    let sig_members = sf::parse_dictionary(raw_sig.as_deref().ok_or(Malformed)?).ok_or(Malformed)?;
+    let sig_members =
+        sf::parse_dictionary(raw_sig.as_deref().ok_or(Malformed)?).ok_or(Malformed)?;
     let sig_bytes = sig_members
         .iter()
         .find(|m| m.key == member.key)
@@ -756,7 +805,12 @@ fn verify_inner(
     // 6. A Signature-Agent header must be signed.
     let request_agent = match &raw_agent {
         None => None,
-        Some(raw) => Some(signature_agent_of(raw, &member.key, agent_whole, agent_keyed)?),
+        Some(raw) => Some(signature_agent_of(
+            raw,
+            &member.key,
+            agent_whole,
+            agent_keyed,
+        )?),
     };
 
     // 7. A well-formed request and a signature that could verify.
@@ -866,13 +920,16 @@ pub fn signature_info(req: &RequestParts<'_>) -> Option<SignatureInfo> {
         return None;
     };
     let sig_members = sf::parse_dictionary(&raw_sig)?;
-    let sig = sig_members.iter().find(|m| m.key == member.key).and_then(|m| match &m.value {
-        Value::Item(Item {
-            bare: Bare::Bytes(b),
-            ..
-        }) => Some(b),
-        _ => None,
-    })?;
+    let sig = sig_members
+        .iter()
+        .find(|m| m.key == member.key)
+        .and_then(|m| match &m.value {
+            Value::Item(Item {
+                bare: Bare::Bytes(b),
+                ..
+            }) => Some(b),
+            _ => None,
+        })?;
     let mut h = Sha256::new();
     h.update((keyid.len() as u64).to_be_bytes());
     h.update(keyid.as_bytes());
@@ -940,7 +997,11 @@ impl ReplayCache {
     /// The signatures still remembered at `now`, each with the time until
     /// which it is refused, for saving across a restart.
     pub fn entries(&self, now: u64) -> Vec<([u8; 32], u64)> {
-        self.by_expiry.iter().filter(|(until, _)| *until >= now).map(|&(until, id)| (id, until)).collect()
+        self.by_expiry
+            .iter()
+            .filter(|(until, _)| *until >= now)
+            .map(|&(until, id)| (id, until))
+            .collect()
     }
 
     /// Remembers a signature saved by [`ReplayCache::entries`]. One already
@@ -952,7 +1013,10 @@ impl ReplayCache {
         }
         // Full: an entry that ends before everything held is the one to drop.
         if self.seen.len() >= self.capacity
-            && self.by_expiry.first().is_some_and(|&(first, _)| until <= first)
+            && self
+                .by_expiry
+                .first()
+                .is_some_and(|&(first, _)| until <= first)
         {
             return;
         }
@@ -1003,7 +1067,11 @@ mod tests {
     #[test]
     fn derived_components_are_normalised() {
         let r = parts(&[]);
-        let base = signature_base(&r, "(\"@method\" \"@authority\" \"@path\" \"@query\");created=1").unwrap();
+        let base = signature_base(
+            &r,
+            "(\"@method\" \"@authority\" \"@path\" \"@query\");created=1",
+        )
+        .unwrap();
         assert_eq!(
             base,
             "\"@method\": GET\n\"@authority\": example.com\n\"@path\": /\n\"@query\": ?\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\");created=1"
@@ -1048,7 +1116,10 @@ mod tests {
 
     #[test]
     fn multiple_signature_input_headers_form_one_dictionary() {
-        let (a, b) = ("x=(\"@authority\");tag=\"other\"", "y=(\"@method\");tag=\"web-bot-auth\"");
+        let (a, b) = (
+            "x=(\"@authority\");tag=\"other\"",
+            "y=(\"@method\");tag=\"web-bot-auth\"",
+        );
         let h = [("Signature-Input", a), ("signature-input", b)];
         // Our member is found in the second header; it lacks @authority.
         assert_eq!(
@@ -1059,9 +1130,17 @@ mod tests {
 
     #[test]
     fn bad_integer_parameters_are_malformed() {
-        for p in ["created=-1;expires=5", "created=1.5;expires=5", "created=\"1\";expires=5", "created=1;expires=-5"] {
+        for p in [
+            "created=-1;expires=5",
+            "created=1.5;expires=5",
+            "created=\"1\";expires=5",
+            "created=1;expires=-5",
+        ] {
             let input = format!("s=(\"@authority\");{p};keyid=\"k\";tag=\"web-bot-auth\"");
-            let h = [("Signature-Input", input.as_str()), ("Signature", "s=:AAAA:")];
+            let h = [
+                ("Signature-Input", input.as_str()),
+                ("Signature", "s=:AAAA:"),
+            ];
             assert_eq!(
                 verify(&parts(&h), &TrustedAgents::new(), 1),
                 WbaVerdict::Invalid(WbaInvalid::Malformed),
@@ -1086,21 +1165,30 @@ mod tests {
         assert!(t.add("a", None, vec![k.clone(), k.clone()]).is_err());
         assert!(t.is_empty());
         t.add("a", None, vec![k.clone()]).unwrap();
-        assert!(t.add("b", None, vec![Ed25519Key::from_public([8; 32]), k]).is_err());
+        assert!(t
+            .add("b", None, vec![Ed25519Key::from_public([8; 32]), k])
+            .is_err());
         assert_eq!(t.len(), 1);
     }
 
     #[test]
     fn directory_edge_cases() {
         assert!(matches!(parse_directory("[]"), Err(WbaError::Json(_))));
-        assert!(matches!(parse_directory(r#"{"keys":[1]}"#), Err(WbaError::Json(_))));
+        assert!(matches!(
+            parse_directory(r#"{"keys":[1]}"#),
+            Err(WbaError::Json(_))
+        ));
         assert!(matches!(
             parse_directory(r#"{"keys":[{"kty":"OKP","crv":"Ed25519"}]}"#),
             Err(WbaError::BadKey(_))
         ));
         let x = URL_SAFE_NO_PAD.encode([1u8; 32]);
-        let bad_time = format!(r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{x}","nbf":-1}}]}}"#);
-        assert!(matches!(parse_directory(&bad_time), Err(WbaError::BadKey(_))));
+        let bad_time =
+            format!(r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{x}","nbf":-1}}]}}"#);
+        assert!(matches!(
+            parse_directory(&bad_time),
+            Err(WbaError::BadKey(_))
+        ));
         assert!(matches!(
             TrustedAgents::from_json(r#"{"agents":[{"keys":[]}]}"#),
             Err(WbaError::Json(_))
@@ -1110,15 +1198,24 @@ mod tests {
     #[test]
     fn detection_for_unknown_key_and_clean_verdicts() {
         assert!(WbaVerdict::Absent.detection().is_none());
-        let d = WbaVerdict::UnknownKey { keyid: "k".into() }.detection().unwrap();
+        let d = WbaVerdict::UnknownKey { keyid: "k".into() }
+            .detection()
+            .unwrap();
         assert_eq!((d.id.as_str(), d.penalty), ("wba_unknown_key", 20));
     }
 
     #[test]
     fn non_ascii_and_control_input_never_panics() {
-        let weird = "s=(\"@authörity\" \"\u{0}\");created=1;keyid=\"\u{e9}\u{1f600}\";tag=\"web-bot-auth\"";
+        let weird =
+            "s=(\"@authörity\" \"\u{0}\");created=1;keyid=\"\u{e9}\u{1f600}\";tag=\"web-bot-auth\"";
         let h = [("Signature-Input", weird), ("Signature", "s=:\u{e9}:")];
-        let r = RequestParts { method: "\u{e9}", authority: "\u{1f600}", path: "\u{0}", query: Some("\n"), headers: &h };
+        let r = RequestParts {
+            method: "\u{e9}",
+            authority: "\u{1f600}",
+            path: "\u{0}",
+            query: Some("\n"),
+            headers: &h,
+        };
         let _ = verify(&r, &TrustedAgents::new(), 5);
         let _ = signature_base(&r, weird);
     }

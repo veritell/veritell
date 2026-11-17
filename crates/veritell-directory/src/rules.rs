@@ -65,15 +65,22 @@ pub fn parse_url(text: &str) -> Result<DirectoryUrl, FetchError> {
         format!("/{tail}")
     };
 
-    let (host, port_text): (String, Option<&str>) = if let Some(inner) = authority.strip_prefix('[') {
-        let (addr, after) = inner.split_once(']').ok_or_else(|| url_err("unterminated IPv6 literal"))?;
+    let (host, port_text): (String, Option<&str>) = if let Some(inner) = authority.strip_prefix('[')
+    {
+        let (addr, after) = inner
+            .split_once(']')
+            .ok_or_else(|| url_err("unterminated IPv6 literal"))?;
         if addr.parse::<Ipv6Addr>().is_err() {
             return Err(url_err("bracketed host is not an IPv6 address"));
         }
         let port = if after.is_empty() {
             None
         } else {
-            Some(after.strip_prefix(':').ok_or_else(|| url_err("unexpected text after IPv6 literal"))?)
+            Some(
+                after
+                    .strip_prefix(':')
+                    .ok_or_else(|| url_err("unexpected text after IPv6 literal"))?,
+            )
         };
         (addr.to_ascii_lowercase(), port)
     } else {
@@ -89,8 +96,13 @@ pub fn parse_url(text: &str) -> Result<DirectoryUrl, FetchError> {
         if host.len() > 253 {
             return Err(url_err("host too long"));
         }
-        if !host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.') {
-            return Err(url_err("host has a character that is not a letter, digit, '-' or '.'"));
+        if !host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        {
+            return Err(url_err(
+                "host has a character that is not a letter, digit, '-' or '.'",
+            ));
         }
         if host.split('.').any(str::is_empty) {
             return Err(url_err("host has an empty label"));
@@ -108,7 +120,11 @@ pub fn parse_url(text: &str) -> Result<DirectoryUrl, FetchError> {
             }
         }
     };
-    let url = DirectoryUrl { host, port, path_and_query };
+    let url = DirectoryUrl {
+        host,
+        port,
+        path_and_query,
+    };
     // The printed form can be one byte longer than the text (a `/` is added
     // when there is no path); it must parse too.
     if url.as_string().len() > MAX_URL_BYTES {
@@ -220,9 +236,10 @@ pub fn ttl_from_cache_control(value: Option<&str>) -> u64 {
         }
     }
     match max_age {
-        Some(digits) if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => {
-            digits.parse::<u64>().unwrap_or(u64::MAX).clamp(MIN_TTL_SECS, MAX_TTL_SECS)
-        }
+        Some(digits) if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => digits
+            .parse::<u64>()
+            .unwrap_or(u64::MAX)
+            .clamp(MIN_TTL_SECS, MAX_TTL_SECS),
         _ => DEFAULT_TTL_SECS,
     }
 }
@@ -250,7 +267,9 @@ pub fn parse_keys(body: &[u8]) -> Result<Vec<Ed25519Key>, FetchError> {
     }
     let mut usable: Vec<&serde_json::Value> = Vec::new();
     for entry in entries {
-        let obj = entry.as_object().ok_or_else(|| dir_err("a key is not an object"))?;
+        let obj = entry
+            .as_object()
+            .ok_or_else(|| dir_err("a key is not an object"))?;
         let text = |name: &str| obj.get(name).and_then(serde_json::Value::as_str);
         let kty = text("kty").ok_or_else(|| dir_err("a key has no string \"kty\""))?;
         if kty == "OKP" && text("crv") == Some("Ed25519") {
@@ -267,7 +286,11 @@ pub fn parse_keys(body: &[u8]) -> Result<Vec<Ed25519Key>, FetchError> {
         return Err(dir_err("no Ed25519 key in the directory"));
     }
     for (i, key) in keys.iter().enumerate() {
-        if keys.iter().skip(i.saturating_add(1)).any(|other| other.keyid == key.keyid) {
+        if keys
+            .iter()
+            .skip(i.saturating_add(1))
+            .any(|other| other.keyid == key.keyid)
+        {
             return Err(dir_err("the same key id appears twice"));
         }
     }
@@ -307,7 +330,11 @@ pub fn fetch_with(
             return Err(FetchError::AddressRefused(*ip));
         }
     }
-    let timeout = if config.timeout.is_zero() { FetchConfig::DEFAULT_TIMEOUT } else { config.timeout };
+    let timeout = if config.timeout.is_zero() {
+        FetchConfig::DEFAULT_TIMEOUT
+    } else {
+        config.timeout
+    };
     let mut last_error: Option<String> = None;
     let mut answer: Option<crate::Response> = None;
     for ip in &addrs {
@@ -329,7 +356,10 @@ pub fn fetch_with(
         None => match last_error {
             Some(e) => return Err(FetchError::Transport(e)),
             None => {
-                let ip = addrs.first().copied().ok_or_else(|| FetchError::Resolve("no addresses".to_string()))?;
+                let ip = addrs
+                    .first()
+                    .copied()
+                    .ok_or_else(|| FetchError::Resolve("no addresses".to_string()))?;
                 return Err(FetchError::AddressRefused(ip));
             }
         },
@@ -380,7 +410,14 @@ mod audit_tests {
 
     #[test]
     fn orchid_and_documentation_ranges_are_refused() {
-        for a in ["2001:10::1", "2001:1f:ffff::1", "2001:20::1", "2001:2f::1", "3fff::1", "3fff:fff::1"] {
+        for a in [
+            "2001:10::1",
+            "2001:1f:ffff::1",
+            "2001:20::1",
+            "2001:2f::1",
+            "3fff::1",
+            "3fff:fff::1",
+        ] {
             assert!(!ok(a), "{a}");
         }
         for a in ["2001:30::1", "2001:4860::8888", "3ffe::1", "3fff:1000::1"] {

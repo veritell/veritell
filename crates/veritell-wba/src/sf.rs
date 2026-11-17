@@ -203,7 +203,8 @@ impl<'a> Cursor<'a> {
 
     fn bytes(&mut self) -> Option<Bare> {
         self.bump()?; // opening colon
-        let body = self.take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='));
+        let body =
+            self.take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='));
         if !self.eat(b':') {
             return None;
         }
@@ -357,10 +358,8 @@ mod tests {
 
     #[test]
     fn commas_inside_strings_lists_and_bytes_do_not_split() {
-        let d = parse_dictionary(
-            "a=(\"x, y\" \"z\");k=\"1,2\", b=:QUJD:, c=\"q\\\",r\\\\\", d=?1",
-        )
-        .unwrap();
+        let d = parse_dictionary("a=(\"x, y\" \"z\");k=\"1,2\", b=:QUJD:, c=\"q\\\",r\\\\\", d=?1")
+            .unwrap();
         let keys: Vec<&str> = d.iter().map(|m| m.key.as_str()).collect();
         assert_eq!(keys, ["a", "b", "c", "d"]);
         match &d[0].value {
@@ -372,8 +371,12 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(d[0].text, "(\"x, y\" \"z\");k=\"1,2\"");
-        assert!(matches!(&d[1].value, Value::Item(Item { bare: Bare::Bytes(b), .. }) if b == b"ABC"));
-        assert!(matches!(&d[2].value, Value::Item(Item { bare: Bare::Str(v), .. }) if v == "q\",r\\"));
+        assert!(
+            matches!(&d[1].value, Value::Item(Item { bare: Bare::Bytes(b), .. }) if b == b"ABC")
+        );
+        assert!(
+            matches!(&d[2].value, Value::Item(Item { bare: Bare::Str(v), .. }) if v == "q\",r\\")
+        );
     }
 
     #[test]
@@ -425,10 +428,13 @@ mod tests {
     #[test]
     fn integer_limits() {
         let d = parse_dictionary("a=999999999999999;b=-999999999999999").unwrap();
-        assert_eq!(d[0].value, Value::Item(Item {
-            bare: Bare::Int(999_999_999_999_999),
-            params: vec![("b".into(), Bare::Int(-999_999_999_999_999))],
-        }));
+        assert_eq!(
+            d[0].value,
+            Value::Item(Item {
+                bare: Bare::Int(999_999_999_999_999),
+                params: vec![("b".into(), Bare::Int(-999_999_999_999_999))],
+            })
+        );
     }
 
     #[test]
@@ -444,7 +450,9 @@ mod tests {
     #[test]
     fn missing_padding_is_tolerated_in_byte_sequences() {
         let d = parse_dictionary("a=:QUI:").unwrap();
-        assert!(matches!(&d[0].value, Value::Item(Item { bare: Bare::Bytes(b), .. }) if b == b"AB"));
+        assert!(
+            matches!(&d[0].value, Value::Item(Item { bare: Bare::Bytes(b), .. }) if b == b"AB")
+        );
     }
 
     #[test]
@@ -475,8 +483,20 @@ mod tests {
     #[test]
     fn a_member_without_equals_is_boolean_true_and_not_a_string() {
         let d = parse_dictionary("sig2, other=\"v\"").unwrap();
-        assert_eq!(d[0].value, Value::Item(Item { bare: Bare::Bool(true), params: vec![] }));
-        assert_eq!(d[1].value, Value::Item(Item { bare: s("v"), params: vec![] }));
+        assert_eq!(
+            d[0].value,
+            Value::Item(Item {
+                bare: Bare::Bool(true),
+                params: vec![]
+            })
+        );
+        assert_eq!(
+            d[1].value,
+            Value::Item(Item {
+                bare: s("v"),
+                params: vec![]
+            })
+        );
     }
 
     #[test]

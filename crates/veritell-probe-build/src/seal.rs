@@ -122,14 +122,20 @@ impl<'de> serde::Deserialize<'de> for Ordered {
             fn visit_none<E>(self) -> Result<Ordered, E> {
                 Ok(Ordered::Scalar(Value::Null))
             }
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Ordered, A::Error> {
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Ordered, A::Error> {
                 let mut items = Vec::new();
                 while let Some(item) = seq.next_element()? {
                     items.push(item);
                 }
                 Ok(Ordered::Array(items))
             }
-            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Ordered, A::Error> {
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Ordered, A::Error> {
                 let mut entries = Vec::new();
                 while let Some((key, value)) = map.next_entry::<String, Ordered>()? {
                     entries.push((key, value));
@@ -167,7 +173,10 @@ impl serde::Serialize for Ordered {
 /// Replaces every object key at every depth using `rename`, keeping its
 /// place; `None` from `rename` fails the whole walk. Uses an explicit work
 /// list, so the depth of the value cannot exhaust the stack.
-fn remap_keys(root: &mut Ordered, rename: &dyn Fn(&str) -> Option<String>) -> Result<(), OpenError> {
+fn remap_keys(
+    root: &mut Ordered,
+    rename: &dyn Fn(&str) -> Option<String>,
+) -> Result<(), OpenError> {
     let mut work: Vec<&mut Ordered> = vec![root];
     while let Some(value) = work.pop() {
         match value {
@@ -194,8 +203,9 @@ fn reorder_keys(root: &mut Ordered, orders: &[Vec<String>]) {
             Ordered::Object(entries) => {
                 for order in orders {
                     let rank = |key: &str| order.iter().position(|k| k == key);
-                    let slots: Vec<usize> =
-                        (0..entries.len()).filter(|i| entries.get(*i).is_some_and(|(k, _)| rank(k).is_some())).collect();
+                    let slots: Vec<usize> = (0..entries.len())
+                        .filter(|i| entries.get(*i).is_some_and(|(k, _)| rank(k).is_some()))
+                        .collect();
                     let mut moving: Vec<(String, Ordered)> = Vec::with_capacity(slots.len());
                     for slot in slots.iter().rev() {
                         moving.push(entries.remove(*slot));
@@ -229,7 +239,12 @@ pub(crate) fn open(b: &Builder, body: &[u8], now: u64) -> Result<Opened, OpenErr
     }
     let outer: Value = serde_json::from_slice(body).map_err(|_| OpenError::Malformed)?;
     let object = outer.as_object().ok_or(OpenError::Malformed)?;
-    let text = |key: &str| object.get(key).and_then(Value::as_str).ok_or(OpenError::Malformed);
+    let text = |key: &str| {
+        object
+            .get(key)
+            .and_then(Value::as_str)
+            .ok_or(OpenError::Malformed)
+    };
     let (id, nonce, data) = (text("b")?, text("n")?, text("d")?);
     if nonce.len() > MAX_NONCE_BYTES {
         return Err(OpenError::Malformed);
@@ -248,7 +263,13 @@ pub(crate) fn open(b: &Builder, body: &[u8], now: u64) -> Result<Opened, OpenErr
     let iv: [u8; IV_LEN] = iv.try_into().map_err(|_| OpenError::Malformed)?;
     let key = b.build_key(seed, expires_at);
     let plaintext = cipher(&key, nonce)?
-        .decrypt(&Nonce::from(iv), Payload { msg: ciphertext, aad: id.as_bytes() })
+        .decrypt(
+            &Nonce::from(iv),
+            Payload {
+                msg: ciphertext,
+                aad: id.as_bytes(),
+            },
+        )
         .map_err(|_| OpenError::Decrypt)?;
 
     // Keys stay in the order the browser wrote them.
@@ -259,10 +280,20 @@ pub(crate) fn open(b: &Builder, body: &[u8], now: u64) -> Result<Opened, OpenErr
         .collect();
     remap_keys(&mut report, &|name| inverse.get(name).cloned())?;
     let report_json = serde_json::to_vec(&report).map_err(|_| OpenError::Keys)?;
-    Ok(Opened { build_id: id.to_string(), nonce: nonce.to_string(), report_json })
+    Ok(Opened {
+        build_id: id.to_string(),
+        nonce: nonce.to_string(),
+        report_json,
+    })
 }
 
-pub(crate) fn seal(b: &Builder, build_id: &str, nonce: &str, v1_json: &[u8], iv: [u8; 12]) -> Result<Vec<u8>, OpenError> {
+pub(crate) fn seal(
+    b: &Builder,
+    build_id: &str,
+    nonce: &str,
+    v1_json: &[u8],
+    iv: [u8; 12],
+) -> Result<Vec<u8>, OpenError> {
     let (seed, expires_at) = b.authenticate(build_id).ok_or(OpenError::UnknownBuild)?;
     if nonce.len() > MAX_NONCE_BYTES {
         return Err(OpenError::Malformed);
@@ -276,7 +307,13 @@ pub(crate) fn seal(b: &Builder, build_id: &str, nonce: &str, v1_json: &[u8], iv:
 
     let key = b.build_key(seed, expires_at);
     let ciphertext = cipher(&key, nonce)?
-        .encrypt(&Nonce::from(iv), Payload { msg: &plaintext, aad: build_id.as_bytes() })
+        .encrypt(
+            &Nonce::from(iv),
+            Payload {
+                msg: &plaintext,
+                aad: build_id.as_bytes(),
+            },
+        )
         .map_err(|_| OpenError::Decrypt)?;
     let mut data = Vec::with_capacity(IV_LEN.saturating_add(ciphertext.len()));
     data.extend_from_slice(&iv);
@@ -308,7 +345,10 @@ mod tests {
         let body = b.seal(&build.id, "n", report, [1; 12]).unwrap();
         let opened = b.open(&body, 10).unwrap();
         let text = String::from_utf8(opened.report_json).unwrap();
-        assert!(text.find("first").unwrap() < text.find("second").unwrap(), "{text}");
+        assert!(
+            text.find("first").unwrap() < text.find("second").unwrap(),
+            "{text}"
+        );
     }
 
     #[test]
@@ -319,7 +359,10 @@ mod tests {
         let body = b.seal(&build.id, "n", report, [1; 12]).unwrap();
         let opened = b.open(&body, 10).unwrap();
         let expected: Value = serde_json::from_slice(report).unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&opened.report_json).unwrap(), expected);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&opened.report_json).unwrap(),
+            expected
+        );
 
         let mut outer: Value = serde_json::from_slice(&body).unwrap();
         outer["extra"] = Value::Null;
@@ -331,7 +374,10 @@ mod tests {
         let b = Builder::new(TEMPLATE, SECRET).unwrap();
         let build = b.build_with_seed([2; 16], 10, 100);
         let nonce = "n".repeat(MAX_NONCE_BYTES + 1);
-        assert_eq!(b.seal(&build.id, &nonce, b"{}", [0; 12]), Err(OpenError::Malformed));
+        assert_eq!(
+            b.seal(&build.id, &nonce, b"{}", [0; 12]),
+            Err(OpenError::Malformed)
+        );
     }
 
     /// Seals `plain` (already mapped JSON) the way the browser does, without
@@ -340,11 +386,19 @@ mod tests {
         let (seed, expires_at) = b.authenticate(id).unwrap();
         let ct = cipher(&b.build_key(seed, expires_at), nonce)
             .unwrap()
-            .encrypt(&Nonce::from([3; 12]), Payload { msg: mapped.as_bytes(), aad: id.as_bytes() })
+            .encrypt(
+                &Nonce::from([3; 12]),
+                Payload {
+                    msg: mapped.as_bytes(),
+                    aad: id.as_bytes(),
+                },
+            )
             .unwrap();
         let mut data = vec![3u8; 12];
         data.extend_from_slice(&ct);
-        serde_json::json!({ "b": id, "n": nonce, "d": STANDARD.encode(data) }).to_string().into_bytes()
+        serde_json::json!({ "b": id, "n": nonce, "d": STANDARD.encode(data) })
+            .to_string()
+            .into_bytes()
     }
 
     #[test]
@@ -353,9 +407,20 @@ mod tests {
         let build = b.build_with_seed([2; 16], 10, 100);
         let m = |k: &str| build.key_map[k].clone();
         // Not alphabetical, so a sorting map would show.
-        let mapped = format!(r#"{{"{}":1,"{}":{{"{}":"a","{}":"b"}}}}"#, m("v"), m("page"), m("tz"), m("plugins"));
-        let opened = b.open(&seal_as_is(&b, &build.id, "n", &mapped), 10).unwrap();
-        assert_eq!(String::from_utf8(opened.report_json).unwrap(), r#"{"v":1,"page":{"tz":"a","plugins":"b"}}"#);
+        let mapped = format!(
+            r#"{{"{}":1,"{}":{{"{}":"a","{}":"b"}}}}"#,
+            m("v"),
+            m("page"),
+            m("tz"),
+            m("plugins")
+        );
+        let opened = b
+            .open(&seal_as_is(&b, &build.id, "n", &mapped), 10)
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(opened.report_json).unwrap(),
+            r#"{"v":1,"page":{"tz":"a","plugins":"b"}}"#
+        );
     }
 
     #[test]
@@ -366,8 +431,11 @@ mod tests {
         for seed in 0..12u8 {
             let build = b.build_with_seed([seed; 16], 10, 100);
             let order = b.key_order(&build.id).unwrap();
-            let report = br#"{"v":1,"page":{"globals":[],"screen":1,"tz":2,"window":0,"plugins":3}}"#;
-            let opened = b.open(&b.seal(&build.id, "n", report, [1; 12]).unwrap(), 10).unwrap();
+            let report =
+                br#"{"v":1,"page":{"globals":[],"screen":1,"tz":2,"window":0,"plugins":3}}"#;
+            let opened = b
+                .open(&b.seal(&build.id, "n", report, [1; 12]).unwrap(), 10)
+                .unwrap();
             let text = String::from_utf8(opened.report_json).unwrap();
             // Keys outside the order keep their places; the others follow it.
             let page: Vec<&str> = text
@@ -376,7 +444,11 @@ mod tests {
                 .collect();
             assert_eq!(page.first(), Some(&"globals"));
             assert_eq!(page.get(3), Some(&"window"));
-            let rest: Vec<&str> = page.iter().copied().filter(|k| *k != "globals" && *k != "window").collect();
+            let rest: Vec<&str> = page
+                .iter()
+                .copied()
+                .filter(|k| *k != "globals" && *k != "window")
+                .collect();
             assert_eq!(rest, order[0]);
         }
     }
@@ -386,11 +458,22 @@ mod tests {
         let b = Builder::new(TEMPLATE, SECRET).unwrap();
         let build = b.build_with_seed([2; 16], 10, 100);
         let v = build.key_map["v"].clone();
-        let opened = b.open(&seal_as_is(&b, &build.id, "n", &format!(r#"{{"{v}":1,"{v}":2}}"#)), 10).unwrap();
-        assert_eq!(String::from_utf8(opened.report_json).unwrap(), r#"{"v":1,"v":2}"#);
+        let opened = b
+            .open(
+                &seal_as_is(&b, &build.id, "n", &format!(r#"{{"{v}":1,"{v}":2}}"#)),
+                10,
+            )
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(opened.report_json).unwrap(),
+            r#"{"v":1,"v":2}"#
+        );
         // Deep nesting is refused, not a crash.
         let deep = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
-        assert_eq!(b.open(&seal_as_is(&b, &build.id, "n", &deep), 10), Err(OpenError::Keys));
+        assert_eq!(
+            b.open(&seal_as_is(&b, &build.id, "n", &deep), 10),
+            Err(OpenError::Keys)
+        );
     }
 
     #[test]

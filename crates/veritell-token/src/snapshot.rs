@@ -108,8 +108,8 @@ fn parse(bytes: &[u8]) -> Result<Vec<Entry>, SnapshotError> {
         .get(1..HEADER_LEN)
         .and_then(|b| b.try_into().ok())
         .ok_or(SnapshotError::Malformed)?;
-    let count = usize::try_from(u32::from_be_bytes(count_bytes))
-        .map_err(|_| SnapshotError::Malformed)?;
+    let count =
+        usize::try_from(u32::from_be_bytes(count_bytes)).map_err(|_| SnapshotError::Malformed)?;
     let expected_len = count
         .checked_mul(ENTRY_LEN)
         .and_then(|n| n.checked_add(HEADER_LEN));

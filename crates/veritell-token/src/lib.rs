@@ -59,7 +59,9 @@ fn hex_decode(s: &str) -> Option<Vec<u8>> {
     if !b.len().is_multiple_of(2) {
         return None;
     }
-    b.as_chunks::<2>().0.iter()
+    b.as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| Some((nibble(p[0])? << 4) | nibble(p[1])?))
         .collect()
 }
@@ -94,7 +96,8 @@ fn open(key: &[u8; 32], wire: &str) -> Result<Vec<u8>, TokenError> {
         return Err(TokenError::Malformed);
     };
     m.update(payload.as_bytes());
-    m.verify_slice(&mac_bytes).map_err(|_| TokenError::BadSignature)?;
+    m.verify_slice(&mac_bytes)
+        .map_err(|_| TokenError::BadSignature)?;
     hex_decode(payload).ok_or(TokenError::Malformed)
 }
 
@@ -284,12 +287,7 @@ pub fn issue(keys: &Keys, binding: &Binding, now: u64, ttl_secs: u64, budget: u3
 
 /// Verifies a session token. Checks, in this order: format, signature,
 /// expiry (`now >= expires_at` is expired), binding.
-pub fn verify(
-    keys: &Keys,
-    token: &str,
-    binding: &Binding,
-    now: u64,
-) -> Result<Claims, TokenError> {
+pub fn verify(keys: &Keys, token: &str, binding: &Binding, now: u64) -> Result<Claims, TokenError> {
     let payload = open(&keys.session, token)?;
     let p = parse_session(&payload).ok_or(TokenError::Malformed)?;
     if now >= p.expires_at {

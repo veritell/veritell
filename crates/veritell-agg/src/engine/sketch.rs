@@ -86,7 +86,11 @@ impl Acc {
         }
         let alpha = 0.7213 / (1.0 + 1.079 / m);
         let raw = alpha * m * m / sum;
-        let est = if raw <= 2.5 * m && zeros > 0 { m * (m / f64::from(zeros)).ln() } else { raw };
+        let est = if raw <= 2.5 * m && zeros > 0 {
+            m * (m / f64::from(zeros)).ln()
+        } else {
+            raw
+        };
         (est + 0.5) as u32 // saturating cast
     }
 }
@@ -117,8 +121,19 @@ pub(crate) struct SketchRing {
 impl SketchRing {
     pub(crate) fn new(w: u64) -> Self {
         let n = usize::try_from(w.saturating_mul(2)).unwrap_or(2).max(1);
-        let cells: Vec<SketchCell> = (0..n).map(|_| SketchCell { slot: 0, n: 0, sk: None }).collect();
-        SketchRing { cells: cells.into_boxed_slice(), est_slot: None, est_cur: 0, est_prev: 0 }
+        let cells: Vec<SketchCell> = (0..n)
+            .map(|_| SketchCell {
+                slot: 0,
+                n: 0,
+                sk: None,
+            })
+            .collect();
+        SketchRing {
+            cells: cells.into_boxed_slice(),
+            est_slot: None,
+            est_cur: 0,
+            est_prev: 0,
+        }
     }
 
     /// Counts one request in slot `s` and adds `elem` (a keyed hash) to the
@@ -126,7 +141,8 @@ impl SketchRing {
     pub(crate) fn record(&mut self, s: u64, w: u64, elem: u64) {
         let (idx, rank) = split(elem);
         let dominated = self.cells.iter().any(|c| {
-            age(s, c.slot).is_some_and(|a| a < w) && c.sk.as_ref().is_some_and(|d| d.get(idx) >= rank)
+            age(s, c.slot).is_some_and(|a| a < w)
+                && c.sk.as_ref().is_some_and(|d| d.get(idx) >= rank)
         });
         if let Some(c) = self.cells.get_mut(pos(s, w)) {
             if c.slot != s {
@@ -137,7 +153,8 @@ impl SketchRing {
                 }
             }
             c.n = c.n.saturating_add(1);
-            c.sk.get_or_insert_with(|| Box::new(Dense::new())).raise(idx, rank);
+            c.sk.get_or_insert_with(|| Box::new(Dense::new()))
+                .raise(idx, rank);
         }
         if self.est_slot != Some(s) {
             self.est_slot = Some(s);
@@ -169,7 +186,13 @@ impl SketchRing {
     pub(crate) fn union_est(&self, s: u64, w: u64, prev: bool) -> u32 {
         let mut acc = Acc::new();
         for c in self.cells.iter() {
-            let in_window = age(s, c.slot).is_some_and(|a| if prev { a >= w && a < w.saturating_mul(2) } else { a < w });
+            let in_window = age(s, c.slot).is_some_and(|a| {
+                if prev {
+                    a >= w && a < w.saturating_mul(2)
+                } else {
+                    a < w
+                }
+            });
             if in_window {
                 if let Some(d) = c.sk.as_ref() {
                     acc.merge(d);
@@ -194,7 +217,9 @@ pub(crate) struct CountRing {
 impl CountRing {
     pub(crate) fn new(w: u64) -> Self {
         let n = usize::try_from(w.saturating_mul(2)).unwrap_or(2).max(1);
-        CountRing { cells: vec![CountCell { slot: 0, n: 0 }; n].into_boxed_slice() }
+        CountRing {
+            cells: vec![CountCell { slot: 0, n: 0 }; n].into_boxed_slice(),
+        }
     }
 
     pub(crate) fn add(&mut self, s: u64, w: u64) {
@@ -226,12 +251,15 @@ impl CountRing {
 /// Heap bytes of one `SketchRing` with `w` window slots, every cell dense.
 pub(crate) fn sketch_ring_bytes(w: usize) -> usize {
     let c = w.saturating_mul(2);
-    c.saturating_mul(std::mem::size_of::<SketchCell>() + DENSE_BYTES + 16).saturating_add(16)
+    c.saturating_mul(std::mem::size_of::<SketchCell>() + DENSE_BYTES + 16)
+        .saturating_add(16)
 }
 
 /// Heap bytes of one `CountRing`.
 pub(crate) fn count_ring_bytes(w: usize) -> usize {
-    w.saturating_mul(2).saturating_mul(std::mem::size_of::<CountCell>()).saturating_add(16)
+    w.saturating_mul(2)
+        .saturating_mul(std::mem::size_of::<CountCell>())
+        .saturating_add(16)
 }
 
 #[cfg(test)]

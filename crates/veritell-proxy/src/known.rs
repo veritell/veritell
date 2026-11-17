@@ -26,7 +26,9 @@ pub struct KnownKey(Vec<u8>);
 
 fn valid_label(label: &str) -> bool {
     (1..=32).contains(&label.len())
-        && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && label
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 impl KnownKey {
@@ -60,7 +62,8 @@ impl KnownKey {
     }
 
     fn check<'a>(&self, label: &'a str, mac: &str) -> Option<&'a str> {
-        (valid_label(label) && constant_time_eq(self.mac(label).as_bytes(), mac.as_bytes())).then_some(label)
+        (valid_label(label) && constant_time_eq(self.mac(label).as_bytes(), mac.as_bytes()))
+            .then_some(label)
     }
 
     /// The label of a valid enrolment path.
@@ -98,10 +101,16 @@ mod tests {
         let k = key();
         let mac = k.mac("p03-phone");
         assert_eq!(mac.len(), 32);
-        assert_eq!(k.label_from_path(&format!("/__veritell/known/p03-phone/{mac}")), Some("p03-phone"));
+        assert_eq!(
+            k.label_from_path(&format!("/__veritell/known/p03-phone/{mac}")),
+            Some("p03-phone")
+        );
         let cookie = k.set_cookie("p03-phone");
         let value = cookie.split(';').next().unwrap();
-        assert_eq!(k.label_from_cookie(&format!("a=b; {value}; c=d")), Some("p03-phone"));
+        assert_eq!(
+            k.label_from_cookie(&format!("a=b; {value}; c=d")),
+            Some("p03-phone")
+        );
         assert!(cookie.contains("Secure; HttpOnly; SameSite=Lax"));
     }
 
@@ -121,10 +130,19 @@ mod tests {
         ] {
             assert_eq!(k.label_from_path(&path), None, "{path}");
         }
-        assert_eq!(other.label_from_path(&format!("/__veritell/known/p03-phone/{mac}")), None);
+        assert_eq!(
+            other.label_from_path(&format!("/__veritell/known/p03-phone/{mac}")),
+            None
+        );
         assert_eq!(k.label_from_cookie(&format!("{COOKIE}=p03-phone")), None);
-        assert_eq!(k.label_from_cookie(&format!("{COOKIE}=p04-phone.{mac}")), None);
-        assert_eq!(k.label_from_cookie(&format!("x{COOKIE}=p03-phone.{mac}")), None);
+        assert_eq!(
+            k.label_from_cookie(&format!("{COOKIE}=p04-phone.{mac}")),
+            None
+        );
+        assert_eq!(
+            k.label_from_cookie(&format!("x{COOKIE}=p03-phone.{mac}")),
+            None
+        );
         assert!(!valid_label(&"a".repeat(33)));
         assert!(!valid_label("a b"));
         assert!(!valid_label("a.b"));

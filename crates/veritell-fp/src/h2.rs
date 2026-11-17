@@ -356,7 +356,10 @@ mod tests {
     #[test]
     fn huffman_strings_up_to_the_limit_still_decode() {
         let ok = TINY_HUFFMAN_FIELD.repeat(MAX_HUFFMAN_STRINGS / 2);
-        assert_eq!(decode_names(&ok).map(|n| n.len()), Some(MAX_HUFFMAN_STRINGS / 2));
+        assert_eq!(
+            decode_names(&ok).map(|n| n.len()),
+            Some(MAX_HUFFMAN_STRINGS / 2)
+        );
         let over = TINY_HUFFMAN_FIELD.repeat(MAX_HUFFMAN_STRINGS / 2 + 1);
         assert!(within_decode_limits(&ok) && !within_decode_limits(&over));
     }
@@ -383,7 +386,9 @@ mod tests {
         assert_eq!(decode_names(&b).map(|n| n.len()), Some(2));
         // Cut short, or an integer that never ends: left to loona-hpack, which refuses it.
         assert!(within_decode_limits(&b[..50]));
-        assert!(within_decode_limits(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]));
+        assert!(within_decode_limits(&[
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+        ]));
         assert_eq!(decode_names(&b[..50]), None);
     }
 
@@ -477,7 +482,9 @@ mod tests {
         let mut buf = PREFACE.to_vec();
         buf.extend(frame(FRAME_SETTINGS, 0, 0, &[]));
         buf.extend(frame(FRAME_HEADERS, FLAG_END_HEADERS, 1, &block));
-        let Parse::Done(fp) = parse(&buf) else { panic!("not parsed") };
+        let Parse::Done(fp) = parse(&buf) else {
+            panic!("not parsed")
+        };
         assert_eq!(fp.akamai.matches('|').count(), 3, "{}", fp.akamai);
         assert!(fp.akamai.ends_with("|?,?,?"), "{}", fp.akamai);
     }
@@ -519,7 +526,12 @@ mod tests {
     #[test]
     fn bad_hpack_is_invalid_not_panic() {
         let mut b = PREFACE.to_vec();
-        b.extend(frame(FRAME_HEADERS, FLAG_END_HEADERS, 1, &[0xff, 0xff, 0xff]));
+        b.extend(frame(
+            FRAME_HEADERS,
+            FLAG_END_HEADERS,
+            1,
+            &[0xff, 0xff, 0xff],
+        ));
         assert!(matches!(parse(&b), Parse::Invalid));
     }
 }

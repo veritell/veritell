@@ -79,9 +79,17 @@ pub enum Refusal {
 impl Refusal {
     #[cfg(test)]
     pub const ALL: [Refusal; 11] = [
-        Refusal::TooLarge, Refusal::BuildUnknown, Refusal::BuildExpired, Refusal::SealInvalid,
-        Refusal::Malformed, Refusal::BuildOrder, Refusal::NonceExpired, Refusal::NonceOtherClient,
-        Refusal::NonceInvalid, Refusal::NonceReused, Refusal::StoreFull,
+        Refusal::TooLarge,
+        Refusal::BuildUnknown,
+        Refusal::BuildExpired,
+        Refusal::SealInvalid,
+        Refusal::Malformed,
+        Refusal::BuildOrder,
+        Refusal::NonceExpired,
+        Refusal::NonceOtherClient,
+        Refusal::NonceInvalid,
+        Refusal::NonceReused,
+        Refusal::StoreFull,
     ];
 
     /// The event outcome.
@@ -106,14 +114,20 @@ impl Refusal {
     /// connection or sent twice, and an unknown build or nonce key (a restart
     /// with a new secret) all happen to real browsers and are not on the list.
     pub fn is_forgery(self) -> bool {
-        matches!(self, Refusal::Malformed | Refusal::SealInvalid | Refusal::BuildOrder)
+        matches!(
+            self,
+            Refusal::Malformed | Refusal::SealInvalid | Refusal::BuildOrder
+        )
     }
 
     /// Whether the refusal counts as a strike against the client. A page
     /// left open past its nonce or its build sends an expired one, and a full
     /// store is not the client's doing.
     pub fn strikes(self) -> bool {
-        !matches!(self, Refusal::NonceExpired | Refusal::BuildExpired | Refusal::StoreFull | Refusal::TooLarge)
+        !matches!(
+            self,
+            Refusal::NonceExpired | Refusal::BuildExpired | Refusal::StoreFull | Refusal::TooLarge
+        )
     }
 }
 
@@ -133,7 +147,10 @@ pub fn forged(why: Refusal) -> Detection {
         FORGED,
         Layer::Client,
         50,
-        format!("sent a probe report that the probe script did not make ({})", why.as_str()),
+        format!(
+            "sent a probe report that the probe script did not make ({})",
+            why.as_str()
+        ),
     )
     .with_class(Class::Automated)
 }
@@ -144,7 +161,9 @@ pub fn forged(why: Refusal) -> Detection {
 /// correctly, almost always does. `orders` is the build's list; a report
 /// that cannot be read here passes (the version 1 parser has its say).
 pub fn in_build_order(orders: &[Vec<String>], report_json: &[u8]) -> bool {
-    let Some(page) = page_keys(report_json) else { return true };
+    let Some(page) = page_keys(report_json) else {
+        return true;
+    };
     orders.iter().all(|order| {
         let written: Vec<&String> = page.iter().filter(|k| order.contains(k)).collect();
         let expected: Vec<&String> = order.iter().filter(|k| page.contains(k)).collect();
@@ -236,12 +255,21 @@ impl<T: Clone + Default> BindingStore<T> {
 
     /// What is on record for this client, or `None` if it has sent nothing.
     pub fn get(&self, binding: &[u8; 16], now: u64) -> Option<T> {
-        self.lock().get(binding).filter(|r| r.expires_at >= now).map(|r| r.value.clone())
+        self.lock()
+            .get(binding)
+            .filter(|r| r.expires_at >= now)
+            .map(|r| r.value.clone())
     }
 
     /// Merges a new result into the record with `merge` and returns what is
     /// now on record. A record past its expiry starts again from empty.
-    pub(crate) fn update(&self, binding: [u8; 16], expires_at: u64, now: u64, merge: impl FnOnce(&mut T)) -> T {
+    pub(crate) fn update(
+        &self,
+        binding: [u8; 16],
+        expires_at: u64,
+        now: u64,
+        merge: impl FnOnce(&mut T),
+    ) -> T {
         let mut map = self.lock();
         if map.len() >= self.max_entries && !map.contains_key(&binding) {
             map.retain(|_, r| r.expires_at >= now);
@@ -250,12 +278,19 @@ impl<T: Clone + Default> BindingStore<T> {
                 // end rather than grow (an arbitrary one could be a client
                 // that reported a second ago, which would then be marked
                 // probe_missing for the rest of its token's life).
-                if let Some(key) = map.iter().min_by_key(|(_, r)| r.expires_at).map(|(k, _)| *k) {
+                if let Some(key) = map
+                    .iter()
+                    .min_by_key(|(_, r)| r.expires_at)
+                    .map(|(k, _)| *k)
+                {
                     map.remove(&key);
                 }
             }
         }
-        let record = map.entry(binding).or_insert(Record { value: T::default(), expires_at });
+        let record = map.entry(binding).or_insert(Record {
+            value: T::default(),
+            expires_at,
+        });
         if record.expires_at < now {
             record.value = T::default();
         }
@@ -285,8 +320,16 @@ pub type ProbeStore = BindingStore<Vec<Detection>>;
 
 impl ProbeStore {
     /// Merges a new result into the record and returns what is now on record.
-    pub fn put(&self, binding: [u8; 16], detections: Vec<Detection>, expires_at: u64, now: u64) -> Vec<Detection> {
-        self.update(binding, expires_at, now, |on_record| add_detections(on_record, detections, MAX_DETECTIONS))
+    pub fn put(
+        &self,
+        binding: [u8; 16],
+        detections: Vec<Detection>,
+        expires_at: u64,
+        now: u64,
+    ) -> Vec<Detection> {
+        self.update(binding, expires_at, now, |on_record| {
+            add_detections(on_record, detections, MAX_DETECTIONS)
+        })
     }
 
     /// The live records as JSON, for `--state-dir`: without them a restart
@@ -319,7 +362,8 @@ impl ProbeStore {
             e: u64,
             d: Vec<Detection>,
         }
-        let rows: Vec<Row> = serde_json::from_slice(bytes).map_err(|e| format!("probe records: {e}"))?;
+        let rows: Vec<Row> =
+            serde_json::from_slice(bytes).map_err(|e| format!("probe records: {e}"))?;
         let mut parsed = Vec::with_capacity(rows.len());
         for row in rows {
             let b = row.b.as_bytes();
@@ -328,7 +372,8 @@ impl ProbeStore {
             }
             let mut binding = [0u8; 16];
             for (i, slot) in binding.iter_mut().enumerate() {
-                let hex = std::str::from_utf8(&b[i * 2..i * 2 + 2]).map_err(|_| "probe records: bad binding")?;
+                let hex = std::str::from_utf8(&b[i * 2..i * 2 + 2])
+                    .map_err(|_| "probe records: bad binding")?;
                 *slot = u8::from_str_radix(hex, 16).map_err(|_| "probe records: bad binding")?;
             }
             parsed.push((binding, row.e, row.d));
@@ -339,7 +384,13 @@ impl ProbeStore {
             if expires_at < now || (map.len() >= self.max_entries && !map.contains_key(&binding)) {
                 continue;
             }
-            map.insert(binding, Record { value: detections, expires_at });
+            map.insert(
+                binding,
+                Record {
+                    value: detections,
+                    expires_at,
+                },
+            );
             loaded += 1;
         }
         Ok(loaded)
@@ -361,9 +412,17 @@ mod tests {
         a.put([2; 16], Vec::new(), 1000, 10);
         a.put([3; 16], vec![det("old")], 20, 10);
         let b = ProbeStore::new(10);
-        assert_eq!(b.import(&a.export(10), 30), Ok(2), "the expired one is skipped");
+        assert_eq!(
+            b.import(&a.export(10), 30),
+            Ok(2),
+            "the expired one is skipped"
+        );
         assert_eq!(b.get(&[1; 16], 30).unwrap().len(), 1);
-        assert_eq!(b.get(&[2; 16], 30), Some(Vec::new()), "a clean record is a record");
+        assert_eq!(
+            b.get(&[2; 16], 30),
+            Some(Vec::new()),
+            "a clean record is a record"
+        );
         assert_eq!(b.get(&[3; 16], 30), None);
         assert!(b.import(b"[{\"b\":\"zz\",\"e\":1,\"d\":[]}]", 0).is_err());
         assert!(b.import(b"not json", 0).is_err());
@@ -413,26 +472,48 @@ mod tests {
 
     #[test]
     fn page_order_is_checked_against_the_build() {
-        let orders = vec![vec!["tz".to_string(), "plugins".into(), "screen".into()], vec!["x".into(), "y".into()]];
+        let orders = vec![
+            vec!["tz".to_string(), "plugins".into(), "screen".into()],
+            vec!["x".into(), "y".into()],
+        ];
         let ok = br#"{"v":1,"page":{"tz":"","window":[0],"plugins":1,"screen":[0],"globals":[]},"main":{"y":1,"x":2}}"#;
-        assert!(in_build_order(&orders, ok), "only the page is checked; other keys do not matter");
+        assert!(
+            in_build_order(&orders, ok),
+            "only the page is checked; other keys do not matter"
+        );
         let bad = br#"{"v":1,"page":{"plugins":1,"tz":"","screen":[0]}}"#;
         assert!(!in_build_order(&orders, bad));
         // Only the keys present are compared.
-        assert!(in_build_order(&orders, br#"{"page":{"tz":"","screen":[0]}}"#));
-        assert!(!in_build_order(&orders, br#"{"page":{"screen":[0],"tz":""}}"#));
+        assert!(in_build_order(
+            &orders,
+            br#"{"page":{"tz":"","screen":[0]}}"#
+        ));
+        assert!(!in_build_order(
+            &orders,
+            br#"{"page":{"screen":[0],"tz":""}}"#
+        ));
         // Nothing to compare against, or nothing readable: the check passes.
         assert!(in_build_order(&[], bad));
         assert!(in_build_order(&orders, b"not json"));
         assert!(in_build_order(&orders, br#"{"v":1}"#));
         assert!(in_build_order(&orders, br#"{"page":[1,2]}"#));
-        assert_eq!(page_keys(br#"{"a":{"page":{"z":1}},"page":{"b":[{"c":1}],"a":null}}"#), Some(vec!["b".into(), "a".into()]));
+        assert_eq!(
+            page_keys(br#"{"a":{"page":{"z":1}},"page":{"b":[{"c":1}],"a":null}}"#),
+            Some(vec!["b".into(), "a".into()])
+        );
     }
 
     #[test]
     fn only_reports_no_script_makes_are_forgeries() {
-        let forgeries: Vec<&str> = Refusal::ALL.iter().filter(|r| r.is_forgery()).map(|r| r.as_str()).collect();
-        assert_eq!(forgeries, ["probe_seal_invalid", "probe_malformed", "probe_build_order"]);
+        let forgeries: Vec<&str> = Refusal::ALL
+            .iter()
+            .filter(|r| r.is_forgery())
+            .map(|r| r.as_str())
+            .collect();
+        assert_eq!(
+            forgeries,
+            ["probe_seal_invalid", "probe_malformed", "probe_build_order"]
+        );
         let d = forged(Refusal::Malformed);
         assert_eq!((d.id.as_str(), d.layer), (FORGED, Layer::Client));
         assert!(d.detail.contains("probe_malformed"));
@@ -446,14 +527,29 @@ mod tests {
         unique.dedup();
         assert_eq!(unique.len(), names.len(), "one name each");
         assert!(names.iter().all(|n| n.starts_with("probe_")));
-        let no_strike: Vec<&str> = Refusal::ALL.iter().filter(|r| !r.strikes()).map(|r| r.as_str()).collect();
-        assert_eq!(no_strike, ["probe_too_large", "probe_build_expired", "probe_nonce_expired", "probe_store_full"]);
+        let no_strike: Vec<&str> = Refusal::ALL
+            .iter()
+            .filter(|r| !r.strikes())
+            .map(|r| r.as_str())
+            .collect();
+        assert_eq!(
+            no_strike,
+            [
+                "probe_too_large",
+                "probe_build_expired",
+                "probe_nonce_expired",
+                "probe_store_full"
+            ]
+        );
     }
 
     #[test]
     fn user_agent_claims() {
         let c = claimed(Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"));
-        assert_eq!((c.engine, c.os, c.mobile), (Some(Engine::Blink), Some(Os::Windows), false));
+        assert_eq!(
+            (c.engine, c.os, c.mobile),
+            (Some(Engine::Blink), Some(Os::Windows), false)
+        );
         let c = claimed(Some("curl/8.7.1"));
         assert_eq!((c.engine, c.os), (None, None));
         assert_eq!(claimed(None).engine, None);

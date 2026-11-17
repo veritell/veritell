@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
+use sha2::{Digest, Sha256};
 use veritell_core::{Class, Layer};
 use veritell_feed::{FeedError, FeedKey};
 use veritell_share::*;
-use sha2::{Digest, Sha256};
 
 const SECRET: &[u8] = b"0123456789abcdef0123456789abcdef";
 const SEED: [u8; 32] = [7; 32];
@@ -18,7 +18,11 @@ fn key() -> ShareKey {
 }
 
 fn config() -> Config {
-    Config { min_networks: 5, max_fingerprints: 100, ttl_secs: 1000 }
+    Config {
+        min_networks: 5,
+        max_fingerprints: 100,
+        ttl_secs: 1000,
+    }
 }
 
 fn ledger() -> Ledger {
@@ -81,19 +85,52 @@ fn a_short_secret_is_refused_and_a_key_does_not_print_itself() {
 #[test]
 fn configuration_is_checked() {
     for bad in [
-        Config { min_networks: MIN_NETWORKS_FLOOR - 1, ..config() },
-        Config { min_networks: 0, ..config() },
-        Config { max_fingerprints: 0, ..config() },
-        Config { ttl_secs: 0, ..config() },
+        Config {
+            min_networks: MIN_NETWORKS_FLOOR - 1,
+            ..config()
+        },
+        Config {
+            min_networks: 0,
+            ..config()
+        },
+        Config {
+            max_fingerprints: 0,
+            ..config()
+        },
+        Config {
+            ttl_secs: 0,
+            ..config()
+        },
         // TooSmall is reported before TooLarge.
-        Config { ttl_secs: 0, max_fingerprints: MAX_ENTRIES + 1, ..config() },
+        Config {
+            ttl_secs: 0,
+            max_fingerprints: MAX_ENTRIES + 1,
+            ..config()
+        },
     ] {
         assert_eq!(Ledger::new(key(), bad).err(), Some(ConfigError::TooSmall));
     }
-    for bad in [Config { min_networks: 1001, ..config() }, Config { max_fingerprints: MAX_ENTRIES + 1, ..config() }] {
+    for bad in [
+        Config {
+            min_networks: 1001,
+            ..config()
+        },
+        Config {
+            max_fingerprints: MAX_ENTRIES + 1,
+            ..config()
+        },
+    ] {
         assert_eq!(Ledger::new(key(), bad).err(), Some(ConfigError::TooLarge));
     }
-    assert!(Ledger::new(key(), Config { min_networks: 1000, max_fingerprints: MAX_ENTRIES, ttl_secs: 1 }).is_ok());
+    assert!(Ledger::new(
+        key(),
+        Config {
+            min_networks: 1000,
+            max_fingerprints: MAX_ENTRIES,
+            ttl_secs: 1
+        }
+    )
+    .is_ok());
     assert!(Ledger::new(key(), Config::default()).is_ok());
     assert!(Config::default().min_networks >= MIN_NETWORKS_FLOOR);
 }
@@ -110,18 +147,32 @@ fn a_fingerprint_is_shared_only_from_enough_networks() {
         l.record("loud", net(1), Class::Malicious, T);
     }
     assert_eq!(l.tracked(), 3);
-    assert_eq!(l.export(T), vec![Entry { hash: key().hash("wide"), class: Class::Automated }]);
+    assert_eq!(
+        l.export(T),
+        vec![Entry {
+            hash: key().hash("wide"),
+            class: Class::Automated
+        }]
+    );
     // One more network tips the narrow one over.
     l.record("narrow", net(77), Class::Automated, T + 1);
     let out = l.export(T + 1);
     assert_eq!(out.len(), 2);
-    assert!(out.contains(&Entry { hash: key().hash("narrow"), class: Class::Automated }));
+    assert!(out.contains(&Entry {
+        hash: key().hash("narrow"),
+        class: Class::Automated
+    }));
 }
 
 #[test]
 fn only_automated_and_malicious_are_noted() {
     let l = ledger();
-    for class in [Class::Human, Class::VerifiedBot, Class::SignedAgent, Class::UnverifiedAgent] {
+    for class in [
+        Class::Human,
+        Class::VerifiedBot,
+        Class::SignedAgent,
+        Class::UnverifiedAgent,
+    ] {
         seen(&l, "people", 50, class, T);
     }
     assert_eq!(l.tracked(), 0);
@@ -140,7 +191,13 @@ fn the_more_severe_class_is_kept() {
     seen(&l, "fp", 5, Class::Automated, T);
     l.record("fp", net(0), Class::Malicious, T);
     l.record("fp", net(1), Class::Automated, T);
-    assert_eq!(l.export(T), vec![Entry { hash: key().hash("fp"), class: Class::Malicious }]);
+    assert_eq!(
+        l.export(T),
+        vec![Entry {
+            hash: key().hash("fp"),
+            class: Class::Malicious
+        }]
+    );
 }
 
 #[test]
@@ -154,7 +211,13 @@ fn entries_age_out() {
     // itself seen within the window, so one network noted again no longer
     // keeps the other four counting.)
     seen(&l, "kept", 5, Class::Automated, T + 1000);
-    assert_eq!(l.export(T + 1001), vec![Entry { hash: key().hash("kept"), class: Class::Automated }]);
+    assert_eq!(
+        l.export(T + 1001),
+        vec![Entry {
+            hash: key().hash("kept"),
+            class: Class::Automated
+        }]
+    );
     assert_eq!(l.export(T + 2000).len(), 1);
     assert!(l.export(T + 2001).is_empty());
 }
@@ -174,7 +237,15 @@ fn a_clock_that_steps_back() {
 
 #[test]
 fn the_ledger_is_bounded() {
-    let l = Ledger::new(key(), Config { min_networks: 5, max_fingerprints: 3, ttl_secs: 1000 }).unwrap();
+    let l = Ledger::new(
+        key(),
+        Config {
+            min_networks: 5,
+            max_fingerprints: 3,
+            ttl_secs: 1000,
+        },
+    )
+    .unwrap();
     for name in ["a", "b", "c"] {
         seen(&l, name, 5, Class::Automated, T);
     }
@@ -185,13 +256,22 @@ fn the_ledger_is_bounded() {
     // Those already there are still updated (from all five networks: see
     // entries_age_out for why).
     seen(&l, "a", 5, Class::Malicious, T + 10);
-    assert!(l.export(T + 10).contains(&Entry { hash: key().hash("a"), class: Class::Malicious }));
+    assert!(l.export(T + 10).contains(&Entry {
+        hash: key().hash("a"),
+        class: Class::Malicious
+    }));
     // Once the others have aged out there is room again.
     seen(&l, "e", 5, Class::Automated, T + 1005);
     assert!(l.tracked() <= 3);
     let out = l.export(T + 1005);
-    assert!(out.contains(&Entry { hash: key().hash("e"), class: Class::Automated }));
-    assert!(out.contains(&Entry { hash: key().hash("a"), class: Class::Malicious }));
+    assert!(out.contains(&Entry {
+        hash: key().hash("e"),
+        class: Class::Automated
+    }));
+    assert!(out.contains(&Entry {
+        hash: key().hash("a"),
+        class: Class::Malicious
+    }));
     assert_eq!(out.len(), 2);
 
     // Any number of fingerprints and networks leaves it within its bound.
@@ -236,13 +316,22 @@ fn shared_across_threads() {
 // ---------- the file ----------
 
 fn entry(seed: u8, class: Class) -> Entry {
-    Entry { hash: [seed; HASH_BYTES], class }
+    Entry {
+        hash: [seed; HASH_BYTES],
+        class,
+    }
 }
 
 #[test]
 fn the_file_format_is_exact() {
     let entries = [
-        Entry { hash: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff], class: Class::Malicious },
+        Entry {
+            hash: [
+                0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+                0xee, 0xff,
+            ],
+            class: Class::Malicious,
+        },
         entry(1, Class::Automated),
     ];
     let bytes = encode(&entries);
@@ -251,7 +340,10 @@ fn the_file_format_is_exact() {
         r#"{"v":1,"entries":[{"h":"00112233445566778899aabbccddeeff","c":"malicious"},{"h":"01010101010101010101010101010101","c":"automated"}]}"#
     );
     assert_eq!(decode(&bytes).unwrap(), entries.to_vec());
-    assert_eq!(String::from_utf8(encode(&[])).unwrap(), r#"{"v":1,"entries":[]}"#);
+    assert_eq!(
+        String::from_utf8(encode(&[])).unwrap(),
+        r#"{"v":1,"entries":[]}"#
+    );
     assert_eq!(decode(br#"{"v":1,"entries":[]}"#).unwrap(), vec![]);
     // Whitespace and member order are JSON's business, not ours.
     assert_eq!(
@@ -259,7 +351,14 @@ fn the_file_format_is_exact() {
         vec![entry(1, Class::Automated)]
     );
     // A class that may not be shared is not written.
-    assert_eq!(encode(&[entry(1, Class::Human), entry(2, Class::Automated), entry(3, Class::SignedAgent)]), encode(&[entry(2, Class::Automated)]));
+    assert_eq!(
+        encode(&[
+            entry(1, Class::Human),
+            entry(2, Class::Automated),
+            entry(3, Class::SignedAgent)
+        ]),
+        encode(&[entry(2, Class::Automated)])
+    );
 }
 
 #[test]
@@ -284,15 +383,29 @@ fn files_that_are_refused() {
         format!(r#"{{"v":1,"entries":[{{"h":"{h}","c":"signed_agent"}}]}}"#),
         format!(r#"{{"v":1,"entries":[{{"h":"{h}","c":"Automated"}}]}}"#),
         format!(r#"{{"v":1,"entries":[{{"h":"{h}","c":7}}]}}"#),
-        format!(r#"{{"v":1,"entries":[{{"h":"{}","c":"automated"}}]}}"#, &h[..30]),
+        format!(
+            r#"{{"v":1,"entries":[{{"h":"{}","c":"automated"}}]}}"#,
+            &h[..30]
+        ),
         format!(r#"{{"v":1,"entries":[{{"h":"{h}00","c":"automated"}}]}}"#),
-        format!(r#"{{"v":1,"entries":[{{"h":"{}","c":"automated"}}]}}"#, h.replace('0', "g")),
-        format!(r#"{{"v":1,"entries":[{{"h":"{}","c":"automated"}}]}}"#, "AB".repeat(16)),
+        format!(
+            r#"{{"v":1,"entries":[{{"h":"{}","c":"automated"}}]}}"#,
+            h.replace('0', "g")
+        ),
+        format!(
+            r#"{{"v":1,"entries":[{{"h":"{}","c":"automated"}}]}}"#,
+            "AB".repeat(16)
+        ),
         // The same hash twice, even with different classes.
-        format!(r#"{{"v":1,"entries":[{{"h":"{h}","c":"automated"}},{{"h":"{h}","c":"malicious"}}]}}"#),
+        format!(
+            r#"{{"v":1,"entries":[{{"h":"{h}","c":"automated"}},{{"h":"{h}","c":"malicious"}}]}}"#
+        ),
     ];
     for text in &bad {
-        assert!(matches!(decode(text.as_bytes()), Err(ShareError::Format(_))), "{text:.90}");
+        assert!(
+            matches!(decode(text.as_bytes()), Err(ShareError::Format(_))),
+            "{text:.90}"
+        );
     }
     assert!(matches!(decode(&[0xff, 0xfe]), Err(ShareError::Format(_))));
 }
@@ -302,7 +415,10 @@ fn many(n: usize) -> Vec<Entry> {
         .map(|i| {
             let mut hash = [0u8; HASH_BYTES];
             hash[..8].copy_from_slice(&(i as u64).to_be_bytes());
-            Entry { hash, class: Class::Automated }
+            Entry {
+                hash,
+                class: Class::Automated,
+            }
         })
         .collect()
 }
@@ -313,7 +429,10 @@ fn the_entry_limit() {
     assert_eq!(decode(&encode(&most)).unwrap().len(), MAX_ENTRIES);
     let over = many(MAX_ENTRIES + 1);
     assert_eq!(decode(&encode(&over)), Err(ShareError::TooMany));
-    assert_eq!(seal_bundle(&over, 1, T, T + 100, &SEED).err(), Some(ShareError::TooMany));
+    assert_eq!(
+        seal_bundle(&over, 1, T, T + 100, &SEED).err(),
+        Some(ShareError::TooMany)
+    );
 }
 
 // ---------- the bundle ----------
@@ -326,7 +445,10 @@ fn trusted() -> [FeedKey; 1] {
 fn a_bundle_round_trips() {
     let entries = vec![entry(1, Class::Automated), entry(2, Class::Malicious)];
     let bytes = seal_bundle(&entries, 9, T, T + 3600, &SEED).unwrap();
-    assert_eq!(open_bundle(&bytes, &trusted(), T + 10, 0).unwrap(), (9, entries.clone()));
+    assert_eq!(
+        open_bundle(&bytes, &trusted(), T + 10, 0).unwrap(),
+        (9, entries.clone())
+    );
     assert_eq!(open_bundle(&bytes, &trusted(), T + 10, 9).unwrap().0, 9);
     // It is an ordinary feed bundle with one file.
     let plain = veritell_feed::open(&bytes, &trusted(), T + 10, 0).unwrap();
@@ -338,38 +460,76 @@ fn a_bundle_round_trips() {
 fn bundles_that_are_refused_as_in_the_feed() {
     let bytes = seal_bundle(&[entry(1, Class::Automated)], 9, T, T + 3600, &SEED).unwrap();
     let stranger = [veritell_feed::public_key(&[8; 32])];
-    assert_eq!(open_bundle(&bytes, &stranger, T + 10, 0), Err(ShareError::Bundle(FeedError::Signature)));
-    assert_eq!(open_bundle(&bytes, &[], T + 10, 0), Err(ShareError::Bundle(FeedError::Signature)));
-    assert_eq!(open_bundle(&bytes, &trusted(), T + 3601, 0), Err(ShareError::Bundle(FeedError::Expired)));
+    assert_eq!(
+        open_bundle(&bytes, &stranger, T + 10, 0),
+        Err(ShareError::Bundle(FeedError::Signature))
+    );
+    assert_eq!(
+        open_bundle(&bytes, &[], T + 10, 0),
+        Err(ShareError::Bundle(FeedError::Signature))
+    );
+    assert_eq!(
+        open_bundle(&bytes, &trusted(), T + 3601, 0),
+        Err(ShareError::Bundle(FeedError::Expired))
+    );
     assert_eq!(
         open_bundle(&bytes, &trusted(), T + 10, 10),
-        Err(ShareError::Bundle(FeedError::Rollback { minimum: 10, got: 9 }))
+        Err(ShareError::Bundle(FeedError::Rollback {
+            minimum: 10,
+            got: 9
+        }))
     );
     let mut cut = bytes.clone();
     cut.truncate(bytes.len() / 2);
-    assert!(matches!(open_bundle(&cut, &trusted(), T + 10, 0), Err(ShareError::Bundle(_))));
-    assert!(matches!(open_bundle(b"", &trusted(), T + 10, 0), Err(ShareError::Bundle(_))));
+    assert!(matches!(
+        open_bundle(&cut, &trusted(), T + 10, 0),
+        Err(ShareError::Bundle(_))
+    ));
+    assert!(matches!(
+        open_bundle(b"", &trusted(), T + 10, 0),
+        Err(ShareError::Bundle(_))
+    ));
 }
 
 #[test]
 fn a_signed_bundle_with_the_wrong_files_or_a_bad_file() {
     let sealed = |files: &[(&str, &[u8])]| {
-        let map: BTreeMap<String, Vec<u8>> = files.iter().map(|(n, c)| (n.to_string(), c.to_vec())).collect();
+        let map: BTreeMap<String, Vec<u8>> = files
+            .iter()
+            .map(|(n, c)| (n.to_string(), c.to_vec()))
+            .collect();
         veritell_feed::seal(&map, 1, T, T + 3600, &SEED).unwrap()
     };
     let good = encode(&[entry(1, Class::Automated)]);
     // A truth table signed by the same key is not a share bundle.
-    assert_eq!(open_bundle(&sealed(&[("truth_v1.json", b"{}")]), &trusted(), T, 0), Err(ShareError::Files));
-    assert_eq!(open_bundle(&sealed(&[]), &trusted(), T, 0), Err(ShareError::Files));
     assert_eq!(
-        open_bundle(&sealed(&[(FILE_NAME, &good), ("truth_v1.json", b"{}")]), &trusted(), T, 0),
+        open_bundle(&sealed(&[("truth_v1.json", b"{}")]), &trusted(), T, 0),
+        Err(ShareError::Files)
+    );
+    assert_eq!(
+        open_bundle(&sealed(&[]), &trusted(), T, 0),
+        Err(ShareError::Files)
+    );
+    assert_eq!(
+        open_bundle(
+            &sealed(&[(FILE_NAME, &good), ("truth_v1.json", b"{}")]),
+            &trusted(),
+            T,
+            0
+        ),
         Err(ShareError::Files)
     );
     assert!(matches!(
         open_bundle(&sealed(&[(FILE_NAME, b"{\"v\":1}")]), &trusted(), T, 0),
         Err(ShareError::Format(_))
     ));
-    assert_eq!(open_bundle(&sealed(&[(FILE_NAME, &good)]), &trusted(), T, 0).unwrap().1.len(), 1);
+    assert_eq!(
+        open_bundle(&sealed(&[(FILE_NAME, &good)]), &trusted(), T, 0)
+            .unwrap()
+            .1
+            .len(),
+        1
+    );
 }
 
 // ---------- import ----------
@@ -424,7 +584,12 @@ fn an_export_holds_no_address_no_user_agent_and_no_fingerprint() {
 
     let l = ledger();
     for (n, _) in addresses.iter().enumerate() {
-        l.record(&fingerprint, [4, 203, 0, 100 + n as u8, 0, 0, 0, 0], Class::Automated, T);
+        l.record(
+            &fingerprint,
+            [4, 203, 0, 100 + n as u8, 0, 0, 0, 0],
+            Class::Automated,
+            T,
+        );
     }
     let entries = l.export(T);
     assert_eq!(entries.len(), 1);
@@ -432,10 +597,19 @@ fn an_export_holds_no_address_no_user_agent_and_no_fingerprint() {
 
     // Everything the bundle carries, in every encoding it uses.
     let opened = veritell_feed::open(&bundle, &trusted(), T, 0).unwrap();
-    let mut haystacks: Vec<Vec<u8>> = vec![bundle.clone(), opened.file(FILE_NAME).unwrap().to_vec()];
+    let mut haystacks: Vec<Vec<u8>> =
+        vec![bundle.clone(), opened.file(FILE_NAME).unwrap().to_vec()];
     let outer: serde_json::Value = serde_json::from_slice(&bundle).unwrap();
-    haystacks.push(STANDARD.decode(outer["manifest"].as_str().unwrap()).unwrap());
-    let found = |needle: &[u8]| haystacks.iter().any(|h| !needle.is_empty() && h.windows(needle.len()).any(|w| w == needle));
+    haystacks.push(
+        STANDARD
+            .decode(outer["manifest"].as_str().unwrap())
+            .unwrap(),
+    );
+    let found = |needle: &[u8]| {
+        haystacks
+            .iter()
+            .any(|h| !needle.is_empty() && h.windows(needle.len()).any(|w| w == needle))
+    };
 
     let mut secrets: Vec<(String, Vec<u8>)> = vec![
         ("fingerprint".into(), fingerprint.clone().into_bytes()),
@@ -456,10 +630,22 @@ fn an_export_holds_no_address_no_user_agent_and_no_fingerprint() {
         let digest = Sha256::digest(value);
         derived.push((format!("sha256 of {name}"), digest.to_vec()));
         derived.push((format!("sha256 hex of {name}"), hex(&digest).into_bytes()));
-        derived.push((format!("sha256 hex prefix of {name}"), hex(&digest[..16]).into_bytes()));
-        derived.push((format!("sha256 base64 of {name}"), STANDARD.encode(digest).into_bytes()));
-        derived.push((format!("sha256 base64url of {name}"), URL_SAFE_NO_PAD.encode(digest).into_bytes()));
-        derived.push((format!("base64 of {name}"), STANDARD.encode(value).into_bytes()));
+        derived.push((
+            format!("sha256 hex prefix of {name}"),
+            hex(&digest[..16]).into_bytes(),
+        ));
+        derived.push((
+            format!("sha256 base64 of {name}"),
+            STANDARD.encode(digest).into_bytes(),
+        ));
+        derived.push((
+            format!("sha256 base64url of {name}"),
+            URL_SAFE_NO_PAD.encode(digest).into_bytes(),
+        ));
+        derived.push((
+            format!("base64 of {name}"),
+            STANDARD.encode(value).into_bytes(),
+        ));
     }
     for (name, needle) in secrets.iter().chain(derived.iter()) {
         assert!(!found(needle), "the bundle contains {name}");

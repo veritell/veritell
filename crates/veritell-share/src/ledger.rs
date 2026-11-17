@@ -4,10 +4,12 @@ use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
 use hmac::{Hmac, Mac};
-use veritell_core::Class;
 use sha2::Sha256;
+use veritell_core::Class;
 
-use crate::{Config, ConfigError, Entry, HASH_BYTES, MAX_ENTRIES, MIN_NETWORKS_FLOOR, MIN_SECRET_BYTES};
+use crate::{
+    Config, ConfigError, Entry, HASH_BYTES, MAX_ENTRIES, MIN_NETWORKS_FLOOR, MIN_SECRET_BYTES,
+};
 
 const DOMAIN: &[u8] = b"veritell share fingerprint v1\0";
 
@@ -30,7 +32,9 @@ impl ShareKey {
         if secret.len() < MIN_SECRET_BYTES {
             return None;
         }
-        Hmac::<Sha256>::new_from_slice(secret).ok().map(|mac| ShareKey { mac })
+        Hmac::<Sha256>::new_from_slice(secret)
+            .ok()
+            .map(|mac| ShareKey { mac })
     }
 
     /// The hash of a fingerprint as defined in the crate documentation.
@@ -92,13 +96,20 @@ impl Ledger {
     /// Checks the configuration (see [`ConfigError`]; `TooSmall` is reported
     /// before `TooLarge`).
     pub fn new(key: ShareKey, config: Config) -> Result<Ledger, ConfigError> {
-        if config.min_networks < MIN_NETWORKS_FLOOR || config.max_fingerprints == 0 || config.ttl_secs == 0 {
+        if config.min_networks < MIN_NETWORKS_FLOOR
+            || config.max_fingerprints == 0
+            || config.ttl_secs == 0
+        {
             return Err(ConfigError::TooSmall);
         }
         if config.min_networks > 1000 || config.max_fingerprints > MAX_ENTRIES {
             return Err(ConfigError::TooLarge);
         }
-        Ok(Ledger { key, config, state: Mutex::new(State::default()) })
+        Ok(Ledger {
+            key,
+            config,
+            state: Mutex::new(State::default()),
+        })
     }
 
     /// Notes that a request with this fingerprint, from this network, was
@@ -153,7 +164,14 @@ impl Ledger {
                 return;
             }
         }
-        st.slots.insert(hash, Slot { class, last: now, networks: vec![(network, now)] });
+        st.slots.insert(
+            hash,
+            Slot {
+                class,
+                last: now,
+                networks: vec![(network, now)],
+            },
+        );
     }
 
     /// The entries to share at `now`: every fingerprint noted from at least
@@ -169,9 +187,16 @@ impl Ledger {
             .iter()
             .filter(|(_, s)| {
                 now.saturating_sub(s.last) <= ttl
-                    && s.networks.iter().filter(|(_, t)| now.saturating_sub(*t) <= ttl).count() >= min
+                    && s.networks
+                        .iter()
+                        .filter(|(_, t)| now.saturating_sub(*t) <= ttl)
+                        .count()
+                        >= min
             })
-            .map(|(h, s)| Entry { hash: *h, class: s.class })
+            .map(|(h, s)| Entry {
+                hash: *h,
+                class: s.class,
+            })
             .collect();
         out.sort_by_key(|a| a.hash);
         out.truncate(MAX_ENTRIES);

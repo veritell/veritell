@@ -62,7 +62,9 @@ pub fn authorized(header: Option<&str>, token: &[u8]) -> bool {
             return false;
         };
         match decoded.iter().position(|&b| b == b':') {
-            Some(colon) => decoded.get(colon + 1..).is_some_and(|password| constant_time_eq(password, token)),
+            Some(colon) => decoded
+                .get(colon + 1..)
+                .is_some_and(|password| constant_time_eq(password, token)),
             None => false,
         }
     } else {
@@ -97,9 +99,18 @@ mod tests {
 
     #[test]
     fn bearer() {
-        assert!(authorized(Some("Bearer correct-horse-battery-staple"), TOKEN));
-        assert!(authorized(Some("bearer correct-horse-battery-staple"), TOKEN));
-        assert!(authorized(Some("BEARER   correct-horse-battery-staple  "), TOKEN));
+        assert!(authorized(
+            Some("Bearer correct-horse-battery-staple"),
+            TOKEN
+        ));
+        assert!(authorized(
+            Some("bearer correct-horse-battery-staple"),
+            TOKEN
+        ));
+        assert!(authorized(
+            Some("BEARER   correct-horse-battery-staple  "),
+            TOKEN
+        ));
         for bad in [
             "Bearer",
             "Bearer ",
@@ -119,12 +130,27 @@ mod tests {
 
     #[test]
     fn basic_with_the_token_as_password() {
-        assert!(authorized(Some(&basic("admin:correct-horse-battery-staple")), TOKEN));
-        assert!(authorized(Some(&basic(":correct-horse-battery-staple")), TOKEN));
-        assert!(authorized(Some(&basic("any user at all:correct-horse-battery-staple")), TOKEN));
-        assert!(authorized(Some(&basic("a:correct-horse-battery-staple").replace("Basic", "basic")), TOKEN));
+        assert!(authorized(
+            Some(&basic("admin:correct-horse-battery-staple")),
+            TOKEN
+        ));
+        assert!(authorized(
+            Some(&basic(":correct-horse-battery-staple")),
+            TOKEN
+        ));
+        assert!(authorized(
+            Some(&basic("any user at all:correct-horse-battery-staple")),
+            TOKEN
+        ));
+        assert!(authorized(
+            Some(&basic("a:correct-horse-battery-staple").replace("Basic", "basic")),
+            TOKEN
+        ));
         // A token that itself contains a colon: everything after the first one.
-        assert!(authorized(Some(&basic("u:part:two-part:two-x")), b"part:two-part:two-x"));
+        assert!(authorized(
+            Some(&basic("u:part:two-part:two-x")),
+            b"part:two-part:two-x"
+        ));
         for bad in [
             basic("correct-horse-battery-staple"),
             basic("correct-horse-battery-staple:"),
@@ -134,7 +160,10 @@ mod tests {
             basic(""),
             "Basic".to_string(),
             "Basic !!!not base64!!!".to_string(),
-            format!("Basic {}", URL_SAFE_NO_PAD.encode("admin:correct-horse-battery-staple")),
+            format!(
+                "Basic {}",
+                URL_SAFE_NO_PAD.encode("admin:correct-horse-battery-staple")
+            ),
             "Basic correct-horse-battery-staple".to_string(),
         ] {
             assert!(!authorized(Some(&bad), TOKEN), "{bad:?}");
@@ -153,9 +182,24 @@ mod tests {
         let long_token = vec![b'a'; 5000];
         let long = format!("Bearer {}", "a".repeat(5000));
         assert!(!authorized(Some(&long), &long_token));
-        assert!(authorized(Some(&format!("Bearer {}", "a".repeat(4000))), &[b'a'; 4000]));
+        assert!(authorized(
+            Some(&format!("Bearer {}", "a".repeat(4000))),
+            &[b'a'; 4000]
+        ));
         // Bytes that are not text in a Basic value do not panic.
-        assert!(!authorized(Some(&format!("Basic {}", STANDARD.encode([0xff, 0xfe, b':', 0xff]))), TOKEN));
-        assert!(authorized(Some(&format!("Basic {}", STANDARD.encode([0xff, b':', 0xfe, 0xfd]))), &[0xfe, 0xfd]));
+        assert!(!authorized(
+            Some(&format!(
+                "Basic {}",
+                STANDARD.encode([0xff, 0xfe, b':', 0xff])
+            )),
+            TOKEN
+        ));
+        assert!(authorized(
+            Some(&format!(
+                "Basic {}",
+                STANDARD.encode([0xff, b':', 0xfe, 0xfd])
+            )),
+            &[0xfe, 0xfd]
+        ));
     }
 }

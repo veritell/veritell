@@ -15,13 +15,13 @@ use std::time::Duration;
 use tokio::time::{Instant, Sleep};
 
 use async_trait::async_trait;
+use pingora::protocols::raw_connect::ProxyDigest;
 use pingora::protocols::tls::{SslDigest, TlsRef};
+use pingora::protocols::SocketDigest;
 use pingora::protocols::{
     GetProxyDigest, GetSocketDigest, GetTimingDigest, Peek, Shutdown, Ssl, Stream, TimingDigest,
     UniqueID, UniqueIDType, ALPN,
 };
-use pingora::protocols::raw_connect::ProxyDigest;
-use pingora::protocols::SocketDigest;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use veritell_fp::h2::{self as h2fp, H2Fp, Parse};
@@ -90,7 +90,11 @@ pub struct HeaderDeadline {
 
 impl HeaderDeadline {
     pub fn new(after: Duration) -> Self {
-        HeaderDeadline { sleep: Box::pin(tokio::time::sleep_until(Instant::now() + after)), tail: [0; 3], tail_len: 0 }
+        HeaderDeadline {
+            sleep: Box::pin(tokio::time::sleep_until(Instant::now() + after)),
+            tail: [0; 3],
+            tail_len: 0,
+        }
     }
 
     /// Whether `bytes`, following what was read before, complete a header block.
@@ -123,7 +127,11 @@ pub struct H1Guard {
 
 impl H1Guard {
     pub fn new(timeout: Duration) -> Self {
-        H1Guard { timeout, deadline: Some(HeaderDeadline::new(timeout)), next_request: false }
+        H1Guard {
+            timeout,
+            deadline: Some(HeaderDeadline::new(timeout)),
+            next_request: false,
+        }
     }
 
     /// False when the headers in progress are out of time.
@@ -135,7 +143,9 @@ impl H1Guard {
             self.deadline = Some(HeaderDeadline::new(self.timeout));
         }
         self.next_request = false;
-        let Some(deadline) = &mut self.deadline else { return true };
+        let Some(deadline) = &mut self.deadline else {
+            return true;
+        };
         if deadline.sees_end(bytes) {
             self.deadline = None;
             return true;
@@ -146,7 +156,9 @@ impl H1Guard {
     /// Polling the timer registers the waker, so a client that stops sending
     /// mid-headers is also woken and cut off at the deadline.
     fn pending(&mut self, cx: &mut Context<'_>) -> bool {
-        self.deadline.as_mut().is_none_or(|d| d.sleep.as_mut().poll(cx).is_pending())
+        self.deadline
+            .as_mut()
+            .is_none_or(|d| d.sleep.as_mut().poll(cx).is_pending())
     }
 
     fn wrote(&mut self, bytes: &[u8]) {
@@ -219,12 +231,15 @@ impl H2Guard {
                 if self.head_len < 9 {
                     break;
                 }
-                self.payload_left = usize::from(self.head[0]) << 16 | usize::from(self.head[1]) << 8 | usize::from(self.head[2]);
+                self.payload_left = usize::from(self.head[0]) << 16
+                    | usize::from(self.head[1]) << 8
+                    | usize::from(self.head[2]);
                 self.frame_type = self.head[3];
                 let end_headers = self.head[4] & h2fp::FLAG_END_HEADERS != 0;
                 match self.frame_type {
                     h2fp::FRAME_HEADERS | h2fp::FRAME_PUSH_PROMISE if !end_headers => {
-                        self.block_since.get_or_insert(self.frame_since.unwrap_or(now));
+                        self.block_since
+                            .get_or_insert(self.frame_since.unwrap_or(now));
                     }
                     h2fp::FRAME_CONTINUATION if end_headers => self.block_since = None,
                     _ => {}
@@ -243,7 +258,10 @@ impl H2Guard {
 
     /// The earliest moment something in progress runs out of time.
     fn due(&self) -> Option<Instant> {
-        let frame_limit = if self.preface_left == 0 && self.head_len == 9 && self.frame_type == h2fp::FRAME_DATA {
+        let frame_limit = if self.preface_left == 0
+            && self.head_len == 9
+            && self.frame_type == h2fp::FRAME_DATA
+        {
             self.body
         } else {
             self.header
@@ -285,7 +303,11 @@ pub struct TeeStream {
 
 impl TeeStream {
     pub fn new(inner: Stream, capture: Option<Arc<H2Capture>>, guard: Option<Guard>) -> Self {
-        TeeStream { inner, capture, guard }
+        TeeStream {
+            inner,
+            capture,
+            guard,
+        }
     }
 }
 
@@ -295,7 +317,9 @@ fn too_slow() -> std::io::Error {
 
 impl fmt::Debug for TeeStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TeeStream").field("inner", &self.inner).finish()
+        f.debug_struct("TeeStream")
+            .field("inner", &self.inner)
+            .finish()
     }
 }
 
@@ -357,10 +381,7 @@ impl AsyncWrite for TeeStream {
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
     fn poll_write_vectored(
@@ -372,7 +393,10 @@ impl AsyncWrite for TeeStream {
         let res = Pin::new(&mut this.inner).poll_write_vectored(cx, bufs);
         if let (Poll::Ready(Ok(n)), Some(Guard::H1(g))) = (&res, &mut this.guard) {
             if *n > 0 {
-                let first = bufs.iter().find(|b| !b.is_empty()).map_or(&[][..], |b| &b[..]);
+                let first = bufs
+                    .iter()
+                    .find(|b| !b.is_empty())
+                    .map_or(&[][..], |b| &b[..]);
                 g.wrote(&first[..first.len().min(*n)]);
             }
         }
@@ -465,7 +489,10 @@ mod tests {
         let mut g = H1Guard::new(T);
         assert!(g.read(b"GET / HTTP/1.1\r\n", &mut cx()));
         wait(5).await;
-        assert!(g.read(b"Host: a\r\n\r\n", &mut cx()), "complete within 15 s");
+        assert!(
+            g.read(b"Host: a\r\n\r\n", &mut cx()),
+            "complete within 15 s"
+        );
         let mut g = H1Guard::new(T);
         assert!(g.read(b"GET / HTTP/1.1\r\n", &mut cx()));
         wait(16).await;
@@ -483,7 +510,10 @@ mod tests {
         // Idle between requests: the keep-alive timeout's business, not ours.
         wait(100).await;
         assert!(g.pending(&mut cx()));
-        assert!(g.read(b"G", &mut cx()), "the next request's first byte starts its deadline");
+        assert!(
+            g.read(b"G", &mut cx()),
+            "the next request's first byte starts its deadline"
+        );
         wait(10).await;
         assert!(g.read(b"ET /2 HTTP/1.1\r\n", &mut cx()));
         wait(6).await;
@@ -493,11 +523,17 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn h1_a_body_after_100_continue_is_not_taken_for_headers() {
         let mut g = H1Guard::new(T);
-        assert!(g.read(b"POST /up HTTP/1.1\r\nExpect: 100-continue\r\nContent-Length: 9\r\n\r\n", &mut cx()));
+        assert!(g.read(
+            b"POST /up HTTP/1.1\r\nExpect: 100-continue\r\nContent-Length: 9\r\n\r\n",
+            &mut cx()
+        ));
         g.wrote(b"HTTP/1.1 100 Continue\r\n\r\n");
         assert!(g.read(b"body", &mut cx()));
         wait(30).await;
-        assert!(g.read(b"bytes", &mut cx()), "body bytes: the gateway's body deadline, not this one");
+        assert!(
+            g.read(b"bytes", &mut cx()),
+            "body bytes: the gateway's body deadline, not this one"
+        );
     }
 
     fn frame(kind: u8, flags: u8, stream: u32, payload: &[u8]) -> Vec<u8> {
@@ -518,7 +554,10 @@ mod tests {
         for _ in 0..5 {
             wait(20).await;
             assert!(g.check(&mut cx()), "idle between frames");
-            assert!(g.read(&frame(0x6, 0, 0, &[0; 8]), &mut cx()), "a PING now and then");
+            assert!(
+                g.read(&frame(0x6, 0, 0, &[0; 8]), &mut cx()),
+                "a PING now and then"
+            );
         }
     }
 
@@ -543,16 +582,25 @@ mod tests {
     async fn h2_a_header_block_must_end_in_time() {
         let mut g = H2Guard::new(T, BODY);
         assert!(g.read(PREFACE, &mut cx()));
-        assert!(g.read(&frame(0x1, 0x1, 1, &[0x82]), &mut cx()), "HEADERS without END_HEADERS");
+        assert!(
+            g.read(&frame(0x1, 0x1, 1, &[0x82]), &mut cx()),
+            "HEADERS without END_HEADERS"
+        );
         wait(10).await;
-        assert!(g.read(&frame(0x9, 0, 1, &[0x84]), &mut cx()), "a CONTINUATION, not the last");
+        assert!(
+            g.read(&frame(0x9, 0, 1, &[0x84]), &mut cx()),
+            "a CONTINUATION, not the last"
+        );
         wait(6).await;
         assert!(!g.check(&mut cx()), "the block is 16 s old");
         let mut g = H2Guard::new(T, BODY);
         assert!(g.read(PREFACE, &mut cx()));
         assert!(g.read(&frame(0x1, 0x1, 1, &[0x82]), &mut cx()));
         wait(10).await;
-        assert!(g.read(&frame(0x9, 0x4, 1, &[0x84]), &mut cx()), "ended within 15 s");
+        assert!(
+            g.read(&frame(0x9, 0x4, 1, &[0x84]), &mut cx()),
+            "ended within 15 s"
+        );
         wait(60).await;
         assert!(g.check(&mut cx()));
     }
@@ -564,7 +612,10 @@ mod tests {
         let data = frame(0x0, 0x1, 1, &[7; 1000]);
         assert!(g.read(&data[..100], &mut cx()));
         wait(40).await;
-        assert!(g.read(&data[100..500], &mut cx()), "slow link: 40 s into a DATA frame is fine");
+        assert!(
+            g.read(&data[100..500], &mut cx()),
+            "slow link: 40 s into a DATA frame is fine"
+        );
         wait(21).await;
         assert!(!g.read(&data[500..600], &mut cx()), "61 s");
     }
@@ -650,10 +701,16 @@ mod stream_tests {
         c.record(&[]);
         c.record(&p[30..]);
         let fp = c.fingerprint().expect("complete");
-        assert_eq!(fp.akamai, "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p");
+        assert_eq!(
+            fp.akamai,
+            "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+        );
         // Cached, and nothing more is captured.
         c.record(b"more bytes");
-        assert_eq!(c.fingerprint().map(|f| f.akamai.as_str()), Some(fp.akamai.as_str()));
+        assert_eq!(
+            c.fingerprint().map(|f| f.akamai.as_str()),
+            Some(fp.akamai.as_str())
+        );
         assert!(c.buf.lock().unwrap().is_empty(), "the buffer is released");
     }
 
@@ -665,7 +722,10 @@ mod stream_tests {
         c.record(&[0x00, 0x80, 0x00, 0x04, 0x00, 0, 0, 0, 0]);
         c.record(&vec![0u8; CAPTURE_LIMIT]);
         assert_eq!(c.buf.lock().unwrap().len(), CAPTURE_LIMIT, "bounded");
-        assert!(c.fingerprint().is_none(), "incomplete at the limit is no fingerprint");
+        assert!(
+            c.fingerprint().is_none(),
+            "incomplete at the limit is no fingerprint"
+        );
         assert!(c.fingerprint().is_none(), "and stays none");
     }
 
@@ -681,7 +741,10 @@ mod stream_tests {
     #[tokio::test]
     async fn reads_pass_through_and_the_preamble_is_captured() {
         let capture = Arc::new(H2Capture::default());
-        let (mut client, mut stream) = tee(Some(capture.clone()), Some(Guard::H2(H2Guard::new(T, BODY))));
+        let (mut client, mut stream) = tee(
+            Some(capture.clone()),
+            Some(Guard::H2(H2Guard::new(T, BODY))),
+        );
         client.write_all(&preamble()).await.unwrap();
         let mut got = vec![0u8; preamble().len()];
         stream.read_exact(&mut got).await.unwrap();
@@ -722,7 +785,10 @@ mod stream_tests {
         tokio::time::advance(T + Duration::from_secs(1)).await;
         client.write_all(b"G").await.unwrap();
         let mut buf = [0u8; 8];
-        assert_eq!(stream.read(&mut buf).await.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert_eq!(
+            stream.read(&mut buf).await.unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -733,16 +799,25 @@ mod stream_tests {
         client.write_all(first).await.unwrap();
         stream.read_exact(&mut buf[..first.len()]).await.unwrap();
         // A response goes out, written vectored as Pingora may do.
-        let parts = [std::io::IoSlice::new(b""), std::io::IoSlice::new(b"HTTP/1.1 200 OK\r\n\r\n")];
+        let parts = [
+            std::io::IoSlice::new(b""),
+            std::io::IoSlice::new(b"HTTP/1.1 200 OK\r\n\r\n"),
+        ];
         let n = stream.write_vectored(&parts).await.unwrap();
         assert!(n > 0);
         // Idle on a kept-alive connection for longer than the header timeout.
         tokio::time::advance(T * 3).await;
         client.write_all(b"GET /2 HTTP/1.1\r\n").await.unwrap();
-        assert!(stream.read(&mut buf).await.is_ok(), "the second request's clock starts now");
+        assert!(
+            stream.read(&mut buf).await.is_ok(),
+            "the second request's clock starts now"
+        );
         tokio::time::advance(T + Duration::from_secs(1)).await;
         client.write_all(b"Host: shop.test\r\n").await.unwrap();
-        assert_eq!(stream.read(&mut buf).await.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert_eq!(
+            stream.read(&mut buf).await.unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut
+        );
     }
 
     #[tokio::test(start_paused = true)]

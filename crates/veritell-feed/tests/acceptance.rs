@@ -6,8 +6,8 @@ use std::sync::Arc;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use ed25519_dalek::{Signer, SigningKey};
-use veritell_feed::*;
 use serde_json::{json, Value};
+use veritell_feed::*;
 
 const SEED: [u8; 32] = [7; 32];
 const OTHER_SEED: [u8; 32] = [9; 32];
@@ -50,13 +50,19 @@ fn handmade(manifest: &Value, carried: &[(&str, &[u8])], seed: &[u8; 32]) -> Vec
 
 fn sha_hex(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn manifest(version: u64, created: u64, expires: u64, listed: &[(&str, &[u8])]) -> Value {
     let mut m = serde_json::Map::new();
     for (name, content) in listed {
-        m.insert(name.to_string(), json!({ "sha256": sha_hex(content), "len": content.len() }));
+        m.insert(
+            name.to_string(),
+            json!({ "sha256": sha_hex(content), "len": content.len() }),
+        );
     }
     json!({ "format": 1, "version": version, "created": created, "expires": expires, "files": Value::Object(m) })
 }
@@ -107,7 +113,10 @@ fn time_limits() {
     assert!(open(&s, &keys(), EXPIRES, 0).is_ok());
     assert_eq!(open(&s, &keys(), EXPIRES + 1, 0), Err(FeedError::Expired));
     assert!(open(&s, &keys(), CREATED - CLOCK_SKEW_SECS, 0).is_ok());
-    assert_eq!(open(&s, &keys(), CREATED - CLOCK_SKEW_SECS - 1, 0), Err(FeedError::NotYetValid));
+    assert_eq!(
+        open(&s, &keys(), CREATED - CLOCK_SKEW_SECS - 1, 0),
+        Err(FeedError::NotYetValid)
+    );
     assert!(open(&s, &keys(), u64::MAX, 0).is_err());
     assert!(open(&s, &keys(), 0, 0).is_err());
 }
@@ -116,14 +125,20 @@ fn time_limits() {
 fn rollback_is_refused() {
     let s = sealed();
     assert!(open(&s, &keys(), NOW, 7).is_ok());
-    assert_eq!(open(&s, &keys(), NOW, 8), Err(FeedError::Rollback { minimum: 8, got: 7 }));
+    assert_eq!(
+        open(&s, &keys(), NOW, 8),
+        Err(FeedError::Rollback { minimum: 8, got: 7 })
+    );
 }
 
 // ---------- tampering ----------
 
 #[test]
 fn wrong_or_missing_key_is_refused() {
-    assert_eq!(open(&sealed(), &[public_key(&OTHER_SEED)], NOW, 0), Err(FeedError::Signature));
+    assert_eq!(
+        open(&sealed(), &[public_key(&OTHER_SEED)], NOW, 0),
+        Err(FeedError::Signature)
+    );
     assert_eq!(open(&sealed(), &[], NOW, 0), Err(FeedError::Signature));
 }
 
@@ -131,14 +146,21 @@ fn wrong_or_missing_key_is_refused() {
 fn a_changed_manifest_is_refused_before_it_is_read() {
     // Re-encode a manifest with a higher version and a far expiry, keeping the old signature.
     let outer: Value = serde_json::from_slice(&sealed()).unwrap();
-    let mut m: Value =
-        serde_json::from_slice(&STANDARD.decode(outer["manifest"].as_str().unwrap()).unwrap()).unwrap();
+    let mut m: Value = serde_json::from_slice(
+        &STANDARD
+            .decode(outer["manifest"].as_str().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
     m["version"] = json!(999);
     m["format"] = json!(2);
     let mut forged = outer.clone();
     forged["manifest"] = json!(STANDARD.encode(m.to_string()));
     // Not `Format(2)`: the signature is checked first.
-    assert_eq!(open(forged.to_string().as_bytes(), &keys(), NOW, 0), Err(FeedError::Signature));
+    assert_eq!(
+        open(forged.to_string().as_bytes(), &keys(), NOW, 0),
+        Err(FeedError::Signature)
+    );
 }
 
 #[test]
@@ -182,10 +204,16 @@ fn every_single_byte_change_is_refused() {
     for i in (0..good.len()).step_by(step) {
         let mut bad = good.clone();
         bad[i] ^= 0x01;
-        assert!(open(&bad, &keys(), NOW, 0).is_err(), "bit flip at byte {i} was accepted");
+        assert!(
+            open(&bad, &keys(), NOW, 0).is_err(),
+            "bit flip at byte {i} was accepted"
+        );
     }
     for cut in (0..good.len()).step_by(step) {
-        assert!(open(&good[..cut], &keys(), NOW, 0).is_err(), "prefix of {cut} bytes was accepted");
+        assert!(
+            open(&good[..cut], &keys(), NOW, 0).is_err(),
+            "prefix of {cut} bytes was accepted"
+        );
     }
 }
 
@@ -195,32 +223,71 @@ fn every_single_byte_change_is_refused() {
 fn signed_manifests_with_bad_content_are_refused() {
     let none: Vec<(&str, &[u8])> = vec![];
     let cases: Vec<(Value, FeedError)> = vec![
-        (json!({ "format": 2, "version": 1, "created": CREATED, "expires": EXPIRES, "files": {} }), FeedError::Format(2)),
-        (json!({ "version": 1, "created": CREATED, "expires": EXPIRES, "files": {} }), FeedError::Manifest),
-        (json!({ "format": 1, "version": -1, "created": CREATED, "expires": EXPIRES, "files": {} }), FeedError::Manifest),
-        (json!({ "format": 1, "version": 1, "created": CREATED, "expires": EXPIRES, "files": [] }), FeedError::Manifest),
+        (
+            json!({ "format": 2, "version": 1, "created": CREATED, "expires": EXPIRES, "files": {} }),
+            FeedError::Format(2),
+        ),
+        (
+            json!({ "version": 1, "created": CREATED, "expires": EXPIRES, "files": {} }),
+            FeedError::Manifest,
+        ),
+        (
+            json!({ "format": 1, "version": -1, "created": CREATED, "expires": EXPIRES, "files": {} }),
+            FeedError::Manifest,
+        ),
+        (
+            json!({ "format": 1, "version": 1, "created": CREATED, "expires": EXPIRES, "files": [] }),
+            FeedError::Manifest,
+        ),
         (json!([1, 2, 3]), FeedError::Manifest),
-        (json!({ "format": 1, "version": 1, "created": CREATED, "expires": CREATED - 1, "files": {} }), FeedError::Expired),
+        (
+            json!({ "format": 1, "version": 1, "created": CREATED, "expires": CREATED - 1, "files": {} }),
+            FeedError::Expired,
+        ),
     ];
     for (m, want) in cases {
-        assert_eq!(open(&handmade(&m, &none, &SEED), &keys(), NOW, 0), Err(want), "{m}");
+        assert_eq!(
+            open(&handmade(&m, &none, &SEED), &keys(), NOW, 0),
+            Err(want),
+            "{m}"
+        );
     }
     // Signed bytes that are not JSON at all.
     let raw = b"\xff\xfenot json".to_vec();
     let sig = SigningKey::from_bytes(&SEED).sign(&raw);
     let bundle = json!({ "manifest": STANDARD.encode(&raw), "signature": STANDARD.encode(sig.to_bytes()), "files": {} });
-    assert_eq!(open(bundle.to_string().as_bytes(), &keys(), NOW, 0), Err(FeedError::Manifest));
+    assert_eq!(
+        open(bundle.to_string().as_bytes(), &keys(), NOW, 0),
+        Err(FeedError::Manifest)
+    );
 }
 
 #[test]
 fn file_names_are_restricted() {
-    for bad in ["", ".hidden", "../etc/passwd", "a/b", "UPPER.json", "sp ace", "é.json", &"n".repeat(MAX_NAME_BYTES + 1)] {
+    for bad in [
+        "",
+        ".hidden",
+        "../etc/passwd",
+        "a/b",
+        "UPPER.json",
+        "sp ace",
+        "é.json",
+        &"n".repeat(MAX_NAME_BYTES + 1),
+    ] {
         let listed: Vec<(&str, &[u8])> = vec![(bad, &b"x"[..])];
         let bundle = handmade(&manifest(1, CREATED, EXPIRES, &listed), &listed, &SEED);
-        assert_eq!(open(&bundle, &keys(), NOW, 0), Err(FeedError::Name(bad.to_string())), "{bad:?}");
+        assert_eq!(
+            open(&bundle, &keys(), NOW, 0),
+            Err(FeedError::Name(bad.to_string())),
+            "{bad:?}"
+        );
         let mut f = BTreeMap::new();
         f.insert(bad.to_string(), b"x".to_vec());
-        assert_eq!(seal(&f, 1, CREATED, EXPIRES, &SEED), Err(FeedError::Name(bad.to_string())), "{bad:?}");
+        assert_eq!(
+            seal(&f, 1, CREATED, EXPIRES, &SEED),
+            Err(FeedError::Name(bad.to_string())),
+            "{bad:?}"
+        );
     }
     let longest = "n".repeat(MAX_NAME_BYTES);
     let ok = ["a", "a-b_c.d", "0.json", longest.as_str()];
@@ -238,19 +305,37 @@ fn file_count_is_limited() {
     for i in 0..MAX_FILES {
         f.insert(format!("f{i:02}"), vec![i as u8]);
     }
-    assert!(open(&seal(&f, 1, CREATED, EXPIRES, &SEED).unwrap(), &keys(), NOW, 0).is_ok());
+    assert!(open(
+        &seal(&f, 1, CREATED, EXPIRES, &SEED).unwrap(),
+        &keys(),
+        NOW,
+        0
+    )
+    .is_ok());
     f.insert("one-more".to_string(), vec![]);
-    assert_eq!(seal(&f, 1, CREATED, EXPIRES, &SEED), Err(FeedError::Name(String::new())));
+    assert_eq!(
+        seal(&f, 1, CREATED, EXPIRES, &SEED),
+        Err(FeedError::Name(String::new()))
+    );
 
     let owned: Vec<(String, Vec<u8>)> = f.into_iter().collect();
-    let listed: Vec<(&str, &[u8])> = owned.iter().map(|(n, c)| (n.as_str(), c.as_slice())).collect();
+    let listed: Vec<(&str, &[u8])> = owned
+        .iter()
+        .map(|(n, c)| (n.as_str(), c.as_slice()))
+        .collect();
     let bundle = handmade(&manifest(1, CREATED, EXPIRES, &listed), &listed, &SEED);
-    assert_eq!(open(&bundle, &keys(), NOW, 0), Err(FeedError::Name(String::new())));
+    assert_eq!(
+        open(&bundle, &keys(), NOW, 0),
+        Err(FeedError::Name(String::new()))
+    );
 }
 
 #[test]
 fn seal_refuses_bad_times() {
-    assert_eq!(seal(&files(), 1, CREATED, CREATED - 1, &SEED), Err(FeedError::Expired));
+    assert_eq!(
+        seal(&files(), 1, CREATED, CREATED - 1, &SEED),
+        Err(FeedError::Expired)
+    );
     assert!(seal(&files(), 1, CREATED, CREATED, &SEED).is_ok());
 }
 
@@ -267,19 +352,37 @@ fn malformed_outer_documents() {
     bad_b64["manifest"] = json!("***");
     let mut files_array = good.clone();
     files_array["files"] = json!([]);
-    for doc in [no_sig, short_sig, bad_b64, files_array, json!(null), json!([]), json!({})] {
-        assert_eq!(open(doc.to_string().as_bytes(), &keys(), NOW, 0), Err(FeedError::Malformed), "{doc}");
+    for doc in [
+        no_sig,
+        short_sig,
+        bad_b64,
+        files_array,
+        json!(null),
+        json!([]),
+        json!({}),
+    ] {
+        assert_eq!(
+            open(doc.to_string().as_bytes(), &keys(), NOW, 0),
+            Err(FeedError::Malformed),
+            "{doc}"
+        );
     }
     for raw in [&b""[..], b"{", b"\xff", b"null"] {
         assert_eq!(open(raw, &keys(), NOW, 0), Err(FeedError::Malformed));
     }
     let deep = "[".repeat(100_000);
-    assert_eq!(open(deep.as_bytes(), &keys(), NOW, 0), Err(FeedError::Malformed));
+    assert_eq!(
+        open(deep.as_bytes(), &keys(), NOW, 0),
+        Err(FeedError::Malformed)
+    );
 
     // A listed file whose content is not base64.
     let mut not_b64 = good.clone();
     not_b64["files"]["empty"] = json!("%%%");
-    assert_eq!(open(not_b64.to_string().as_bytes(), &keys(), NOW, 0), Err(FeedError::Malformed));
+    assert_eq!(
+        open(not_b64.to_string().as_bytes(), &keys(), NOW, 0),
+        Err(FeedError::Malformed)
+    );
 }
 
 #[test]
@@ -288,7 +391,10 @@ fn oversized_bundles_are_refused() {
     assert_eq!(open(&big, &keys(), NOW, 0), Err(FeedError::TooLarge));
     let mut f = BTreeMap::new();
     f.insert("big".to_string(), vec![0u8; MAX_BUNDLE_BYTES]);
-    assert_eq!(seal(&f, 1, CREATED, EXPIRES, &SEED), Err(FeedError::TooLarge));
+    assert_eq!(
+        seal(&f, 1, CREATED, EXPIRES, &SEED),
+        Err(FeedError::TooLarge)
+    );
 }
 
 // ---------- Live ----------

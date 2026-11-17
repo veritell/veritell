@@ -66,7 +66,9 @@ fn mac_over(key: &ProbeKey, domain: u8, parts: &[&[u8]]) -> Option<HmacSha256> {
 }
 
 fn binding_tag(key: &ProbeKey, id: &[u8; 16], exp: &[u8; 8], binding: &[u8; 16]) -> Option<MacTag> {
-    let out = mac_over(key, DOMAIN_TAG, &[id, exp, binding])?.finalize().into_bytes();
+    let out = mac_over(key, DOMAIN_TAG, &[id, exp, binding])?
+        .finalize()
+        .into_bytes();
     take::<16>(out.as_slice(), 0)
 }
 
@@ -134,7 +136,11 @@ fn fresh_id(key: &ProbeKey, now: u64, ttl_secs: u64) -> [u8; 16] {
     let derived = mac_over(
         key,
         DOMAIN_FALLBACK,
-        &[&counter.to_be_bytes(), &now.to_be_bytes(), &ttl_secs.to_be_bytes()],
+        &[
+            &counter.to_be_bytes(),
+            &now.to_be_bytes(),
+            &ttl_secs.to_be_bytes(),
+        ],
     )
     .map(|m| m.finalize().into_bytes());
     derived
@@ -191,7 +197,9 @@ pub fn verify_nonce(
     let mac = take::<32>(&raw, 40).ok_or(NonceError::Malformed)?;
 
     let expected = mac_over(key, DOMAIN_MAC, &[&id, &exp, &tag]).ok_or(NonceError::BadMac)?;
-    expected.verify_slice(&mac).map_err(|_| NonceError::BadMac)?;
+    expected
+        .verify_slice(&mac)
+        .map_err(|_| NonceError::BadMac)?;
 
     let expires_at = u64::from_be_bytes(exp);
     if now > expires_at {
@@ -232,28 +240,57 @@ mod tests {
     #[test]
     fn ttl_saturates() {
         let n = issue_nonce(&key(), &[1; 16], u64::MAX, u64::MAX);
-        assert_eq!(verify_nonce(&key(), &n, &[1; 16], u64::MAX).unwrap().expires_at, u64::MAX);
+        assert_eq!(
+            verify_nonce(&key(), &n, &[1; 16], u64::MAX)
+                .unwrap()
+                .expires_at,
+            u64::MAX
+        );
     }
 
     #[test]
     fn expired_is_reported_before_binding() {
         let n = issue_nonce(&key(), &[1; 16], 10, 5);
-        assert_eq!(verify_nonce(&key(), &n, &[2; 16], 16), Err(NonceError::Expired));
-        assert_eq!(verify_nonce(&key(), &n, &[2; 16], 15), Err(NonceError::BindingMismatch));
+        assert_eq!(
+            verify_nonce(&key(), &n, &[2; 16], 16),
+            Err(NonceError::Expired)
+        );
+        assert_eq!(
+            verify_nonce(&key(), &n, &[2; 16], 15),
+            Err(NonceError::BindingMismatch)
+        );
     }
 
     #[test]
     fn non_ascii_of_right_byte_length_is_malformed() {
         let s = "é".repeat(48);
         assert_eq!(s.len(), 96);
-        assert_eq!(verify_nonce(&key(), &s, &[1; 16], 0), Err(NonceError::Malformed));
+        assert_eq!(
+            verify_nonce(&key(), &s, &[1; 16], 0),
+            Err(NonceError::Malformed)
+        );
     }
 
     #[test]
     fn fallback_ids_differ_per_call() {
         let k = key();
-        let a = mac_over(&k, DOMAIN_FALLBACK, &[&FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed).to_be_bytes()]);
-        let b = mac_over(&k, DOMAIN_FALLBACK, &[&FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed).to_be_bytes()]);
-        assert_ne!(a.unwrap().finalize().into_bytes(), b.unwrap().finalize().into_bytes());
+        let a = mac_over(
+            &k,
+            DOMAIN_FALLBACK,
+            &[&FALLBACK_COUNTER
+                .fetch_add(1, Ordering::Relaxed)
+                .to_be_bytes()],
+        );
+        let b = mac_over(
+            &k,
+            DOMAIN_FALLBACK,
+            &[&FALLBACK_COUNTER
+                .fetch_add(1, Ordering::Relaxed)
+                .to_be_bytes()],
+        );
+        assert_ne!(
+            a.unwrap().finalize().into_bytes(),
+            b.unwrap().finalize().into_bytes()
+        );
     }
 }

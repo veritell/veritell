@@ -10,8 +10,17 @@ const CURL_JA4: &str = "t13d3112h2_e8f1e7e78f70_6bebaf5329ac";
 
 fn ids(ua: &str, ja4: Option<&str>, h2: Option<&str>) -> Vec<String> {
     let headers: Vec<String> = Vec::new();
-    let obs = Observed { user_agent: Some(ua), ja4, h2_akamai: h2, header_names: &headers };
-    TruthTable::builtin().check(&obs).into_iter().map(|d| d.id.to_string()).collect()
+    let obs = Observed {
+        user_agent: Some(ua),
+        ja4,
+        h2_akamai: h2,
+        header_names: &headers,
+    };
+    TruthTable::builtin()
+        .check(&obs)
+        .into_iter()
+        .map(|d| d.id.to_string())
+        .collect()
 }
 
 #[test]
@@ -26,7 +35,14 @@ fn another_tls_stack_is_still_unknown() {
 
 #[test]
 fn other_http2_settings_are_still_unknown() {
-    assert_eq!(ids(UA, Some(SAFARI_JA4), Some("1:65536;2:0;4:6291456|15663105|0|m,a,s,p")), ["ua_unknown"]);
+    assert_eq!(
+        ids(
+            UA,
+            Some(SAFARI_JA4),
+            Some("1:65536;2:0;4:6291456|15663105|0|m,a,s,p")
+        ),
+        ["ua_unknown"]
+    );
 }
 
 #[test]
@@ -42,6 +58,10 @@ fn a_look_alike_user_agent_is_still_unknown() {
         "NetworkingExtension/x Network/6681.60 iOS/27.3",
         "Foo NetworkingExtension/8626.1 Network/6681.60 iOS/27.3",
     ] {
-        assert_eq!(ids(ua, Some(SAFARI_JA4), Some(SAFARI_H2)), ["ua_unknown"], "{ua}");
+        assert_eq!(
+            ids(ua, Some(SAFARI_JA4), Some(SAFARI_H2)),
+            ["ua_unknown"],
+            "{ua}"
+        );
     }
 }

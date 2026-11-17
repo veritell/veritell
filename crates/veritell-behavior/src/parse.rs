@@ -33,8 +33,21 @@ pub fn parse_summary(body: &[u8]) -> Result<Summary, ParseError> {
 
 fn check_range(s: &Summary) -> Result<(), ParseError> {
     let counts = [
-        s.moves, s.strokes, s.straight, s.steady, s.clicks, s.sized, s.centered, s.teleport,
-        s.touches, s.keys, s.pastes, s.scrolls, s.submits, s.untrusted, s.actions,
+        s.moves,
+        s.strokes,
+        s.straight,
+        s.steady,
+        s.clicks,
+        s.sized,
+        s.centered,
+        s.teleport,
+        s.touches,
+        s.keys,
+        s.pastes,
+        s.scrolls,
+        s.submits,
+        s.untrusted,
+        s.actions,
     ];
     let durations = [Some(s.dur_ms), Some(s.hidden_ms), s.gap_med_ms];
     let cvs = [s.key_gap_cv, s.gap_cv];
@@ -76,6 +89,9 @@ mod tests {
 
     #[test]
     fn too_large_wins() {
-        assert_eq!(parse_summary(&[b' '; MAX_SUMMARY_BYTES + 1]), Err(ParseError::TooLarge));
+        assert_eq!(
+            parse_summary(&[b' '; MAX_SUMMARY_BYTES + 1]),
+            Err(ParseError::TooLarge)
+        );
     }
 }

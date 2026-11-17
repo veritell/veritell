@@ -1,8 +1,8 @@
 //! Acceptance tests written by the project lead. DO NOT EDIT.
 
+use serde_json::{json, Value};
 use veritell_behavior::*;
 use veritell_core::{Class, Layer};
-use serde_json::{json, Value};
 
 /// A person filling in a short form. Hand-written from the schema; the
 /// sessions in lab/recordings/human.jsonl cover more kinds of input.
@@ -49,7 +49,10 @@ fn zeroed() -> Value {
 fn human_summary_parses() {
     let s = parse(&human()).unwrap();
     assert_eq!(s.trigger, Trigger::Submit);
-    assert_eq!((s.moves, s.keys, s.key_gap_cv, s.gap_med_ms), (412, 24, Some(612), Some(1450)));
+    assert_eq!(
+        (s.moves, s.keys, s.key_gap_cv, s.gap_med_ms),
+        (412, 24, Some(612), Some(1450))
+    );
     assert!(s.has_input());
 }
 
@@ -63,9 +66,16 @@ fn the_documented_example_parses() {
 
 #[test]
 fn nulls_are_accepted_only_where_allowed() {
-    assert!(parse(&with(json!({"key_gap_cv": null, "gap_cv": null, "gap_med_ms": null}))).is_ok());
+    assert!(parse(&with(
+        json!({"key_gap_cv": null, "gap_cv": null, "gap_med_ms": null})
+    ))
+    .is_ok());
     for field in ["moves", "v", "nonce", "trigger", "dur_ms", "submits"] {
-        assert_eq!(parse(&with(json!({ field: null }))), Err(ParseError::Malformed), "{field}");
+        assert_eq!(
+            parse(&with(json!({ field: null }))),
+            Err(ParseError::Malformed),
+            "{field}"
+        );
     }
 }
 
@@ -77,13 +87,23 @@ fn oversized_body_is_refused_before_parsing() {
     // Exactly at the limit, padded with whitespace, is fine.
     body.truncate(MAX_SUMMARY_BYTES);
     assert!(parse_summary(&body).is_ok());
-    assert_eq!(parse_summary(&vec![b'{'; 100_000]), Err(ParseError::TooLarge));
+    assert_eq!(
+        parse_summary(&vec![b'{'; 100_000]),
+        Err(ParseError::TooLarge)
+    );
 }
 
 #[test]
 fn malformed_bodies_are_refused() {
     for body in [
-        &b""[..], b"null", b"[]", b"{}", b"\"x\"", b"{\"v\":1}", b"\xff\xfe", b"{\"v\":1,",
+        &b""[..],
+        b"null",
+        b"[]",
+        b"{}",
+        b"\"x\"",
+        b"{\"v\":1}",
+        b"\xff\xfe",
+        b"{\"v\":1,",
         b"[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
     ] {
         assert_eq!(parse_summary(body), Err(ParseError::Malformed), "{body:?}");
@@ -93,12 +113,33 @@ fn malformed_bodies_are_refused() {
     assert_eq!(parse(&missing), Err(ParseError::Malformed));
     // Nothing beyond the schema: no place to smuggle a coordinate or text.
     assert_eq!(parse(&with(json!({"x": 10}))), Err(ParseError::Malformed));
-    assert_eq!(parse(&with(json!({"path": [[1, 2], [3, 4]]}))), Err(ParseError::Malformed));
-    for bad in [json!(-1), json!(1.5), json!("3"), json!(true), json!([1]), json!(1e30), json!(4294967296u64)] {
-        assert_eq!(parse(&with(json!({"moves": bad}))), Err(ParseError::Malformed), "{bad}");
+    assert_eq!(
+        parse(&with(json!({"path": [[1, 2], [3, 4]]}))),
+        Err(ParseError::Malformed)
+    );
+    for bad in [
+        json!(-1),
+        json!(1.5),
+        json!("3"),
+        json!(true),
+        json!([1]),
+        json!(1e30),
+        json!(4294967296u64),
+    ] {
+        assert_eq!(
+            parse(&with(json!({"moves": bad}))),
+            Err(ParseError::Malformed),
+            "{bad}"
+        );
     }
-    assert_eq!(parse(&with(json!({"trigger": "click"}))), Err(ParseError::Malformed));
-    assert_eq!(parse(&with(json!({"nonce": 5}))), Err(ParseError::Malformed));
+    assert_eq!(
+        parse(&with(json!({"trigger": "click"}))),
+        Err(ParseError::Malformed)
+    );
+    assert_eq!(
+        parse(&with(json!({"nonce": 5}))),
+        Err(ParseError::Malformed)
+    );
 }
 
 #[test]
@@ -109,20 +150,53 @@ fn version_is_checked() {
 
 #[test]
 fn limits_are_checked() {
-    for field in ["moves", "strokes", "clicks", "touches", "keys", "pastes", "scrolls", "submits", "untrusted", "actions"] {
-        assert_eq!(parse(&with(json!({ field: MAX_COUNT + 1 }))), Err(ParseError::Range), "{field}");
+    for field in [
+        "moves",
+        "strokes",
+        "clicks",
+        "touches",
+        "keys",
+        "pastes",
+        "scrolls",
+        "submits",
+        "untrusted",
+        "actions",
+    ] {
+        assert_eq!(
+            parse(&with(json!({ field: MAX_COUNT + 1 }))),
+            Err(ParseError::Range),
+            "{field}"
+        );
     }
     assert!(parse(&with(json!({"moves": MAX_COUNT, "keys": MAX_COUNT}))).is_ok());
-    assert_eq!(parse(&with(json!({"dur_ms": MAX_MS + 1}))), Err(ParseError::Range));
-    assert_eq!(parse(&with(json!({"gap_med_ms": MAX_MS + 1}))), Err(ParseError::Range));
-    assert_eq!(parse(&with(json!({"gap_cv": MAX_CV + 1}))), Err(ParseError::Range));
-    assert_eq!(parse(&with(json!({"key_gap_cv": MAX_CV + 1}))), Err(ParseError::Range));
+    assert_eq!(
+        parse(&with(json!({"dur_ms": MAX_MS + 1}))),
+        Err(ParseError::Range)
+    );
+    assert_eq!(
+        parse(&with(json!({"gap_med_ms": MAX_MS + 1}))),
+        Err(ParseError::Range)
+    );
+    assert_eq!(
+        parse(&with(json!({"gap_cv": MAX_CV + 1}))),
+        Err(ParseError::Range)
+    );
+    assert_eq!(
+        parse(&with(json!({"key_gap_cv": MAX_CV + 1}))),
+        Err(ParseError::Range)
+    );
     assert!(parse(&with(json!({"gap_cv": MAX_CV, "dur_ms": MAX_MS}))).is_ok());
     assert_eq!(parse(&with(json!({"nonce": ""}))), Err(ParseError::Range));
-    assert_eq!(parse(&with(json!({"nonce": "a".repeat(MAX_NONCE_BYTES + 1)}))), Err(ParseError::Range));
+    assert_eq!(
+        parse(&with(json!({"nonce": "a".repeat(MAX_NONCE_BYTES + 1)}))),
+        Err(ParseError::Range)
+    );
     assert!(parse(&with(json!({"nonce": "a".repeat(MAX_NONCE_BYTES)}))).is_ok());
     // Version is reported before range.
-    assert_eq!(parse(&with(json!({"v": 3, "moves": MAX_COUNT + 1}))), Err(ParseError::Version));
+    assert_eq!(
+        parse(&with(json!({"v": 3, "moves": MAX_COUNT + 1}))),
+        Err(ParseError::Version)
+    );
 }
 
 #[test]
@@ -135,7 +209,11 @@ fn parts_cannot_exceed_their_whole() {
         json!({"clicks": 2, "sized": 0, "centered": 0, "teleport": 3}),
         json!({"dur_ms": 100, "hidden_ms": 101}),
     ] {
-        assert_eq!(parse(&with(change.clone())), Err(ParseError::Inconsistent), "{change}");
+        assert_eq!(
+            parse(&with(change.clone())),
+            Err(ParseError::Inconsistent),
+            "{change}"
+        );
     }
     // Range is reported before consistency.
     assert_eq!(
@@ -164,16 +242,35 @@ fn hostile_input_never_panics() {
     }));
     let s = parse(&max).unwrap();
     let wild = Params {
-        min_strokes: u32::MAX, straight_pct: u32::MAX, steady_pct: u32::MAX,
-        min_sized_clicks: u32::MAX, min_jumped_clicks: u32::MAX, jumped_pct: u32::MAX,
-        min_keys: u32::MAX, key_cv_max: u32::MAX, min_actions: u32::MAX, cadence_cv_max: u32::MAX,
-        agent_min_actions: u32::MAX, agent_think_ms: u32::MAX, agent_moves_per_click: u32::MAX,
+        min_strokes: u32::MAX,
+        straight_pct: u32::MAX,
+        steady_pct: u32::MAX,
+        min_sized_clicks: u32::MAX,
+        min_jumped_clicks: u32::MAX,
+        jumped_pct: u32::MAX,
+        min_keys: u32::MAX,
+        key_cv_max: u32::MAX,
+        min_actions: u32::MAX,
+        cadence_cv_max: u32::MAX,
+        agent_min_actions: u32::MAX,
+        agent_think_ms: u32::MAX,
+        agent_moves_per_click: u32::MAX,
     };
     let _ = analyze(&s, &wild);
     let zero = Params {
-        min_strokes: 0, straight_pct: 0, steady_pct: 0, min_sized_clicks: 0, min_jumped_clicks: 0,
-        jumped_pct: 0, min_keys: 0, key_cv_max: 0, min_actions: 0,
-        cadence_cv_max: 0, agent_min_actions: 0, agent_think_ms: 0, agent_moves_per_click: 0,
+        min_strokes: 0,
+        straight_pct: 0,
+        steady_pct: 0,
+        min_sized_clicks: 0,
+        min_jumped_clicks: 0,
+        jumped_pct: 0,
+        min_keys: 0,
+        key_cv_max: 0,
+        min_actions: 0,
+        cadence_cv_max: 0,
+        agent_min_actions: 0,
+        agent_think_ms: 0,
+        agent_moves_per_click: 0,
     };
     let _ = analyze(&s, &zero);
     let _ = analyze(&parse(&zeroed()).unwrap(), &zero);
@@ -207,7 +304,10 @@ fn submit_with_no_input_fires() {
     v["submits"] = json!(1);
     assert_eq!(ids(&v), [NO_INPUT]);
     let d = &analyze(&parse(&v).unwrap(), &Params::default())[0];
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 40, Some(Class::Automated)));
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 40, Some(Class::Automated))
+    );
     assert!(!d.detail.is_empty());
     // Any one kind of input is enough to stay quiet.
     for field in ["moves", "touches", "keys", "pastes", "scrolls"] {
@@ -221,36 +321,79 @@ fn submit_with_no_input_fires() {
 
 #[test]
 fn straight_or_constant_speed_pointer_fires() {
-    assert_eq!(ids(&with(json!({"strokes": 10, "straight": 9}))), [POINTER_SCRIPTED]);
-    assert_eq!(ids(&with(json!({"strokes": 10, "steady": 10}))), [POINTER_SCRIPTED]);
+    assert_eq!(
+        ids(&with(json!({"strokes": 10, "straight": 9}))),
+        [POINTER_SCRIPTED]
+    );
+    assert_eq!(
+        ids(&with(json!({"strokes": 10, "steady": 10}))),
+        [POINTER_SCRIPTED]
+    );
     // One detection even when both hold.
-    assert_eq!(ids(&with(json!({"strokes": 8, "straight": 8, "steady": 8}))), [POINTER_SCRIPTED]);
+    assert_eq!(
+        ids(&with(json!({"strokes": 8, "straight": 8, "steady": 8}))),
+        [POINTER_SCRIPTED]
+    );
     // Below the share, or with too few strokes, it does not.
     assert!(ids(&with(json!({"strokes": 10, "straight": 8, "steady": 8}))).is_empty());
     assert!(ids(&with(json!({"strokes": 7, "straight": 7, "steady": 7}))).is_empty());
-    let d = &analyze(&parse(&with(json!({"strokes": 10, "straight": 9}))).unwrap(), &Params::default())[0];
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 35, Some(Class::Automated)));
+    let d = &analyze(
+        &parse(&with(json!({"strokes": 10, "straight": 9}))).unwrap(),
+        &Params::default(),
+    )[0];
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 35, Some(Class::Automated))
+    );
 }
 
 #[test]
 fn clicks_on_exact_centres_fire() {
-    assert_eq!(ids(&with(json!({"clicks": 3, "sized": 2, "centered": 2}))), [CLICK_CENTERED]);
+    assert_eq!(
+        ids(&with(json!({"clicks": 3, "sized": 2, "centered": 2}))),
+        [CLICK_CENTERED]
+    );
     assert!(ids(&with(json!({"clicks": 3, "sized": 3, "centered": 2}))).is_empty());
     // One centred click can be luck.
     assert!(ids(&with(json!({"clicks": 1, "sized": 1, "centered": 1}))).is_empty());
-    let d = &analyze(&parse(&with(json!({"clicks": 2, "sized": 2, "centered": 2}))).unwrap(), &Params::default())[0];
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 35, Some(Class::Automated)));
+    let d = &analyze(
+        &parse(&with(json!({"clicks": 2, "sized": 2, "centered": 2}))).unwrap(),
+        &Params::default(),
+    )[0];
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 35, Some(Class::Automated))
+    );
 }
 
 #[test]
 fn fixed_cadence_fires() {
-    assert_eq!(ids(&with(json!({"actions": 5, "gap_cv": 50, "gap_med_ms": 500}))), [CADENCE_FIXED]);
-    assert_eq!(ids(&with(json!({"actions": 12, "gap_cv": 0, "gap_med_ms": 1000}))), [CADENCE_FIXED]);
+    assert_eq!(
+        ids(&with(
+            json!({"actions": 5, "gap_cv": 50, "gap_med_ms": 500})
+        )),
+        [CADENCE_FIXED]
+    );
+    assert_eq!(
+        ids(&with(
+            json!({"actions": 12, "gap_cv": 0, "gap_med_ms": 1000})
+        )),
+        [CADENCE_FIXED]
+    );
     assert!(ids(&with(json!({"actions": 5, "gap_cv": 51}))).is_empty());
     assert!(ids(&with(json!({"actions": 4, "gap_cv": 0}))).is_empty());
-    assert!(ids(&with(json!({"actions": 9, "gap_cv": null, "gap_med_ms": null}))).is_empty());
-    let d = &analyze(&parse(&with(json!({"actions": 5, "gap_cv": 10}))).unwrap(), &Params::default())[0];
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 30, Some(Class::Automated)));
+    assert!(ids(&with(
+        json!({"actions": 9, "gap_cv": null, "gap_med_ms": null})
+    ))
+    .is_empty());
+    let d = &analyze(
+        &parse(&with(json!({"actions": 5, "gap_cv": 10}))).unwrap(),
+        &Params::default(),
+    )[0];
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 30, Some(Class::Automated))
+    );
 }
 
 fn agent() -> Value {
@@ -265,7 +408,10 @@ fn think_act_rhythm_is_an_agent_not_a_script() {
     // Every click of this agent jumps, so the jump rule fires beside it.
     assert_eq!(ids(&agent()), [CLICK_JUMPED, AGENT_RHYTHM]);
     let d = &analyze(&parse(&agent()).unwrap(), &Params::default())[1];
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 30, Some(Class::UnverifiedAgent)));
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 30, Some(Class::UnverifiedAgent))
+    );
     // Each condition is needed.
     for change in [
         json!({"actions": 3}),
@@ -297,13 +443,29 @@ fn rules_fire_together_in_the_documented_order() {
         "keys": 0, "key_gap_cv": null, "scrolls": 0,
         "actions": 6, "gap_cv": 20, "gap_med_ms": 3000
     }));
-    assert_eq!(ids(&all), [POINTER_SCRIPTED, CLICK_CENTERED, CLICK_JUMPED, CADENCE_FIXED, AGENT_RHYTHM]);
+    assert_eq!(
+        ids(&all),
+        [
+            POINTER_SCRIPTED,
+            CLICK_CENTERED,
+            CLICK_JUMPED,
+            CADENCE_FIXED,
+            AGENT_RHYTHM
+        ]
+    );
     let mut typed = all.clone();
     typed["keys"] = json!(20);
     typed["key_gap_cv"] = json!(9);
     assert_eq!(
         ids(&typed),
-        [POINTER_SCRIPTED, CLICK_CENTERED, CLICK_JUMPED, KEYS_METRONOMIC, CADENCE_FIXED, AGENT_RHYTHM]
+        [
+            POINTER_SCRIPTED,
+            CLICK_CENTERED,
+            CLICK_JUMPED,
+            KEYS_METRONOMIC,
+            CADENCE_FIXED,
+            AGENT_RHYTHM
+        ]
     );
 }
 
@@ -311,17 +473,31 @@ fn rules_fire_together_in_the_documented_order() {
 fn thresholds_come_from_params() {
     let s = parse(&with(json!({"strokes": 2, "straight": 1}))).unwrap();
     assert!(analyze(&s, &Params::default()).is_empty());
-    let loose = Params { min_strokes: 2, straight_pct: 50, ..Params::default() };
+    let loose = Params {
+        min_strokes: 2,
+        straight_pct: 50,
+        ..Params::default()
+    };
     assert_eq!(analyze(&s, &loose)[0].id, POINTER_SCRIPTED);
 
     let s = parse(&agent()).unwrap();
-    let strict = Params { agent_think_ms: 5000, min_jumped_clicks: 6, ..Params::default() };
+    let strict = Params {
+        agent_think_ms: 5000,
+        min_jumped_clicks: 6,
+        ..Params::default()
+    };
     assert!(analyze(&s, &strict).is_empty());
     let s = parse(&with(json!({"clicks": 1, "sized": 1, "centered": 1}))).unwrap();
-    let one = Params { min_sized_clicks: 1, ..Params::default() };
+    let one = Params {
+        min_sized_clicks: 1,
+        ..Params::default()
+    };
     assert_eq!(analyze(&s, &one)[0].id, CLICK_CENTERED);
     let s = parse(&with(json!({"actions": 5, "gap_cv": 200}))).unwrap();
-    let wide = Params { cadence_cv_max: 200, ..Params::default() };
+    let wide = Params {
+        cadence_cv_max: 200,
+        ..Params::default()
+    };
     assert_eq!(analyze(&s, &wide)[0].id, CADENCE_FIXED);
 }
 
@@ -329,35 +505,66 @@ fn thresholds_come_from_params() {
 
 #[test]
 fn clicks_where_the_pointer_jumped_fire() {
-    assert_eq!(ids(&with(json!({"clicks": 3, "teleport": 2}))), [CLICK_JUMPED]);
-    assert_eq!(ids(&with(json!({"clicks": 4, "teleport": 2}))), [CLICK_JUMPED]);
+    assert_eq!(
+        ids(&with(json!({"clicks": 3, "teleport": 2}))),
+        [CLICK_JUMPED]
+    );
+    assert_eq!(
+        ids(&with(json!({"clicks": 4, "teleport": 2}))),
+        [CLICK_JUMPED]
+    );
     // One jump can be a window regaining focus; fewer than half is not a pattern.
     assert!(ids(&with(json!({"clicks": 3, "teleport": 1}))).is_empty());
     assert!(ids(&with(json!({"clicks": 5, "teleport": 2}))).is_empty());
-    let d = &analyze(&parse(&with(json!({"clicks": 3, "teleport": 3}))).unwrap(), &Params::default())[0];
+    let d = &analyze(
+        &parse(&with(json!({"clicks": 3, "teleport": 3}))).unwrap(),
+        &Params::default(),
+    )[0];
     // No class of its own: an agent's clicks jump too, and it must stay an agent.
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 30, None));
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 30, None)
+    );
     let agent_found = analyze(&parse(&agent()).unwrap(), &Params::default());
     let verdict = veritell_core::score(agent_found, None);
     assert_eq!(verdict.class, Class::UnverifiedAgent);
     assert!(!d.detail.is_empty());
     let s = parse(&with(json!({"clicks": 3, "teleport": 1}))).unwrap();
-    let loose = Params { min_jumped_clicks: 1, jumped_pct: 30, ..Params::default() };
+    let loose = Params {
+        min_jumped_clicks: 1,
+        jumped_pct: 30,
+        ..Params::default()
+    };
     assert_eq!(analyze(&s, &loose)[0].id, CLICK_JUMPED);
 }
 
 #[test]
 fn keys_at_even_intervals_fire() {
-    assert_eq!(ids(&with(json!({"keys": 8, "key_gap_cv": 50}))), [KEYS_METRONOMIC]);
-    assert_eq!(ids(&with(json!({"keys": 400, "key_gap_cv": 0}))), [KEYS_METRONOMIC]);
+    assert_eq!(
+        ids(&with(json!({"keys": 8, "key_gap_cv": 50}))),
+        [KEYS_METRONOMIC]
+    );
+    assert_eq!(
+        ids(&with(json!({"keys": 400, "key_gap_cv": 0}))),
+        [KEYS_METRONOMIC]
+    );
     assert!(ids(&with(json!({"keys": 8, "key_gap_cv": 51}))).is_empty());
     assert!(ids(&with(json!({"keys": 7, "key_gap_cv": 0}))).is_empty());
     assert!(ids(&with(json!({"keys": 30, "key_gap_cv": null}))).is_empty());
-    let d = &analyze(&parse(&with(json!({"keys": 11, "key_gap_cv": 4}))).unwrap(), &Params::default())[0];
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 30, Some(Class::Automated)));
+    let d = &analyze(
+        &parse(&with(json!({"keys": 11, "key_gap_cv": 4}))).unwrap(),
+        &Params::default(),
+    )[0];
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 30, Some(Class::Automated))
+    );
     assert!(!d.detail.is_empty());
     let s = parse(&with(json!({"keys": 11, "key_gap_cv": 150}))).unwrap();
-    let wide = Params { key_cv_max: 150, ..Params::default() };
+    let wide = Params {
+        key_cv_max: 150,
+        ..Params::default()
+    };
     assert_eq!(analyze(&s, &wide)[0].id, KEYS_METRONOMIC);
 }
 
@@ -376,7 +583,11 @@ fn recorded_people_yield_nothing() {
     for line in file.lines().filter(|l| !l.trim().is_empty()) {
         let s = recorded(line);
         let found = analyze(&s, &Params::default());
-        assert!(found.is_empty(), "{line}: {:?}", found.iter().map(|d| &d.id).collect::<Vec<_>>());
+        assert!(
+            found.is_empty(),
+            "{line}: {:?}",
+            found.iter().map(|d| &d.id).collect::<Vec<_>>()
+        );
         with_input += u32::from(s.has_input());
     }
     assert!(with_input >= 1, "no recorded session with input");
@@ -387,10 +598,22 @@ fn a_recorded_script_that_randomises_its_clicks_is_still_caught() {
     let file = include_str!("../../../lab/recordings/patchright-jitter.jsonl");
     let mut seen = 0;
     for line in file.lines().filter(|l| !l.trim().is_empty()) {
-        let found: Vec<String> = analyze(&recorded(line), &Params::default()).into_iter().map(|d| d.id).collect();
-        assert!(found.contains(&KEYS_METRONOMIC.to_string()), "{line}: {found:?}");
-        assert!(found.contains(&CLICK_JUMPED.to_string()), "{line}: {found:?}");
-        assert!(!found.contains(&CLICK_CENTERED.to_string()), "{line}: {found:?}");
+        let found: Vec<String> = analyze(&recorded(line), &Params::default())
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        assert!(
+            found.contains(&KEYS_METRONOMIC.to_string()),
+            "{line}: {found:?}"
+        );
+        assert!(
+            found.contains(&CLICK_JUMPED.to_string()),
+            "{line}: {found:?}"
+        );
+        assert!(
+            !found.contains(&CLICK_CENTERED.to_string()),
+            "{line}: {found:?}"
+        );
         seen += 1;
     }
     assert!(seen >= 2);
@@ -429,11 +652,20 @@ fn a_few_straight_strokes_are_not_enough() {
 #[test]
 fn a_form_submitted_only_by_script_made_events_fires() {
     // What nodriver sent in the lab: two untrusted clicks, one stray pointer move, no keys.
-    let line = include_str!("../../../lab/recordings/nodriver-form.jsonl").lines().next().unwrap();
+    let line = include_str!("../../../lab/recordings/nodriver-form.jsonl")
+        .lines()
+        .next()
+        .unwrap();
     let found = analyze(&recorded(line), &Params::default());
-    assert_eq!(found.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), [UNTRUSTED_SUBMIT]);
+    assert_eq!(
+        found.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+        [UNTRUSTED_SUBMIT]
+    );
     let d = &found[0];
-    assert_eq!((d.layer, d.penalty, d.class_hint), (Layer::Behavior, 40, Some(Class::Automated)));
+    assert_eq!(
+        (d.layer, d.penalty, d.class_hint),
+        (Layer::Behavior, 40, Some(Class::Automated))
+    );
     assert!(!d.detail.is_empty());
 
     let base = json!({
@@ -443,7 +675,12 @@ fn a_form_submitted_only_by_script_made_events_fires() {
     });
     assert_eq!(ids(&with(base.clone())), [UNTRUSTED_SUBMIT]);
     // A page whose own code calls click() after a person's click, tap, key or paste is ordinary.
-    for (field, extra) in [("clicks", json!({})), ("touches", json!({})), ("keys", json!({})), ("pastes", json!({}))] {
+    for (field, extra) in [
+        ("clicks", json!({})),
+        ("touches", json!({})),
+        ("keys", json!({})),
+        ("pastes", json!({})),
+    ] {
         let mut v = with(base.clone());
         v[field] = json!(1);
         for (k, val) in extra.as_object().unwrap() {

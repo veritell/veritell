@@ -9,8 +9,8 @@ use pingora::protocols::l4::socket::SocketAddr as PingoraAddr;
 use pingora::protocols::raw_connect::ProxyDigest;
 use pingora::protocols::tls::SslDigest;
 use pingora::protocols::{
-    GetProxyDigest, GetSocketDigest, GetTimingDigest, Peek, Shutdown, SocketDigest, Ssl, TimingDigest, UniqueID,
-    UniqueIDType,
+    GetProxyDigest, GetSocketDigest, GetTimingDigest, Peek, Shutdown, SocketDigest, Ssl,
+    TimingDigest, UniqueID, UniqueIDType,
 };
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -28,13 +28,21 @@ struct Conn {
 }
 
 impl AsyncRead for Conn {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.io).poll_read(cx, buf)
     }
 }
 
 impl AsyncWrite for Conn {
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
         Pin::new(&mut self.io).poll_write(cx, buf)
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -56,7 +64,15 @@ impl UniqueID for Conn {
 }
 impl Ssl for Conn {
     fn get_ssl_digest(&self) -> Option<Arc<SslDigest>> {
-        self.tls.then(|| Arc::new(SslDigest::new("TLS_AES_128_GCM_SHA256", "TLSv1.3", None, None, Vec::new())))
+        self.tls.then(|| {
+            Arc::new(SslDigest::new(
+                "TLS_AES_128_GCM_SHA256",
+                "TLSv1.3",
+                None,
+                None,
+                Vec::new(),
+            ))
+        })
     }
 }
 impl GetTimingDigest for Conn {
@@ -72,7 +88,9 @@ impl GetProxyDigest for Conn {
 impl GetSocketDigest for Conn {
     fn get_socket_digest(&self) -> Option<Arc<SocketDigest>> {
         let d = SocketDigest::from_raw_fd(0);
-        let _ = d.peer_addr.set(Some(PingoraAddr::Inet("203.0.113.9:40000".parse().unwrap())));
+        let _ = d.peer_addr.set(Some(PingoraAddr::Inet(
+            "203.0.113.9:40000".parse().unwrap(),
+        )));
         Some(Arc::new(d))
     }
 }
@@ -104,10 +122,26 @@ fn gateway(policy: Policy, trusted_proxies: Vec<IpAddr>) -> (Gateway, Arc<Memory
         token_budgets: Arc::new(MemoryBudgetStore::new(1000)),
         used_challenges: Arc::new(MemoryBudgetStore::new(1000)),
         throttle: Throttle::new(1000),
-        flood: crate::flood::FloodGuard::new(crate::flood::GuardMode::Log, crate::flood::FloodGuard::DEFAULT_LIMIT, 1000),
-        page_rates: crate::flood::PageRates::new(crate::flood::PageRates::DEFAULT_NET_LIMIT, crate::flood::PageRates::DEFAULT_CLIENT_LIMIT, crate::flood::PageRates::DEFAULT_NO_PROBE_PAGES, 1000),
-        shed: crate::shed::Shedder::new(crate::flood::GuardMode::Log, crate::shed::Shedder::DEFAULT_CAP),
-        fp_surge: crate::flood::FpSurge::new(crate::flood::FpSurge::DEFAULT_MIN_PAGES, crate::flood::FpSurge::DEFAULT_GROWTH, 1000),
+        flood: crate::flood::FloodGuard::new(
+            crate::flood::GuardMode::Log,
+            crate::flood::FloodGuard::DEFAULT_LIMIT,
+            1000,
+        ),
+        page_rates: crate::flood::PageRates::new(
+            crate::flood::PageRates::DEFAULT_NET_LIMIT,
+            crate::flood::PageRates::DEFAULT_CLIENT_LIMIT,
+            crate::flood::PageRates::DEFAULT_NO_PROBE_PAGES,
+            1000,
+        ),
+        shed: crate::shed::Shedder::new(
+            crate::flood::GuardMode::Log,
+            crate::shed::Shedder::DEFAULT_CAP,
+        ),
+        fp_surge: crate::flood::FpSurge::new(
+            crate::flood::FpSurge::DEFAULT_MIN_PAGES,
+            crate::flood::FpSurge::DEFAULT_GROWTH,
+            1000,
+        ),
         token_budget: 500,
         probe_key: ProbeKey::from_secret(SECRET).unwrap(),
         probes: Arc::new(ProbeStore::new(1000)),
@@ -150,7 +184,11 @@ async fn send(g: &Gateway, request: &str, tls: bool) -> (u16, String, String, bo
     let _ = tokio::time::timeout(Duration::from_secs(2), client.read_to_end(&mut raw)).await;
     let text = String::from_utf8_lossy(&raw).to_string();
     let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
-    let status = head.split(' ').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     (status, head.to_ascii_lowercase(), body.to_string(), handled)
 }
 
@@ -197,7 +235,10 @@ async fn the_gateway_paths_answer_only_their_method() {
         assert!(handled);
         assert_eq!(status, want, "{}: {head}", request.lines().next().unwrap());
     }
-    assert!(ring.events().is_empty(), "a wrong method is not an assessed request");
+    assert!(
+        ring.events().is_empty(),
+        "a wrong method is not an assessed request"
+    );
 }
 
 #[tokio::test]
@@ -206,7 +247,10 @@ async fn the_scripts_are_served_with_a_fresh_nonce() {
     for path in [probe::SCRIPT_PATH, behavior::SCRIPT_PATH] {
         let (status, head, body, _) = send(&g, &get(path), true).await;
         assert_eq!(status, 200, "{path}");
-        assert!(head.contains("content-type: text/javascript"), "{path}: {head}");
+        assert!(
+            head.contains("content-type: text/javascript"),
+            "{path}: {head}"
+        );
         assert!(!body.is_empty());
     }
     let (_, _, a, _) = send(&g, &get(behavior::SCRIPT_PATH), true).await;
@@ -245,8 +289,16 @@ async fn a_forged_report_marks_the_client_only_under_its_own_nonce() {
     let (_, _, other, _) = send(&g, &get(probe::SCRIPT_PATH), true).await;
     let theirs = field_in(&other, "\"nonce\":\"");
     // This build, any nonce, data that does not decrypt: probe_seal_invalid.
-    let sealed = |nonce: &str| format!(r#"{{"b":"{build}","n":"{nonce}","d":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}"#);
-    for (body, marked) in [(sealed("made-up"), false), (sealed(&theirs), false), (sealed(&ours), true)] {
+    let sealed = |nonce: &str| {
+        format!(
+            r#"{{"b":"{build}","n":"{nonce}","d":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}"#
+        )
+    };
+    for (body, marked) in [
+        (sealed("made-up"), false),
+        (sealed(&theirs), false),
+        (sealed(&ours), true),
+    ] {
         let before = ring.events().len();
         let (status, _, _, _) = send(&g, &post(probe::REPORT_PATH, &body), true).await;
         assert_eq!(status, 403);
@@ -259,10 +311,16 @@ async fn a_forged_report_marks_the_client_only_under_its_own_nonce() {
 
 #[test]
 fn the_outer_nonce_is_read_without_opening() {
-    assert_eq!(probe::outer_nonce(br#"{"b":"x","n":"abc","d":""}"#).as_deref(), Some("abc"));
+    assert_eq!(
+        probe::outer_nonce(br#"{"b":"x","n":"abc","d":""}"#).as_deref(),
+        Some("abc")
+    );
     assert_eq!(probe::outer_nonce(b"not json"), None);
     assert_eq!(probe::outer_nonce(br#"{"n":1}"#), None);
-    let long = format!(r#"{{"n":"{}"}}"#, "n".repeat(veritell_probe_build::MAX_NONCE_BYTES + 1));
+    let long = format!(
+        r#"{{"n":"{}"}}"#,
+        "n".repeat(veritell_probe_build::MAX_NONCE_BYTES + 1)
+    );
     assert_eq!(probe::outer_nonce(long.as_bytes()), None);
 }
 
@@ -272,14 +330,35 @@ async fn a_known_person_link_sets_the_mark_and_a_forged_one_does_not() {
     let (g, _) = gateway(Policy::default_shadow(), Vec::new());
     let mut mac = Hmac::<sha2::Sha256>::new_from_slice(KNOWN_KEY).unwrap();
     mac.update(b"veritell-known\0p07-test");
-    let hex: String = mac.finalize().into_bytes().iter().map(|b| format!("{b:02x}")).collect();
-    let (status, head, body, handled) = send(&g, &get(&format!("/__veritell/known/p07-test/{}", &hex[..32])), true).await;
+    let hex: String = mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let (status, head, body, handled) = send(
+        &g,
+        &get(&format!("/__veritell/known/p07-test/{}", &hex[..32])),
+        true,
+    )
+    .await;
     assert!(handled);
     assert_eq!(status, 200);
-    assert!(head.contains("set-cookie: __host-veritell-known=p07-test."), "{head}");
+    assert!(
+        head.contains("set-cookie: __host-veritell-known=p07-test."),
+        "{head}"
+    );
     assert!(body.contains("p07-test"));
-    let (_, head, _, _) = send(&g, &get(&format!("/__veritell/known/p07-test/{}", "0".repeat(32))), true).await;
-    assert!(!head.contains("set-cookie: __host-veritell-known"), "a forged link marks nothing");
+    let (_, head, _, _) = send(
+        &g,
+        &get(&format!("/__veritell/known/p07-test/{}", "0".repeat(32))),
+        true,
+    )
+    .await;
+    assert!(
+        !head.contains("set-cookie: __host-veritell-known"),
+        "a forged link marks nothing"
+    );
 }
 
 #[tokio::test]
@@ -292,7 +371,10 @@ async fn an_enforcing_policy_challenges_and_its_open_route_passes() {
     let (status, head, body, handled) = send(&g, &get("/cart"), true).await;
     assert!(handled);
     assert_eq!(status, 403, "{head}");
-    assert!(body.contains(VERIFY_PATH) && body.contains("data-difficulty"), "the proof-of-work page: {body}");
+    assert!(
+        body.contains(VERIFY_PATH) && body.contains("data-difficulty"),
+        "the proof-of-work page: {body}"
+    );
     let (status, _, _, _) = send(&g, &get("/open/page"), true).await;
     assert_eq!(status, 200, "the open route passes");
     assert_eq!(outcomes(&ring), ["challenged", "passed"]);
@@ -303,14 +385,20 @@ async fn the_plain_listener_serves_only_the_sidecar_endpoint() {
     let (g, _) = gateway(Policy::default_shadow(), Vec::new());
     let (status, _, _, handled) = send(&g, &get("/catalog"), false).await;
     assert!(handled);
-    assert_eq!(status, 404, "only the authorization endpoint is served without TLS");
+    assert_eq!(
+        status, 404,
+        "only the authorization endpoint is served without TLS"
+    );
     let (status, _, _, _) = send(&g, &get(AUTHZ_PATH), false).await;
     assert_eq!(status, 403, "a peer that is not a trusted proxy is refused");
 
     let trusted = vec!["203.0.113.9".parse().unwrap()];
     let (g, _) = gateway(Policy::default_shadow(), trusted);
     let (status, _, body, _) = send(&g, &get(AUTHZ_PATH), false).await;
-    assert_eq!(status, 400, "a trusted peer that names no original request: {body}");
+    assert_eq!(
+        status, 400,
+        "a trusted peer that names no original request: {body}"
+    );
     let request = format!(
         "GET {AUTHZ_PATH} HTTP/1.1\r\nHost: shop.test\r\nX-Original-URI: /cart\r\nX-Original-Method: GET\r\nX-Forwarded-For: 198.51.100.4\r\nUser-Agent: curl/8.7.1\r\nConnection: close\r\n\r\n"
     );
@@ -321,11 +409,17 @@ async fn the_plain_listener_serves_only_the_sidecar_endpoint() {
 #[tokio::test]
 async fn http11_without_host_is_refused_and_http10_is_not() {
     let (g, ring) = gateway(Policy::default_shadow(), Vec::new());
-    let (status, _, body, handled) = send(&g, "GET / HTTP/1.1\r\nUser-Agent: curl/8.7.1\r\nConnection: close\r\n\r\n", true).await;
+    let (status, _, body, handled) = send(
+        &g,
+        "GET / HTTP/1.1\r\nUser-Agent: curl/8.7.1\r\nConnection: close\r\n\r\n",
+        true,
+    )
+    .await;
     assert!(handled);
     assert_eq!((status, body.as_str()), (400, "missing Host"));
     assert!(ring.events().is_empty(), "not an assessed request");
-    let (status, _, _, _) = send(&g, "GET / HTTP/1.0\r\nUser-Agent: curl/8.7.1\r\n\r\n", true).await;
+    let (status, _, _, _) =
+        send(&g, "GET / HTTP/1.0\r\nUser-Agent: curl/8.7.1\r\n\r\n", true).await;
     assert_ne!(status, 400, "HTTP/1.0 needs no Host");
 }
 
@@ -338,7 +432,11 @@ async fn the_flood_guard_in_log_mode_lets_everything_through() {
         assert_eq!(status, 200, "{head}");
     }
     // Past the ceiling, 1 in 100 is kept: the first past it (the 4th).
-    assert_eq!(outcomes(&ring).len(), 4, "3 under the ceiling and the first past it");
+    assert_eq!(
+        outcomes(&ring).len(),
+        4,
+        "3 under the ceiling and the first past it"
+    );
 }
 
 #[tokio::test]
@@ -365,7 +463,11 @@ async fn the_flood_guard_in_enforce_mode_answers_429_past_its_limit() {
     assert_eq!(status, 429, "{head}");
     assert!(head.contains("retry-after: 10"), "{head}");
     assert_eq!(body, "too many requests");
-    assert_eq!(outcomes(&ring).len(), 3, "a refused request is not scored or sent on");
+    assert_eq!(
+        outcomes(&ring).len(),
+        3,
+        "a refused request is not scored or sent on"
+    );
 }
 
 #[tokio::test]
@@ -373,7 +475,12 @@ async fn pages_served_past_the_network_limit_carry_rate_net_high() {
     let (mut g, ring) = gateway(Policy::default_shadow(), Vec::new());
     g.page_rates = crate::flood::PageRates::new(2, 1000, 20, 100);
     send(&g, &get("/"), true).await;
-    let has = |i: usize| ring.events()[i].detections.iter().any(|d| d.id == "rate_net_high");
+    let has = |i: usize| {
+        ring.events()[i]
+            .detections
+            .iter()
+            .any(|d| d.id == "rate_net_high")
+    };
     assert!(!has(0));
     // Pages are counted as the origin's HTML goes out; there is no origin
     // here, so count them for the client's address directly.
@@ -398,7 +505,11 @@ async fn a_busy_origin_sheds_low_trust_requests_in_enforce() {
     drop(held);
     let (status, _, _, _) = send(&g, &get("/"), true).await;
     assert_eq!(status, 200, "places given back: admitted again");
-    assert_eq!(g.shed.in_flight(), 0, "the request's place is given back with its context");
+    assert_eq!(
+        g.shed.in_flight(),
+        0,
+        "the request's place is given back with its context"
+    );
 }
 
 #[tokio::test]
@@ -415,7 +526,12 @@ async fn a_decoy_is_the_ordinary_not_found_on_both_paths() {
     // The head without the date, which differs from one answer to the next.
     fn shape(answer: (u16, String, String, bool)) -> (u16, Vec<String>, String) {
         let (status, head, body, _) = answer;
-        let lines = head.lines().skip(1).filter(|l| !l.starts_with("date:")).map(str::to_string).collect();
+        let lines = head
+            .lines()
+            .skip(1)
+            .filter(|l| !l.starts_with("date:"))
+            .map(str::to_string)
+            .collect();
         (status, lines, body)
     }
     let policy = Policy::from_yaml(
@@ -438,6 +554,10 @@ async fn a_decoy_is_the_ordinary_not_found_on_both_paths() {
     );
     let sidecar = shape(send(&g, &request, false).await);
     assert_eq!(sidecar, normal, "sidecar");
-    assert!(sidecar.1.iter().all(|l| !l.starts_with("x-veritell")), "{:?}", sidecar.1);
+    assert!(
+        sidecar.1.iter().all(|l| !l.starts_with("x-veritell")),
+        "{:?}",
+        sidecar.1
+    );
     assert_eq!(outcomes(&ring), ["decoyed", "decoyed"]);
 }

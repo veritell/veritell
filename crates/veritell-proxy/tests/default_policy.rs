@@ -47,15 +47,24 @@ fn the_page_rates_throttle_a_client_that_scores_well() {
         let d = p.evaluate(&input(70, Class::Automated, &found));
         assert_eq!(d.action, Action::Throttle { per_minute: 30 }, "{found:?}");
     }
-    assert_eq!(p.evaluate(&input(70, Class::Human, &[])).action, Action::Pass);
+    assert_eq!(
+        p.evaluate(&input(70, Class::Human, &[])).action,
+        Action::Pass
+    );
 }
 
 #[test]
 fn the_throttles_do_not_hide_the_blocks_and_challenges() {
     let p = policy();
     let fast = ids(&["rate_client_high"]);
-    assert_eq!(p.evaluate(&input(20, Class::Automated, &fast)).action, Action::Block);
-    assert_eq!(p.evaluate(&input(70, Class::Malicious, &fast)).action, Action::Block);
+    assert_eq!(
+        p.evaluate(&input(20, Class::Automated, &fast)).action,
+        Action::Block
+    );
+    assert_eq!(
+        p.evaluate(&input(70, Class::Malicious, &fast)).action,
+        Action::Block
+    );
     assert_eq!(
         p.evaluate(&input(50, Class::Automated, &fast)).action,
         Action::Challenge(ChallengeKind::Pow)
@@ -66,9 +75,15 @@ fn the_throttles_do_not_hide_the_blocks_and_challenges() {
 fn pages_without_a_probe_report_get_a_silent_challenge() {
     let p = policy();
     let found = ids(&["pages_no_probe"]);
-    assert_eq!(p.evaluate(&input(65, Class::Automated, &found)).action, Action::Challenge(ChallengeKind::Silent));
+    assert_eq!(
+        p.evaluate(&input(65, Class::Automated, &found)).action,
+        Action::Challenge(ChallengeKind::Silent)
+    );
     // A low score still decides first.
-    assert_eq!(p.evaluate(&input(50, Class::Automated, &found)).action, Action::Challenge(ChallengeKind::Pow));
+    assert_eq!(
+        p.evaluate(&input(50, Class::Automated, &found)).action,
+        Action::Challenge(ChallengeKind::Pow)
+    );
 }
 
 #[test]

@@ -169,7 +169,9 @@ pub enum ChallengeKind {
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     Pass,
-    Throttle { per_minute: u32 },
+    Throttle {
+        per_minute: u32,
+    },
     Challenge(ChallengeKind),
     Tarpit,
     Decoy,
@@ -222,9 +224,7 @@ impl FromStr for Action {
             }
             ("challenge", Some("silent")) => Ok(Action::Challenge(ChallengeKind::Silent)),
             ("challenge", Some("pow")) => Ok(Action::Challenge(ChallengeKind::Pow)),
-            ("challenge", Some("interactive")) => {
-                Ok(Action::Challenge(ChallengeKind::Interactive))
-            }
+            ("challenge", Some("interactive")) => Ok(Action::Challenge(ChallengeKind::Interactive)),
             _ => Err(err()),
         }
     }
@@ -241,9 +241,7 @@ impl fmt::Display for Action {
             Action::Throttle { per_minute } => write!(f, "throttle({per_minute}/min)"),
             Action::Challenge(ChallengeKind::Silent) => f.write_str("challenge(silent)"),
             Action::Challenge(ChallengeKind::Pow) => f.write_str("challenge(pow)"),
-            Action::Challenge(ChallengeKind::Interactive) => {
-                f.write_str("challenge(interactive)")
-            }
+            Action::Challenge(ChallengeKind::Interactive) => f.write_str("challenge(interactive)"),
         }
     }
 }
@@ -275,7 +273,10 @@ mod tests {
     #[test]
     fn strongest_hint_wins() {
         let v = score(
-            vec![det(10, Some(Class::Automated)), det(10, Some(Class::Malicious))],
+            vec![
+                det(10, Some(Class::Automated)),
+                det(10, Some(Class::Malicious)),
+            ],
             None,
         );
         assert_eq!(v.class, Class::Malicious);
@@ -294,7 +295,10 @@ mod tests {
 
     #[test]
     fn signed_agent_overrides_hints_and_keeps_the_score() {
-        let v = score_proven(vec![det(60, Some(Class::Malicious))], Some(Proven::SignedAgent));
+        let v = score_proven(
+            vec![det(60, Some(Class::Malicious))],
+            Some(Proven::SignedAgent),
+        );
         assert_eq!((v.class, v.score), (Class::SignedAgent, 39));
         assert_eq!(score_proven(vec![], None).class, Class::Human);
     }
@@ -323,7 +327,17 @@ mod tests {
 
     #[test]
     fn bad_actions_rejected() {
-        for s in ["", "allow", "throttle", "throttle(0/min)", "throttle(5)", "challenge(x)", "pass()", "charge(x)", "charge()"] {
+        for s in [
+            "",
+            "allow",
+            "throttle",
+            "throttle(0/min)",
+            "throttle(5)",
+            "challenge(x)",
+            "pass()",
+            "charge(x)",
+            "charge()",
+        ] {
             assert!(s.parse::<Action>().is_err(), "{s} should fail");
         }
     }

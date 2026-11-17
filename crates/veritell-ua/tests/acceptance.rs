@@ -5,7 +5,8 @@ use veritell_ua::*;
 
 const CHROME_WIN: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 const EDGE_WIN: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0";
-const FIREFOX_LINUX: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0";
+const FIREFOX_LINUX: &str =
+    "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0";
 const SAFARI_MAC: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15";
 const CHROME_IOS: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/142.0.7444.77 Mobile/15E148 Safari/604.1";
 const FIREFOX_IOS: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/144.0 Mobile/15E148 Safari/605.1.15";
@@ -22,7 +23,11 @@ const CURL_H2: &str = "3:100;4:10485760;2:0|1048510465|0|m,s,a,p";
 
 fn browser(ua: &str) -> (Engine, String, u32) {
     match parse_user_agent(Some(ua)).kind {
-        UaKind::Browser { engine, name, major } => (engine, name, major),
+        UaKind::Browser {
+            engine,
+            name,
+            major,
+        } => (engine, name, major),
         other => panic!("expected a browser for {ua:?}, got {other:?}"),
     }
 }
@@ -54,9 +59,15 @@ fn ids(d: &[veritell_core::Detection]) -> Vec<&str> {
 
 #[test]
 fn parses_desktop_browsers() {
-    assert_eq!(browser(CHROME_WIN), (Engine::Chromium, "chrome".into(), 142));
+    assert_eq!(
+        browser(CHROME_WIN),
+        (Engine::Chromium, "chrome".into(), 142)
+    );
     assert_eq!(browser(EDGE_WIN), (Engine::Chromium, "edge".into(), 142));
-    assert_eq!(browser(FIREFOX_LINUX), (Engine::Gecko, "firefox".into(), 144));
+    assert_eq!(
+        browser(FIREFOX_LINUX),
+        (Engine::Gecko, "firefox".into(), 144)
+    );
     assert_eq!(browser(SAFARI_MAC), (Engine::WebKit, "safari".into(), 18));
 }
 
@@ -77,9 +88,15 @@ fn parses_os_and_mobile() {
 #[test]
 fn every_ios_browser_is_webkit() {
     let (engine, name, major) = browser(CHROME_IOS);
-    assert_eq!((engine, name.as_str(), major), (Engine::WebKit, "chrome", 142));
+    assert_eq!(
+        (engine, name.as_str(), major),
+        (Engine::WebKit, "chrome", 142)
+    );
     let (engine, name, major) = browser(FIREFOX_IOS);
-    assert_eq!((engine, name.as_str(), major), (Engine::WebKit, "firefox", 144));
+    assert_eq!(
+        (engine, name.as_str(), major),
+        (Engine::WebKit, "firefox", 144)
+    );
 }
 
 #[test]
@@ -107,12 +124,16 @@ fn non_browser_kinds() {
     }
     assert_eq!(
         parse_user_agent(Some(GOOGLEBOT)).kind,
-        UaKind::DeclaredBot { name: "Googlebot".into() }
+        UaKind::DeclaredBot {
+            name: "Googlebot".into()
+        }
     );
     // A bot token wins even when the rest looks like a browser.
     assert_eq!(
         parse_user_agent(Some(GOOGLEBOT_SMARTPHONE)).kind,
-        UaKind::DeclaredBot { name: "Googlebot".into() }
+        UaKind::DeclaredBot {
+            name: "Googlebot".into()
+        }
     );
     for (ua, bot) in [
         ("Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)", "bingbot"),
@@ -125,7 +146,10 @@ fn non_browser_kinds() {
             "{ua}"
         );
     }
-    assert_eq!(parse_user_agent(Some("something odd")).kind, UaKind::Unknown);
+    assert_eq!(
+        parse_user_agent(Some("something odd")).kind,
+        UaKind::Unknown
+    );
 }
 
 #[test]
@@ -238,7 +262,10 @@ fn firefox_ua_on_a_chromium_http2_stack_is_caught() {
         h2_akamai: Some(CHROMIUM_H2),
         header_names: &headers,
     });
-    assert_eq!(ids(&d), vec!["h2_settings_mismatch", "h2_pseudo_order_mismatch"]);
+    assert_eq!(
+        ids(&d),
+        vec!["h2_settings_mismatch", "h2_pseudo_order_mismatch"]
+    );
     assert_eq!(d[0].penalty, 35);
 }
 
@@ -318,7 +345,14 @@ fn builtin_webkit_values_were_observed() {
         h2_akamai: Some("1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"),
         header_names: &headers,
     });
-    assert_eq!(ids(&fake), vec!["tls_ua_mismatch", "h2_settings_mismatch", "h2_pseudo_order_mismatch"]);
+    assert_eq!(
+        ids(&fake),
+        vec![
+            "tls_ua_mismatch",
+            "h2_settings_mismatch",
+            "h2_pseudo_order_mismatch"
+        ]
+    );
     assert_eq!(fake[0].penalty, 45);
     assert_eq!(fake[0].class_hint, Some(Class::Automated));
     assert!(fake[1..].iter().all(|d| d.penalty == 35));
@@ -329,14 +363,20 @@ fn missing_and_headless_user_agents() {
     let table = TruthTable::builtin();
     let d = table.check(&Observed::default());
     assert_eq!(ids(&d), vec!["ua_missing"]);
-    assert_eq!((d[0].penalty, d[0].class_hint), (40, Some(Class::Automated)));
+    assert_eq!(
+        (d[0].penalty, d[0].class_hint),
+        (40, Some(Class::Automated))
+    );
 
     let d = table.check(&Observed {
         user_agent: Some(HEADLESS),
         ..Default::default()
     });
     assert_eq!(ids(&d), vec!["ua_headless"]);
-    assert_eq!((d[0].penalty, d[0].class_hint), (70, Some(Class::Automated)));
+    assert_eq!(
+        (d[0].penalty, d[0].class_hint),
+        (70, Some(Class::Automated))
+    );
 }
 
 #[test]
@@ -388,7 +428,10 @@ fn custom_table_and_errors() {
     assert_eq!(ids(&d), vec!["tls_ua_mismatch", "h2_settings_mismatch"]);
     assert_eq!(d[1].penalty, 35);
 
-    assert!(matches!(TruthTable::from_json("{"), Err(TruthError::Json(_))));
+    assert!(matches!(
+        TruthTable::from_json("{"),
+        Err(TruthError::Json(_))
+    ));
     assert!(matches!(
         TruthTable::from_json(r#"{"version": 2, "engines": {}, "tools": []}"#),
         Err(TruthError::UnsupportedVersion(2))
@@ -399,7 +442,13 @@ fn custom_table_and_errors() {
 fn malformed_fingerprints_do_not_panic() {
     let table = TruthTable::builtin();
     let headers = chrome_headers();
-    for (ja4, h2) in [("", ""), ("_", "|"), ("t13d", "|||"), ("a_b", "1:1|x"), ("___", "||||||")] {
+    for (ja4, h2) in [
+        ("", ""),
+        ("_", "|"),
+        ("t13d", "|||"),
+        ("a_b", "1:1|x"),
+        ("___", "||||||"),
+    ] {
         let _ = table.check(&Observed {
             user_agent: Some(CHROME_WIN),
             ja4: Some(ja4),

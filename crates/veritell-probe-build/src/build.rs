@@ -9,7 +9,10 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use crate::seal::{OpenError, Opened};
-use crate::{BUILD_TOKEN, CONFIG_TOKEN, MAX_TEMPLATE_BYTES, RENAME_PREFIX, SHUFFLE_CLOSE, SHUFFLE_OPEN, VOCAB};
+use crate::{
+    BUILD_TOKEN, CONFIG_TOKEN, MAX_TEMPLATE_BYTES, RENAME_PREFIX, SHUFFLE_CLOSE, SHUFFLE_OPEN,
+    VOCAB,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuildError {
@@ -115,14 +118,27 @@ struct Stream<'a> {
 
 impl<'a> Stream<'a> {
     fn new(key: &'a [u8; 32], label: u8, seed: [u8; 16], expires_at: u64) -> Stream<'a> {
-        Stream { key, label, seed, expiry: expires_at.to_be_bytes(), counter: 0, block: [0; 32], pos: 32 }
+        Stream {
+            key,
+            label,
+            seed,
+            expiry: expires_at.to_be_bytes(),
+            counter: 0,
+            block: [0; 32],
+            pos: 32,
+        }
     }
 
     fn next_byte(&mut self) -> u8 {
         if self.pos >= self.block.len() {
             self.block = hmac(
                 self.key,
-                &[&[self.label], &self.seed, &self.expiry, &self.counter.to_be_bytes()],
+                &[
+                    &[self.label],
+                    &self.seed,
+                    &self.expiry,
+                    &self.counter.to_be_bytes(),
+                ],
             );
             self.counter = self.counter.wrapping_add(1);
             self.pos = 0;
@@ -208,18 +224,24 @@ fn pieces(s: &str) -> Vec<Piece<'_>> {
     let mut out = Vec::new();
     let mut rest = s;
     while let Some(at) = rest.find(RENAME_PREFIX) {
-        let Some((head, tail)) = rest.split_at_checked(at) else { break };
+        let Some((head, tail)) = rest.split_at_checked(at) else {
+            break;
+        };
         let after = tail.get(RENAME_PREFIX.len()..).unwrap_or("");
         let n = after.bytes().take_while(|b| is_ident_byte(*b)).count();
         if n == 0 {
             // A bare prefix: not an identifier. Keep one character and go on.
-            let Some((keep, next)) = rest.split_at_checked(at.saturating_add(1)) else { break };
+            let Some((keep, next)) = rest.split_at_checked(at.saturating_add(1)) else {
+                break;
+            };
             out.push(Piece::Text(keep));
             rest = next;
             continue;
         }
         let total = RENAME_PREFIX.len().saturating_add(n);
-        let Some((ident, next)) = tail.split_at_checked(total) else { break };
+        let Some((ident, next)) = tail.split_at_checked(total) else {
+            break;
+        };
         out.push(Piece::Text(head));
         out.push(Piece::Ident(ident));
         rest = next;
@@ -235,7 +257,8 @@ fn pieces(s: &str) -> Vec<Piece<'_>> {
 /// `*/` can leave either state behind, depending on its order.
 fn survives_stripping(segments: &[Segment], token: &str) -> bool {
     fn opens_block(t: &str) -> bool {
-        t.strip_prefix("/*").is_some_and(|rest| !rest.contains("*/"))
+        t.strip_prefix("/*")
+            .is_some_and(|rest| !rest.contains("*/"))
     }
     fn next(in_block: bool, t: &str) -> bool {
         if in_block {
@@ -245,7 +268,8 @@ fn survives_stripping(segments: &[Segment], token: &str) -> bool {
         }
     }
     // Kept when reached with these states (`may_be_in` a block, `may_be_out`).
-    let kept = |t: &str, may_be_in: bool| !may_be_in && !t.starts_with("//") && !t.starts_with("/*");
+    let kept =
+        |t: &str, may_be_in: bool| !may_be_in && !t.starts_with("//") && !t.starts_with("/*");
     let (mut may_be_out, mut may_be_in) = (true, false);
     for segment in segments {
         match segment {
@@ -259,7 +283,9 @@ fn survives_stripping(segments: &[Segment], token: &str) -> bool {
                 (may_be_out, may_be_in) = (out, inside);
             }
             Segment::Region(lines) => {
-                let volatile = lines.iter().any(|l| opens_block(l.trim()) || l.contains("*/"));
+                let volatile = lines
+                    .iter()
+                    .any(|l| opens_block(l.trim()) || l.contains("*/"));
                 for line in lines {
                     let t = line.trim();
                     if t.contains(token) && (volatile || !kept(t, may_be_in)) {
@@ -305,7 +331,11 @@ fn strip_and_trim(lines: &[String]) -> Vec<String> {
 
 /// Key map for a build: every `VOCAB` key to a distinct name. Depends only
 /// on the server key, seed and expiry, so `open` can rebuild it.
-pub(crate) fn derive_key_map(server_key: &[u8; 32], seed: [u8; 16], expires_at: u64) -> BTreeMap<String, String> {
+pub(crate) fn derive_key_map(
+    server_key: &[u8; 32],
+    seed: [u8; 16],
+    expires_at: u64,
+) -> BTreeMap<String, String> {
     let mut stream = Stream::new(server_key, DOMAIN_KEY_MAP, seed, expires_at);
     let mut used = BTreeSet::new();
     let mut map = BTreeMap::new();
@@ -339,7 +369,12 @@ impl Builder {
             return Err(BuildError::Token(CONFIG_TOKEN));
         }
         // The configuration is a JSON object: `{}` stands in for it.
-        if template.replacen(BUILD_TOKEN, "{}", 1).matches(CONFIG_TOKEN).count() != 1 {
+        if template
+            .replacen(BUILD_TOKEN, "{}", 1)
+            .matches(CONFIG_TOKEN)
+            .count()
+            != 1
+        {
             return Err(BuildError::Token(CONFIG_TOKEN));
         }
         let segments = parse_segments(template)?;
@@ -348,7 +383,10 @@ impl Builder {
                 return Err(BuildError::Token(token));
             }
         }
-        Ok(Builder { server_key: hmac(secret, &[KEY_LABEL]), segments })
+        Ok(Builder {
+            server_key: hmac(secret, &[KEY_LABEL]),
+            segments,
+        })
     }
 
     /// A new build with a random seed, valid until `now + ttl_secs`
@@ -357,7 +395,14 @@ impl Builder {
         let mut seed = [0u8; 16];
         if getrandom::fill(&mut seed).is_err() {
             let n = FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let mixed = hmac(&self.server_key, &[&[DOMAIN_FALLBACK_SEED], &n.to_be_bytes(), &now.to_be_bytes()]);
+            let mixed = hmac(
+                &self.server_key,
+                &[
+                    &[DOMAIN_FALLBACK_SEED],
+                    &n.to_be_bytes(),
+                    &now.to_be_bytes(),
+                ],
+            );
             for (dst, src) in seed.iter_mut().zip(mixed.iter()) {
                 *dst = *src;
             }
@@ -412,7 +457,13 @@ impl Builder {
         let mut taken: BTreeSet<String> = key_map.values().cloned().collect();
         let distinct: BTreeSet<&str> = parts
             .iter()
-            .filter_map(|p| if let Piece::Ident(i) = p { Some(*i) } else { None })
+            .filter_map(|p| {
+                if let Piece::Ident(i) = p {
+                    Some(*i)
+                } else {
+                    None
+                }
+            })
             .collect();
         for ident in distinct {
             let name = loop {
@@ -440,7 +491,12 @@ impl Builder {
         .to_string();
         let script = renamed.replacen(BUILD_TOKEN, &config, 1);
 
-        Build { id, script, expires_at, key_map }
+        Build {
+            id,
+            script,
+            expires_at,
+            key_map,
+        }
     }
 
     /// Opens a sealed report body. See `seal.rs`.
@@ -494,7 +550,12 @@ impl Builder {
             self.shuffled(seed, expires_at)
                 .into_iter()
                 .filter_map(|segment| match segment {
-                    Segment::Region(region) => Some(region.iter().filter_map(|l| written_key(l)).collect::<Vec<_>>()),
+                    Segment::Region(region) => Some(
+                        region
+                            .iter()
+                            .filter_map(|l| written_key(l))
+                            .collect::<Vec<_>>(),
+                    ),
                     Segment::Line(_) => None,
                 })
                 .filter(|keys| keys.len() >= 2)
@@ -516,7 +577,9 @@ impl Builder {
     }
 
     fn make_id(&self, seed: [u8; 16], expires_at: u64) -> String {
-        let tag = self.tag_mac(&seed, expires_at).map(|m| m.finalize().into_bytes());
+        let tag = self
+            .tag_mac(&seed, expires_at)
+            .map(|m| m.finalize().into_bytes());
         let mut raw = Vec::with_capacity(ID_RAW_LEN);
         raw.extend_from_slice(&seed);
         raw.extend_from_slice(&expires_at.to_be_bytes());
@@ -544,13 +607,19 @@ impl Builder {
         let seed: [u8; 16] = seed.try_into().ok()?;
         let expiry: [u8; 8] = expiry.try_into().ok()?;
         let expires_at = u64::from_be_bytes(expiry);
-        let tag_ok = self.tag_mac(&seed, expires_at)?.verify_truncated_left(tag).is_ok();
+        let tag_ok = self
+            .tag_mac(&seed, expires_at)?
+            .verify_truncated_left(tag)
+            .is_ok();
         let pad_ok = pad.iter().all(|b| *b == 0);
         (tag_ok && pad_ok).then_some((seed, expires_at))
     }
 
     pub(crate) fn build_key(&self, seed: [u8; 16], expires_at: u64) -> [u8; 32] {
-        hmac(&self.server_key, &[&[DOMAIN_BUILD_KEY], &seed, &expires_at.to_be_bytes()])
+        hmac(
+            &self.server_key,
+            &[&[DOMAIN_BUILD_KEY], &seed, &expires_at.to_be_bytes()],
+        )
     }
 }
 
@@ -624,13 +693,22 @@ mod tests {
     fn names_of(text: &str) -> Vec<String> {
         pieces(text)
             .into_iter()
-            .filter_map(|p| if let Piece::Ident(i) = p { Some(i.to_string()) } else { None })
+            .filter_map(|p| {
+                if let Piece::Ident(i) = p {
+                    Some(i.to_string())
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
     #[test]
     fn identifiers_are_greedy_and_bare_prefixes_are_left_alone() {
-        assert_eq!(names_of("$$a $$ab $$a_b $$ x$$y $$$z $$"), ["$$a", "$$ab", "$$a_b", "$$y", "$$z"]);
+        assert_eq!(
+            names_of("$$a $$ab $$a_b $$ x$$y $$$z $$"),
+            ["$$a", "$$ab", "$$a_b", "$$y", "$$z"]
+        );
         assert_eq!(names_of("no identifiers $ here"), Vec::<String>::new());
     }
 
@@ -638,7 +716,10 @@ mod tests {
     fn marker_line_numbers() {
         let t = |tail: &str| Builder::new(&format!("{BASE}{tail}"), SECRET).err();
         assert_eq!(t("a;\n/*@shuffle*/\nb;\n"), Some(BuildError::Marker(3)));
-        assert_eq!(t("/*@shuffle*/\na;\n/*@shuffle*/\nb;\n/*@end*/\n/*@end*/\n"), Some(BuildError::Marker(4)));
+        assert_eq!(
+            t("/*@shuffle*/\na;\n/*@shuffle*/\nb;\n/*@end*/\n/*@end*/\n"),
+            Some(BuildError::Marker(4))
+        );
         assert_eq!(t("a;\n/*@end*/\n"), Some(BuildError::Marker(3)));
         assert_eq!(t("/*@shuffle*/\n/*@end*/\n"), Some(BuildError::Marker(2)));
     }
@@ -654,16 +735,29 @@ mod tests {
             (format!("{config}  /* {BUILD_TOKEN} */\n"), BUILD_TOKEN),
             (format!("{config}/* open\n{BUILD_TOKEN}\n*/\n"), BUILD_TOKEN),
             // A region that may or may not leave a block comment open.
-            (format!("{config}/*@shuffle*/\n/* a\nb */\n/*@end*/\n{build}"), BUILD_TOKEN),
-            (format!("{config}/*@shuffle*/\n/* a\n{BUILD_TOKEN}\n*/\n/*@end*/\n"), BUILD_TOKEN),
+            (
+                format!("{config}/*@shuffle*/\n/* a\nb */\n/*@end*/\n{build}"),
+                BUILD_TOKEN,
+            ),
+            (
+                format!("{config}/*@shuffle*/\n/* a\n{BUILD_TOKEN}\n*/\n/*@end*/\n"),
+                BUILD_TOKEN,
+            ),
         ];
         for (template, token) in refused {
-            assert_eq!(Builder::new(&template, SECRET).err(), Some(BuildError::Token(token)), "{template:?}");
+            assert_eq!(
+                Builder::new(&template, SECRET).err(),
+                Some(BuildError::Token(token)),
+                "{template:?}"
+            );
         }
         // Also found by it: the tokens sharing a quote, so that replacing
         // BUILD_TOKEN took the start of CONFIG_TOKEN with it.
         let overlap = "x = \"__\"__VERITELL_BUILD__\"__VERITELL_CONFIG__\";\n";
-        assert_eq!(Builder::new(overlap, SECRET).err(), Some(BuildError::Token(CONFIG_TOKEN)));
+        assert_eq!(
+            Builder::new(overlap, SECRET).err(),
+            Some(BuildError::Token(CONFIG_TOKEN))
+        );
         let accepted = [
             format!("{config}/* comment */\n{build}"),
             format!("{config}/* a\nb */\n{build}"),
@@ -675,7 +769,10 @@ mod tests {
             for n in 0..8 {
                 let script = b.build_with_seed([n; 16], 0, 60).script;
                 assert_eq!(script.matches(CONFIG_TOKEN).count(), 1, "{template:?}");
-                assert!(!script.contains(BUILD_TOKEN) && script.contains("{\"id\":"), "{template:?}");
+                assert!(
+                    !script.contains(BUILD_TOKEN) && script.contains("{\"id\":"),
+                    "{template:?}"
+                );
             }
         }
     }
@@ -683,10 +780,16 @@ mod tests {
     #[test]
     fn validation_order_secret_before_size() {
         let big = "x".repeat(MAX_TEMPLATE_BYTES + 1);
-        assert_eq!(Builder::new(&big, b"short").err(), Some(BuildError::WeakSecret));
+        assert_eq!(
+            Builder::new(&big, b"short").err(),
+            Some(BuildError::WeakSecret)
+        );
         assert_eq!(Builder::new(&big, SECRET).err(), Some(BuildError::TooLarge));
         // Tokens are checked before markers.
-        assert_eq!(Builder::new("/*@end*/\n", SECRET).err(), Some(BuildError::Token(BUILD_TOKEN)));
+        assert_eq!(
+            Builder::new("/*@end*/\n", SECRET).err(),
+            Some(BuildError::Token(BUILD_TOKEN))
+        );
     }
 
     #[test]
@@ -722,10 +825,17 @@ mod tests {
 
     #[test]
     fn generated_names_never_collide_with_key_map_names() {
-        let tpl = format!("{BASE}{}", (0..200).map(|i| format!("var $$v{i} = {i};\n")).collect::<String>());
+        let tpl = format!(
+            "{BASE}{}",
+            (0..200)
+                .map(|i| format!("var $$v{i} = {i};\n"))
+                .collect::<String>()
+        );
         let b = Builder::new(&tpl, SECRET).unwrap();
         let build = b.build_with_seed([3; 16], 10, 10);
-        let idents: BTreeSet<&str> = build.script.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        let idents: BTreeSet<&str> = build
+            .script
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
             .filter(|w| w.len() > 6 && w.starts_with('_') && w != &"__VERITELL_CONFIG__")
             .collect();
         assert_eq!(idents.len(), 200);
@@ -757,11 +867,20 @@ mod tests {
 
     #[test]
     fn written_keys() {
-        assert_eq!(written_key("  $$p.plugins = $$tryOr(f, 0);"), Some("plugins"));
+        assert_eq!(
+            written_key("  $$p.plugins = $$tryOr(f, 0);"),
+            Some("plugins")
+        );
         assert_eq!(written_key("$$p.tz_offset_min=1;"), Some("tz_offset_min"));
         assert_eq!(written_key("$$p.tz = 1;"), Some("tz"));
-        assert_eq!(written_key("error_line: $$T(f, false),"), Some("error_line"));
-        assert_eq!(written_key("error_line_number : x,"), Some("error_line_number"));
+        assert_eq!(
+            written_key("error_line: $$T(f, false),"),
+            Some("error_line")
+        );
+        assert_eq!(
+            written_key("error_line_number : x,"),
+            Some("error_line_number")
+        );
         assert_eq!(written_key("$$p.tz == 1;"), None);
         assert_eq!(written_key("\"platform\","), None);
         assert_eq!(written_key("p.plugins = 1;"), None);
@@ -796,10 +915,21 @@ mod tests {
         let b = Builder::new(include_str!("../../../probe/probe.js"), SECRET).unwrap();
         let build = b.build_with_seed([5; 16], 10, 10);
         let order = b.key_order(&build.id).unwrap();
-        let sets: Vec<BTreeSet<&str>> = order.iter().map(|o| o.iter().map(String::as_str).collect()).collect();
+        let sets: Vec<BTreeSet<&str>> = order
+            .iter()
+            .map(|o| o.iter().map(String::as_str).collect())
+            .collect();
         let page: BTreeSet<&str> = [
-            "plugins", "screen", "window", "dpr_x100", "touch_points", "chrome_obj",
-            "notif_permission", "perm_query_notif", "tz", "tz_offset_min",
+            "plugins",
+            "screen",
+            "window",
+            "dpr_x100",
+            "touch_points",
+            "chrome_obj",
+            "notif_permission",
+            "perm_query_notif",
+            "tz",
+            "tz_offset_min",
         ]
         .into_iter()
         .collect();
@@ -810,8 +940,22 @@ mod tests {
     #[test]
     fn fallback_seed_path_gives_distinct_seeds() {
         let key = [1u8; 32];
-        let a = hmac(&key, &[&[DOMAIN_FALLBACK_SEED], &0u64.to_be_bytes(), &5u64.to_be_bytes()]);
-        let b = hmac(&key, &[&[DOMAIN_FALLBACK_SEED], &1u64.to_be_bytes(), &5u64.to_be_bytes()]);
+        let a = hmac(
+            &key,
+            &[
+                &[DOMAIN_FALLBACK_SEED],
+                &0u64.to_be_bytes(),
+                &5u64.to_be_bytes(),
+            ],
+        );
+        let b = hmac(
+            &key,
+            &[
+                &[DOMAIN_FALLBACK_SEED],
+                &1u64.to_be_bytes(),
+                &5u64.to_be_bytes(),
+            ],
+        );
         assert_ne!(a, b);
     }
 }

@@ -11,7 +11,10 @@ impl EventQuery for Unfiltered {
         Vec::new()
     }
     fn summary(&self, since_ms: u64) -> Summary {
-        Summary { total: since_ms, ..Summary::default() }
+        Summary {
+            total: since_ms,
+            ..Summary::default()
+        }
     }
 }
 

@@ -40,13 +40,19 @@ fn ids_in(dir: &Path, out: &mut BTreeSet<String>) {
         let code = text.split("#[cfg(test)]").next().unwrap_or("");
         for (marker, quote_after) in [("Detection::new(", true), (": &str = \"", false)] {
             for piece in code.split(marker).skip(1) {
-                let rest = if quote_after { piece.trim_start().strip_prefix('"') } else { Some(piece) };
+                let rest = if quote_after {
+                    piece.trim_start().strip_prefix('"')
+                } else {
+                    Some(piece)
+                };
                 let Some(rest) = rest else { continue };
                 let id: String = rest.chars().take_while(|c| *c != '"').collect();
                 let looks_like_an_id = id.len() > 3
                     && id.contains('_')
                     && id.starts_with(|c: char| c.is_ascii_lowercase())
-                    && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+                    && id
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
                 if looks_like_an_id {
                     out.insert(id);
                 }
@@ -67,19 +73,51 @@ fn every_detection_is_a_feature_or_a_known_gap() {
     }
     let spec: serde_json::Value =
         serde_json::from_str(include_str!("../data/features_v1.json")).unwrap();
-    let features: BTreeSet<String> =
-        spec["ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    let features: BTreeSet<String> = spec["ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
     let known: BTreeSet<String> = NOT_IN_FEATURES_V1.iter().map(|s| s.to_string()).collect();
     // Strings that look like ids but are not detections (event outcomes,
     // policy actions, file kinds) are not features either: keep only what
     // is a feature, a known gap, or carries a detection's layer prefix.
-    let detection_prefixes = ["ua_", "tls_", "h2_", "missing_", "probe_", "behavior_", "wba_", "crawler_", "net_", "agg_", "shared_", "bot_", "engine_", "native_", "realm_", "spatial_", "client_", "headless_", "webdriver_", "automation_", "model_"];
+    let detection_prefixes = [
+        "ua_",
+        "tls_",
+        "h2_",
+        "missing_",
+        "probe_",
+        "behavior_",
+        "wba_",
+        "crawler_",
+        "net_",
+        "agg_",
+        "shared_",
+        "bot_",
+        "engine_",
+        "native_",
+        "realm_",
+        "spatial_",
+        "client_",
+        "headless_",
+        "webdriver_",
+        "automation_",
+        "model_",
+    ];
     let unexplained: Vec<&String> = raised
         .iter()
         .filter(|id| !features.contains(*id) && !known.contains(*id))
         .filter(|id| detection_prefixes.iter().any(|p| id.starts_with(p)))
         .collect();
     let stale: Vec<&String> = known.iter().filter(|id| features.contains(*id)).collect();
-    assert!(unexplained.is_empty(), "detections in no feature list and not listed as a known gap: {unexplained:?}");
-    assert!(stale.is_empty(), "listed as a gap but now a feature: {stale:?}");
+    assert!(
+        unexplained.is_empty(),
+        "detections in no feature list and not listed as a known gap: {unexplained:?}"
+    );
+    assert!(
+        stale.is_empty(),
+        "listed as a gap but now a feature: {stale:?}"
+    );
 }

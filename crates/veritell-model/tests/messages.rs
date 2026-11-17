@@ -21,6 +21,11 @@ fn every_refusal_has_its_own_words() {
 
 #[test]
 fn a_score_without_a_probability_is_undecided() {
-    let e = Evaluation { raw: f64::NAN, probability: f64::NAN, bias: 0.0, contributions: Vec::new() };
+    let e = Evaluation {
+        raw: f64::NAN,
+        probability: f64::NAN,
+        bias: 0.0,
+        contributions: Vec::new(),
+    };
     assert_eq!(e.score(), 50);
 }

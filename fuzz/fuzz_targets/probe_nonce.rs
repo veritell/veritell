@@ -37,7 +37,9 @@ fn other_key() -> &'static ProbeKey {
 }
 
 fn well_shaped(s: &str) -> bool {
-    s.len() == 96 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    s.len() == 96
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 fn apply(s: &str, edits: &[u8]) -> String {
@@ -62,41 +64,90 @@ fn minted(pick: u8, d: &[u8]) {
     }
     let binding: [u8; 16] = d[..16].try_into().unwrap();
     let now = NOW + u64::from(u32::from_be_bytes(d[16..20].try_into().unwrap()));
-    let ttl = if pick & 2 == 2 { u64::MAX } else { u64::from(u32::from_be_bytes(d[20..24].try_into().unwrap())) };
+    let ttl = if pick & 2 == 2 {
+        u64::MAX
+    } else {
+        u64::from(u32::from_be_bytes(d[20..24].try_into().unwrap()))
+    };
     let edits = &d[24..];
     let mut other = binding;
     other[0] ^= 1;
 
     let n = issue_nonce(key(), &binding, now, ttl);
     assert!(well_shaped(&n), "issued nonce {n:?}");
-    assert_ne!(issue_nonce(key(), &binding, now, ttl), n, "two nonces alike");
+    assert_ne!(
+        issue_nonce(key(), &binding, now, ttl),
+        n,
+        "two nonces alike"
+    );
     let expires_at = now.saturating_add(ttl);
     let info = verify_nonce(key(), &n, &binding, now).expect("a fresh nonce is refused");
     assert_eq!(info.expires_at, expires_at);
-    assert_eq!(verify_nonce(key(), &n, &binding, expires_at).map(|i| i.id), Ok(info.id), "refused at its expiry");
-    assert_eq!(verify_nonce(key(), &n, &other, now).err(), Some(NonceError::BindingMismatch), "another binding");
+    assert_eq!(
+        verify_nonce(key(), &n, &binding, expires_at).map(|i| i.id),
+        Ok(info.id),
+        "refused at its expiry"
+    );
+    assert_eq!(
+        verify_nonce(key(), &n, &other, now).err(),
+        Some(NonceError::BindingMismatch),
+        "another binding"
+    );
     if let Some(late) = expires_at.checked_add(1) {
-        assert_eq!(verify_nonce(key(), &n, &binding, late).err(), Some(NonceError::Expired), "verified after expiry");
-        assert_eq!(verify_nonce(key(), &n, &other, late).err(), Some(NonceError::Expired), "binding checked before expiry");
+        assert_eq!(
+            verify_nonce(key(), &n, &binding, late).err(),
+            Some(NonceError::Expired),
+            "verified after expiry"
+        );
+        assert_eq!(
+            verify_nonce(key(), &n, &other, late).err(),
+            Some(NonceError::Expired),
+            "binding checked before expiry"
+        );
     }
-    assert_eq!(verify_nonce(other_key(), &n, &binding, now).err(), Some(NonceError::BadMac), "another key");
+    assert_eq!(
+        verify_nonce(other_key(), &n, &binding, now).err(),
+        Some(NonceError::BadMac),
+        "another key"
+    );
 
     let edited = apply(&n, edits);
     if edited != n {
-        let want = if well_shaped(&edited) { NonceError::BadMac } else { NonceError::Malformed };
-        assert_eq!(verify_nonce(key(), &edited, &binding, now).err(), Some(want), "edited nonce {edited:?}");
+        let want = if well_shaped(&edited) {
+            NonceError::BadMac
+        } else {
+            NonceError::Malformed
+        };
+        assert_eq!(
+            verify_nonce(key(), &edited, &binding, now).err(),
+            Some(want),
+            "edited nonce {edited:?}"
+        );
     }
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    let Some((&pick, rest)) = data.split_first() else { return };
+    let Some((&pick, rest)) = data.split_first() else {
+        return;
+    };
     if pick & 1 == 1 {
         minted(pick, rest);
         return;
     }
-    assert!(ProbeKey::from_secret(&rest[..rest.len().min(31)]).is_none(), "a short secret makes a key");
+    assert!(
+        ProbeKey::from_secret(&rest[..rest.len().min(31)]).is_none(),
+        "a short secret makes a key"
+    );
     let text = std::str::from_utf8(rest).unwrap_or("");
     let binding = [pick; 16];
-    let want = if well_shaped(text) { NonceError::BadMac } else { NonceError::Malformed };
-    assert_eq!(verify_nonce(key(), text, &binding, NOW).err(), Some(want), "nonce {text:?}");
+    let want = if well_shaped(text) {
+        NonceError::BadMac
+    } else {
+        NonceError::Malformed
+    };
+    assert_eq!(
+        verify_nonce(key(), text, &binding, NOW).err(),
+        Some(want),
+        "nonce {text:?}"
+    );
 });

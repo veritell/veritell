@@ -10,8 +10,18 @@ use veritell_wba::*;
 const CREATED: u64 = 1_735_689_600;
 const NOW: u64 = CREATED + 100;
 
-fn req<'a>(path: &'a str, query: Option<&'a str>, headers: &'a [(&'a str, &'a str)]) -> RequestParts<'a> {
-    RequestParts { method: "POST", authority: "Shop.Example", path, query, headers }
+fn req<'a>(
+    path: &'a str,
+    query: Option<&'a str>,
+    headers: &'a [(&'a str, &'a str)],
+) -> RequestParts<'a> {
+    RequestParts {
+        method: "POST",
+        authority: "Shop.Example",
+        path,
+        query,
+        headers,
+    }
 }
 
 fn key() -> SigningKey {
@@ -20,7 +30,12 @@ fn key() -> SigningKey {
 
 fn trusted(k: &SigningKey) -> TrustedAgents {
     let mut t = TrustedAgents::new();
-    t.add("agent", None, vec![Ed25519Key::from_public(k.verifying_key().to_bytes())]).unwrap();
+    t.add(
+        "agent",
+        None,
+        vec![Ed25519Key::from_public(k.verifying_key().to_bytes())],
+    )
+    .unwrap();
     t
 }
 
@@ -39,13 +54,18 @@ fn signed(k: &SigningKey, components: &str, path: &str, query: Option<&str>) -> 
 #[test]
 fn the_derived_target_values() {
     let base = |path, query| {
-        signature_base(&req(path, query, &[]), "(\"@request-target\" \"@target-uri\");created=1").unwrap()
+        signature_base(
+            &req(path, query, &[]),
+            "(\"@request-target\" \"@target-uri\");created=1",
+        )
+        .unwrap()
     };
     assert_eq!(
         base("/cart/add", Some("a=1&b=2")),
         "\"@request-target\": /cart/add?a=1&b=2\n\"@target-uri\": https://shop.example/cart/add?a=1&b=2\n\"@signature-params\": (\"@request-target\" \"@target-uri\");created=1"
     );
-    assert!(base("", None).starts_with("\"@request-target\": /\n\"@target-uri\": https://shop.example/\n"));
+    assert!(base("", None)
+        .starts_with("\"@request-target\": /\n\"@target-uri\": https://shop.example/\n"));
     // An empty query keeps its `?`, as the request line would.
     assert!(base("/x", Some("")).starts_with("\"@request-target\": /x?\n"));
 }
@@ -53,15 +73,28 @@ fn the_derived_target_values() {
 #[test]
 fn a_signature_over_the_target_verifies_and_binds_it() {
     let k = key();
-    for components in ["\"@authority\" \"@method\" \"@request-target\"", "\"@authority\" \"@method\" \"@target-uri\""] {
+    for components in [
+        "\"@authority\" \"@method\" \"@request-target\"",
+        "\"@authority\" \"@method\" \"@target-uri\"",
+    ] {
         let (input, sig) = signed(&k, components, "/cart/add", Some("id=4"));
-        let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+        let h = [
+            ("Signature-Input", input.as_str()),
+            ("Signature", sig.as_str()),
+        ];
         assert!(
-            matches!(verify(&req("/cart/add", Some("id=4"), &h), &trusted(&k), NOW), WbaVerdict::Verified { .. }),
+            matches!(
+                verify(&req("/cart/add", Some("id=4"), &h), &trusted(&k), NOW),
+                WbaVerdict::Verified { .. }
+            ),
             "{components}"
         );
         // Another path or another query breaks it.
-        for (path, query) in [("/cart/remove", Some("id=4")), ("/cart/add", Some("id=5")), ("/cart/add", None)] {
+        for (path, query) in [
+            ("/cart/remove", Some("id=4")),
+            ("/cart/add", Some("id=5")),
+            ("/cart/add", None),
+        ] {
             assert_eq!(
                 verify(&req(path, query, &h), &trusted(&k), NOW),
                 WbaVerdict::Invalid(WbaInvalid::BadSignature),
@@ -69,7 +102,10 @@ fn a_signature_over_the_target_verifies_and_binds_it() {
             );
         }
         let info = signature_info(&req("/cart/add", Some("id=4"), &h)).unwrap();
-        assert!(info.components.iter().any(|c| c == "@request-target" || c == "@target-uri"));
+        assert!(info
+            .components
+            .iter()
+            .any(|c| c == "@request-target" || c == "@target-uri"));
     }
 }
 
@@ -77,7 +113,10 @@ fn a_signature_over_the_target_verifies_and_binds_it() {
 fn the_replay_cache_is_saved_and_restored() {
     let k = key();
     let (input, sig) = signed(&k, "\"@authority\"", "/", None);
-    let h = [("Signature-Input", input.as_str()), ("Signature", sig.as_str())];
+    let h = [
+        ("Signature-Input", input.as_str()),
+        ("Signature", sig.as_str()),
+    ];
     let info = signature_info(&req("/", None, &h)).unwrap();
 
     let mut cache = ReplayCache::new(10);
@@ -103,8 +142,14 @@ fn the_replay_cache_is_saved_and_restored() {
         small.restore([n; 32], NOW + 100 + u64::from(n), NOW);
     }
     assert_eq!(small.len(), 2);
-    assert_eq!(small.entries(NOW).iter().map(|e| e.1).collect::<Vec<_>>(), vec![NOW + 103, NOW + 104]);
+    assert_eq!(
+        small.entries(NOW).iter().map(|e| e.1).collect::<Vec<_>>(),
+        vec![NOW + 103, NOW + 104]
+    );
     // Full, an entry ending before everything held is the one left out.
     small.restore([9; 32], NOW + 50, NOW);
-    assert_eq!(small.entries(NOW).iter().map(|e| e.1).collect::<Vec<_>>(), vec![NOW + 103, NOW + 104]);
+    assert_eq!(
+        small.entries(NOW).iter().map(|e| e.1).collect::<Vec<_>>(),
+        vec![NOW + 103, NOW + 104]
+    );
 }

@@ -56,7 +56,10 @@ fn ring_returns_newest_first_and_respects_limit() {
     }
     assert_eq!(ring.len(), 5);
     let all = ring.recent(100, &Filter::default());
-    assert_eq!(all.iter().map(|e| e.ts_ms).collect::<Vec<_>>(), [4, 3, 2, 1, 0]);
+    assert_eq!(
+        all.iter().map(|e| e.ts_ms).collect::<Vec<_>>(),
+        [4, 3, 2, 1, 0]
+    );
     let two = ring.recent(2, &Filter::default());
     assert_eq!(two.iter().map(|e| e.ts_ms).collect::<Vec<_>>(), [4, 3]);
     assert!(ring.recent(0, &Filter::default()).is_empty());
@@ -84,28 +87,93 @@ fn ring_filters() {
     let ring = MemoryRing::new(100);
     ring.record(&event(1, 99, Class::Human, &[]));
     ring.record(&event(2, 39, Class::Automated, &["ua_declared_tool"]));
-    ring.record(&event(3, 9, Class::Malicious, &["crawler_spoofed", "ua_declared_bot"]));
+    ring.record(&event(
+        3,
+        9,
+        Class::Malicious,
+        &["crawler_spoofed", "ua_declared_bot"],
+    ));
     let mut probe = event(4, 99, Class::Human, &[]);
     probe.kind = EventKind::Probe;
     probe.ip = "198.51.100.1".into();
     probe.outcome = "probe_ok".into();
     ring.record(&probe);
 
-    let ts = |f: Filter| ring.recent(100, &f).iter().map(|e| e.ts_ms).collect::<Vec<_>>();
-    assert_eq!(ts(Filter { class: Some(Class::Human), ..Default::default() }), [4, 1]);
-    assert_eq!(ts(Filter { detection: Some("ua_declared_bot".into()), ..Default::default() }), [3]);
-    assert_eq!(ts(Filter { detection: Some("ua_declared".into()), ..Default::default() }), Vec::<u64>::new());
-    assert_eq!(ts(Filter { max_score: Some(39), ..Default::default() }), [3, 2]);
-    assert_eq!(ts(Filter { ip: Some("198.51.100.1".into()), ..Default::default() }), [4]);
-    assert_eq!(ts(Filter { kind: Some(EventKind::Request), ..Default::default() }), [3, 2, 1]);
-    assert_eq!(ts(Filter { outcome: Some("challenged".into()), ..Default::default() }), [3, 2, 1]);
+    let ts = |f: Filter| {
+        ring.recent(100, &f)
+            .iter()
+            .map(|e| e.ts_ms)
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
-        ts(Filter { class: Some(Class::Human), kind: Some(EventKind::Request), ..Default::default() }),
+        ts(Filter {
+            class: Some(Class::Human),
+            ..Default::default()
+        }),
+        [4, 1]
+    );
+    assert_eq!(
+        ts(Filter {
+            detection: Some("ua_declared_bot".into()),
+            ..Default::default()
+        }),
+        [3]
+    );
+    assert_eq!(
+        ts(Filter {
+            detection: Some("ua_declared".into()),
+            ..Default::default()
+        }),
+        Vec::<u64>::new()
+    );
+    assert_eq!(
+        ts(Filter {
+            max_score: Some(39),
+            ..Default::default()
+        }),
+        [3, 2]
+    );
+    assert_eq!(
+        ts(Filter {
+            ip: Some("198.51.100.1".into()),
+            ..Default::default()
+        }),
+        [4]
+    );
+    assert_eq!(
+        ts(Filter {
+            kind: Some(EventKind::Request),
+            ..Default::default()
+        }),
+        [3, 2, 1]
+    );
+    assert_eq!(
+        ts(Filter {
+            outcome: Some("challenged".into()),
+            ..Default::default()
+        }),
+        [3, 2, 1]
+    );
+    assert_eq!(
+        ts(Filter {
+            class: Some(Class::Human),
+            kind: Some(EventKind::Request),
+            ..Default::default()
+        }),
         [1]
     );
     // The limit applies after filtering.
-    let f = Filter { max_score: Some(39), ..Default::default() };
-    assert_eq!(ring.recent(1, &f).iter().map(|e| e.ts_ms).collect::<Vec<_>>(), [3]);
+    let f = Filter {
+        max_score: Some(39),
+        ..Default::default()
+    };
+    assert_eq!(
+        ring.recent(1, &f)
+            .iter()
+            .map(|e| e.ts_ms)
+            .collect::<Vec<_>>(),
+        [3]
+    );
 }
 
 #[test]
@@ -131,7 +199,11 @@ fn ring_summary() {
     assert_eq!(s.by_outcome.get("passed"), Some(&1));
     assert_eq!(
         s.top_detections,
-        [("a_det".to_string(), 2), ("b_det".to_string(), 2), ("c_det".to_string(), 1)]
+        [
+            ("a_det".to_string(), 2),
+            ("b_det".to_string(), 2),
+            ("c_det".to_string(), 1)
+        ]
     );
     assert_eq!(s.score_histogram, [2, 0, 0, 1, 0, 0, 0, 0, 0, 2]);
     assert_eq!(s.evicted, 0);
@@ -180,7 +252,10 @@ fn ring_is_safe_to_share_between_threads() {
 fn fanout_reaches_every_sink() {
     let a = Arc::new(MemoryRing::new(10));
     let b = Arc::new(MemoryRing::new(10));
-    let sinks: Vec<Arc<dyn EventSink>> = vec![a.clone() as Arc<dyn EventSink>, b.clone() as Arc<dyn EventSink>];
+    let sinks: Vec<Arc<dyn EventSink>> = vec![
+        a.clone() as Arc<dyn EventSink>,
+        b.clone() as Arc<dyn EventSink>,
+    ];
     let fan = Fanout::new(sinks);
     fan.record(&event(1, 50, Class::Human, &[]));
     assert_eq!((a.len(), b.len()), (1, 1));
@@ -191,7 +266,12 @@ fn fanout_reaches_every_sink() {
 
 #[test]
 fn row_has_exactly_the_documented_columns() {
-    let mut e = event(1_700_000_000_123, 39, Class::Automated, &["ua_declared_tool", "tls_known_tool"]);
+    let mut e = event(
+        1_700_000_000_123,
+        39,
+        Class::Automated,
+        &["ua_declared_tool", "tls_known_tool"],
+    );
     e.user_agent = "evil\"\n\u{1}</script>\u{2028}é".into();
     e.identity = "Googlebot".into();
     let row = to_row(&e);
@@ -211,7 +291,10 @@ fn row_has_exactly_the_documented_columns() {
     assert_eq!(v["enforced"], 1);
     assert_eq!(v["asn"], 64500);
     assert_eq!(v["user_agent"], "evil\"\n\u{1}</script>\u{2028}é");
-    assert_eq!(v["detection_ids"], serde_json::json!(["ua_declared_tool", "tls_known_tool"]));
+    assert_eq!(
+        v["detection_ids"],
+        serde_json::json!(["ua_declared_tool", "tls_known_tool"])
+    );
     assert_eq!(v["identity"], "Googlebot");
     let inner: Vec<Detection> = serde_json::from_str(v["detections"].as_str().unwrap()).unwrap();
     assert_eq!(inner, e.detections);
@@ -223,14 +306,25 @@ fn row_has_exactly_the_documented_columns() {
 
 #[test]
 fn ddl_declares_every_column() {
-    assert!(DDL.contains("CREATE TABLE IF NOT EXISTS {database}.{table}"), "{DDL}");
+    assert!(
+        DDL.contains("CREATE TABLE IF NOT EXISTS {database}.{table}"),
+        "{DDL}"
+    );
     for column in COLUMNS {
         assert!(
-            DDL.lines().any(|l| l.trim_start().starts_with(&format!("{column} "))),
+            DDL.lines()
+                .any(|l| l.trim_start().starts_with(&format!("{column} "))),
             "DDL has no line starting with column {column}"
         );
     }
-    for needle in ["DateTime64(3)", "Array(String)", "MergeTree", "ORDER BY", "PARTITION BY", "TTL"] {
+    for needle in [
+        "DateTime64(3)",
+        "Array(String)",
+        "MergeTree",
+        "ORDER BY",
+        "PARTITION BY",
+        "TTL",
+    ] {
         assert!(DDL.contains(needle), "DDL lacks {needle}");
     }
 }
@@ -343,7 +437,10 @@ fn config(url: &str) -> ClickHouseConfig {
 fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
     let start = Instant::now();
     while !done() {
-        assert!(start.elapsed() < Duration::from_secs(10), "timed out waiting for {what}");
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "timed out waiting for {what}"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -356,7 +453,11 @@ fn sink_sends_batches_with_credentials_in_headers() {
         sink.record(&event(i, 50, Class::Human, &["d"]));
     }
     let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert!(got.request_line.starts_with("POST /?query="), "{}", got.request_line);
+    assert!(
+        got.request_line.starts_with("POST /?query="),
+        "{}",
+        got.request_line
+    );
     let query = got.request_line.to_ascii_lowercase();
     assert!(query.contains("insert"), "{query}");
     assert!(query.contains("veritell.events"), "{query}");
@@ -376,7 +477,11 @@ fn sink_sends_batches_with_credentials_in_headers() {
     wait_for("sent counter", || sink.stats().sent == 3);
     assert_eq!(
         sink.stats(),
-        SinkStats { sent: 3, dropped_queue: 0, dropped_send: 0 }
+        SinkStats {
+            sent: 3,
+            dropped_queue: 0,
+            dropped_send: 0
+        }
     );
     sink.shutdown(Duration::from_secs(2));
 }
@@ -413,20 +518,30 @@ fn a_failing_server_drops_batches_and_does_not_stall_the_caller() {
     for i in 0..6 {
         sink.record(&event(i, 50, Class::Human, &[]));
     }
-    assert!(start.elapsed() < Duration::from_millis(200), "record blocked");
+    assert!(
+        start.elapsed() < Duration::from_millis(200),
+        "record blocked"
+    );
     wait_for("dropped counter", || sink.stats().dropped_send == 6);
     assert_eq!(sink.stats().sent, 0);
     // Two batches arrived; neither is sent again.
     assert!(rx.recv_timeout(Duration::from_secs(1)).is_ok());
     assert!(rx.recv_timeout(Duration::from_secs(1)).is_ok());
-    assert!(rx.recv_timeout(Duration::from_millis(600)).is_err(), "a failed batch was retried");
+    assert!(
+        rx.recv_timeout(Duration::from_millis(600)).is_err(),
+        "a failed batch was retried"
+    );
     sink.shutdown(Duration::from_secs(2));
 }
 
 #[test]
 fn an_unreachable_server_never_blocks_record() {
     // Bind then drop, so nothing listens on this port.
-    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
     let mut c = config(&format!("http://127.0.0.1:{port}"));
     c.queue_capacity = 5;
     c.batch_size = 5;
@@ -436,7 +551,11 @@ fn an_unreachable_server_never_blocks_record() {
     for i in 0..10_000 {
         sink.record(&event(i, 50, Class::Human, &[]));
     }
-    assert!(start.elapsed() < Duration::from_secs(2), "record blocked: {:?}", start.elapsed());
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "record blocked: {:?}",
+        start.elapsed()
+    );
     let s = sink.stats();
     assert_eq!(s.sent, 0);
     // A refused connection fails at once, so the worker may keep up with the
@@ -467,7 +586,11 @@ fn shutdown_returns_within_its_deadline() {
     std::thread::sleep(Duration::from_millis(100));
     let start = Instant::now();
     sink.shutdown(Duration::from_millis(300));
-    assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        start.elapsed()
+    );
 }
 
 #[test]
@@ -478,10 +601,22 @@ fn configuration_is_validated() {
         ClickHouseSink::start(c).err()
     };
     assert_eq!(bad(|c| c.url = "ftp://x".into()), Some(ConfigError::Url));
-    assert_eq!(bad(|c| c.url = "127.0.0.1:8123".into()), Some(ConfigError::Url));
-    assert_eq!(bad(|c| c.table = "events; DROP TABLE x".into()), Some(ConfigError::Identifier));
-    assert_eq!(bad(|c| c.database = "".into()), Some(ConfigError::Identifier));
-    assert_eq!(bad(|c| c.database = "a.b".into()), Some(ConfigError::Identifier));
+    assert_eq!(
+        bad(|c| c.url = "127.0.0.1:8123".into()),
+        Some(ConfigError::Url)
+    );
+    assert_eq!(
+        bad(|c| c.table = "events; DROP TABLE x".into()),
+        Some(ConfigError::Identifier)
+    );
+    assert_eq!(
+        bad(|c| c.database = "".into()),
+        Some(ConfigError::Identifier)
+    );
+    assert_eq!(
+        bad(|c| c.database = "a.b".into()),
+        Some(ConfigError::Identifier)
+    );
     assert_eq!(bad(|c| c.batch_size = 0), Some(ConfigError::Size));
     assert_eq!(bad(|c| c.queue_capacity = 0), Some(ConfigError::Size));
     assert_eq!(bad(|_| {}), None);

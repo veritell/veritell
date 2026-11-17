@@ -5,7 +5,10 @@ use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
-use crate::{Accepted, IssuerKey, PassError, Token, MAX_AUTHORIZATION_BYTES, MAX_NAME_BYTES, TOKEN_BYTES, TOKEN_TYPE};
+use crate::{
+    Accepted, IssuerKey, PassError, Token, MAX_AUTHORIZATION_BYTES, MAX_NAME_BYTES, TOKEN_BYTES,
+    TOKEN_TYPE,
+};
 
 /// Bytes of a token that the authenticator signs: type, nonce, digest, key id.
 const SIGNED_BYTES: usize = 98;
@@ -25,12 +28,18 @@ pub fn valid_server_name(name: &str) -> bool {
         None => (name, None),
     };
     if let Some(port) = port {
-        let digits = !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit());
+        let digits =
+            !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit());
         if !digits || !matches!(port.parse::<u32>(), Ok(1..=65535)) {
             return false;
         }
     }
-    host.split('.').all(|label| !label.is_empty() && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    })
 }
 
 /// Builds a TokenChallenge of type `0x0002`.
@@ -96,7 +105,11 @@ pub fn www_authenticate(challenges: &[(&[u8], &IssuerKey)]) -> String {
     let parts: Vec<String> = challenges
         .iter()
         .map(|(challenge, key)| {
-            format!("PrivateToken challenge=\"{}\", token-key=\"{}\"", URL_SAFE.encode(challenge), key.token_key())
+            format!(
+                "PrivateToken challenge=\"{}\", token-key=\"{}\"",
+                URL_SAFE.encode(challenge),
+                key.token_key()
+            )
         })
         .collect();
     parts.join(", ")
@@ -149,7 +162,10 @@ pub fn token_from_authorization(value: &str) -> Result<Option<Vec<u8>>, PassErro
 ///
 /// Replay is the caller's to refuse, using `Token::nonce`.
 pub fn verify(token: &[u8], keys: &[IssuerKey], accepted: &[Accepted]) -> Result<Token, PassError> {
-    let type_bytes: [u8; 2] = token.get(..2).and_then(|b| b.try_into().ok()).ok_or(PassError::Malformed)?;
+    let type_bytes: [u8; 2] = token
+        .get(..2)
+        .and_then(|b| b.try_into().ok())
+        .ok_or(PassError::Malformed)?;
     let token_type = u16::from_be_bytes(type_bytes);
     if token_type != TOKEN_TYPE {
         return Err(PassError::UnknownType(token_type));
@@ -157,20 +173,39 @@ pub fn verify(token: &[u8], keys: &[IssuerKey], accepted: &[Accepted]) -> Result
     if token.len() != TOKEN_BYTES {
         return Err(PassError::Malformed);
     }
-    let nonce: [u8; 32] = token.get(2..34).and_then(|b| b.try_into().ok()).ok_or(PassError::Malformed)?;
-    let digest: [u8; 32] = token.get(34..66).and_then(|b| b.try_into().ok()).ok_or(PassError::Malformed)?;
-    let key_id: [u8; 32] = token.get(66..SIGNED_BYTES).and_then(|b| b.try_into().ok()).ok_or(PassError::Malformed)?;
+    let nonce: [u8; 32] = token
+        .get(2..34)
+        .and_then(|b| b.try_into().ok())
+        .ok_or(PassError::Malformed)?;
+    let digest: [u8; 32] = token
+        .get(34..66)
+        .and_then(|b| b.try_into().ok())
+        .ok_or(PassError::Malformed)?;
+    let key_id: [u8; 32] = token
+        .get(66..SIGNED_BYTES)
+        .and_then(|b| b.try_into().ok())
+        .ok_or(PassError::Malformed)?;
     let signed = token.get(..SIGNED_BYTES).ok_or(PassError::Malformed)?;
     let authenticator = token.get(SIGNED_BYTES..).ok_or(PassError::Malformed)?;
 
-    let key = keys.iter().find(|k| *k.key_id() == key_id).ok_or(PassError::UnknownKey)?;
-    if !accepted.iter().any(|a| a.challenge_digest == digest && a.key_id == key_id) {
+    let key = keys
+        .iter()
+        .find(|k| *k.key_id() == key_id)
+        .ok_or(PassError::UnknownKey)?;
+    if !accepted
+        .iter()
+        .any(|a| a.challenge_digest == digest && a.key_id == key_id)
+    {
         return Err(PassError::WrongChallenge);
     }
     if !key.verify_signature(signed, authenticator) {
         return Err(PassError::BadAuthenticator);
     }
-    Ok(Token { nonce, challenge_digest: digest, token_key_id: key_id })
+    Ok(Token {
+        nonce,
+        challenge_digest: digest,
+        token_key_id: key_id,
+    })
 }
 
 fn is_blank(c: char) -> bool {
@@ -233,7 +268,10 @@ fn decode_token(text: &str) -> Option<Vec<u8>> {
     if body.is_empty() || padding > 2 {
         return None;
     }
-    if !body.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+    if !body
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
         return None;
     }
     if padding > 0 && body.len().checked_add(padding)? % 4 != 0 {
@@ -248,7 +286,10 @@ mod tests {
 
     #[test]
     fn parameters_with_commas_in_quotes() {
-        assert_eq!(token_parameter("realm=\"x, y\", token=\"AAIA\""), Some("AAIA"));
+        assert_eq!(
+            token_parameter("realm=\"x, y\", token=\"AAIA\""),
+            Some("AAIA")
+        );
         assert_eq!(token_parameter(" token = AAIA , b=\"c,d\" "), Some("AAIA"));
         assert_eq!(token_parameter("a=\"token=\\"), None);
         assert_eq!(token_parameter("a=\"x, token=y"), None);
@@ -267,15 +308,27 @@ mod tests {
 
     #[test]
     fn scheme_and_size() {
-        assert_eq!(token_from_authorization("PrivateToken\ttoken=AAIA"), Ok(Some(vec![0, 2, 0])));
-        assert_eq!(token_from_authorization("PRIVATETOKEN token=AAIA"), Ok(Some(vec![0, 2, 0])));
-        let at_limit = format!("PrivateToken token={}", "A".repeat(MAX_AUTHORIZATION_BYTES - 20));
+        assert_eq!(
+            token_from_authorization("PrivateToken\ttoken=AAIA"),
+            Ok(Some(vec![0, 2, 0]))
+        );
+        assert_eq!(
+            token_from_authorization("PRIVATETOKEN token=AAIA"),
+            Ok(Some(vec![0, 2, 0]))
+        );
+        let at_limit = format!(
+            "PrivateToken token={}",
+            "A".repeat(MAX_AUTHORIZATION_BYTES - 20)
+        );
         assert!(token_from_authorization(&at_limit).is_ok());
         // The same text, longer by two valid base64 characters: refused for size alone.
         let over = format!("{at_limit}AA");
         assert_eq!(token_from_authorization(&over), Err(PassError::Malformed));
         // A long value of another scheme is simply not ours.
-        assert_eq!(token_from_authorization(&format!("Bearer {}", "a".repeat(5000))), Ok(None));
+        assert_eq!(
+            token_from_authorization(&format!("Bearer {}", "a".repeat(5000))),
+            Ok(None)
+        );
     }
 
     #[test]

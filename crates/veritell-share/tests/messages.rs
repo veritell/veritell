@@ -18,9 +18,25 @@ fn config_errors_name_the_limits() {
 #[test]
 fn a_ledger_with_a_bad_config_is_refused_with_a_message() {
     let key = ShareKey::new(b"0123456789abcdef0123456789abcdef").unwrap();
-    let e = Ledger::new(key.clone(), Config { min_networks: 1, ..Config::default() }).err().expect("refused");
+    let e = Ledger::new(
+        key.clone(),
+        Config {
+            min_networks: 1,
+            ..Config::default()
+        },
+    )
+    .err()
+    .expect("refused");
     assert_eq!(e, ConfigError::TooSmall);
-    let e = Ledger::new(key, Config { min_networks: 1001, ..Config::default() }).err().expect("refused");
+    let e = Ledger::new(
+        key,
+        Config {
+            min_networks: 1001,
+            ..Config::default()
+        },
+    )
+    .err()
+    .expect("refused");
     assert_eq!(e, ConfigError::TooLarge);
     let boxed: Box<dyn std::error::Error> = Box::new(e);
     assert!(!boxed.to_string().is_empty());
@@ -28,11 +44,24 @@ fn a_ledger_with_a_bad_config_is_refused_with_a_message() {
 
 #[test]
 fn bundle_errors_say_what_was_wrong() {
-    assert_eq!(ShareError::Files.to_string(), format!("bundle does not hold exactly {FILE_NAME}"));
-    assert_eq!(ShareError::Format("not an array").to_string(), format!("{FILE_NAME}: not an array"));
-    assert_eq!(ShareError::TooMany.to_string(), format!("more than {MAX_ENTRIES} entries"));
+    assert_eq!(
+        ShareError::Files.to_string(),
+        format!("bundle does not hold exactly {FILE_NAME}")
+    );
+    assert_eq!(
+        ShareError::Format("not an array").to_string(),
+        format!("{FILE_NAME}: not an array")
+    );
+    assert_eq!(
+        ShareError::TooMany.to_string(),
+        format!("more than {MAX_ENTRIES} entries")
+    );
     let feed = ShareError::Bundle(veritell_feed::FeedError::Expired);
-    assert_eq!(feed.to_string(), veritell_feed::FeedError::Expired.to_string(), "the feed's own words");
+    assert_eq!(
+        feed.to_string(),
+        veritell_feed::FeedError::Expired.to_string(),
+        "the feed's own words"
+    );
 }
 
 #[test]

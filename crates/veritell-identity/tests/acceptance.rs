@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use veritell_core::{Class, Layer};
 use veritell_identity::*;
 
-const GOOGLEBOT_UA: &str = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+const GOOGLEBOT_UA: &str =
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
 const BINGBOT_UA: &str = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)";
 const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 
@@ -61,14 +62,20 @@ async fn real_googlebot_is_verified() {
     let v = CrawlerVerifier::new(dns);
     assert_eq!(
         v.verify(Some(GOOGLEBOT_UA), ip("66.249.66.1")).await,
-        CrawlerVerdict::Verified { name: "Googlebot".into() }
+        CrawlerVerdict::Verified {
+            name: "Googlebot".into()
+        }
     );
 }
 
 #[tokio::test]
 async fn bingbot_and_ipv6_are_supported() {
     let dns = MockDns::default()
-        .with("157.55.39.1", "msnbot-157-55-39-1.search.msn.com", &["157.55.39.1"])
+        .with(
+            "157.55.39.1",
+            "msnbot-157-55-39-1.search.msn.com",
+            &["157.55.39.1"],
+        )
         .with(
             "2001:4860:4801:10::1",
             "crawl-2001-4860.googlebot.com",
@@ -77,11 +84,16 @@ async fn bingbot_and_ipv6_are_supported() {
     let v = CrawlerVerifier::new(dns);
     assert_eq!(
         v.verify(Some(BINGBOT_UA), ip("157.55.39.1")).await,
-        CrawlerVerdict::Verified { name: "Bingbot".into() }
+        CrawlerVerdict::Verified {
+            name: "Bingbot".into()
+        }
     );
     assert_eq!(
-        v.verify(Some(GOOGLEBOT_UA), ip("2001:4860:4801:10::1")).await,
-        CrawlerVerdict::Verified { name: "Googlebot".into() }
+        v.verify(Some(GOOGLEBOT_UA), ip("2001:4860:4801:10::1"))
+            .await,
+        CrawlerVerdict::Verified {
+            name: "Googlebot".into()
+        }
     );
 }
 
@@ -90,8 +102,14 @@ async fn ordinary_browser_makes_no_claim_and_costs_no_dns() {
     let dns = MockDns::default();
     let calls = dns.reverse_calls.clone();
     let v = CrawlerVerifier::new(dns);
-    assert_eq!(v.verify(Some(CHROME_UA), ip("203.0.113.9")).await, CrawlerVerdict::NoClaim);
-    assert_eq!(v.verify(None, ip("203.0.113.9")).await, CrawlerVerdict::NoClaim);
+    assert_eq!(
+        v.verify(Some(CHROME_UA), ip("203.0.113.9")).await,
+        CrawlerVerdict::NoClaim
+    );
+    assert_eq!(
+        v.verify(None, ip("203.0.113.9")).await,
+        CrawlerVerdict::NoClaim
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
@@ -101,7 +119,9 @@ async fn wrong_domain_is_spoofed() {
     let v = CrawlerVerifier::new(dns);
     assert_eq!(
         v.verify(Some(GOOGLEBOT_UA), ip("203.0.113.9")).await,
-        CrawlerVerdict::Spoofed { claimed: "Googlebot".into() }
+        CrawlerVerdict::Spoofed {
+            claimed: "Googlebot".into()
+        }
     );
 }
 
@@ -117,7 +137,9 @@ async fn suffix_tricks_are_spoofed() {
         let v = CrawlerVerifier::new(dns);
         assert_eq!(
             v.verify(Some(GOOGLEBOT_UA), ip("203.0.113.9")).await,
-            CrawlerVerdict::Spoofed { claimed: "Googlebot".into() },
+            CrawlerVerdict::Spoofed {
+                claimed: "Googlebot".into()
+            },
             "{name}"
         );
     }
@@ -135,7 +157,9 @@ async fn forward_lookup_must_confirm() {
     let v = CrawlerVerifier::new(dns);
     assert_eq!(
         v.verify(Some(GOOGLEBOT_UA), ip("203.0.113.9")).await,
-        CrawlerVerdict::Spoofed { claimed: "Googlebot".into() }
+        CrawlerVerdict::Spoofed {
+            claimed: "Googlebot".into()
+        }
     );
 }
 
@@ -145,7 +169,9 @@ async fn dns_failure_is_unresolved_not_spoofed() {
     let v = CrawlerVerifier::new(MockDns::default());
     assert_eq!(
         v.verify(Some(GOOGLEBOT_UA), ip("66.249.66.1")).await,
-        CrawlerVerdict::Unresolved { claimed: "Googlebot".into() }
+        CrawlerVerdict::Unresolved {
+            claimed: "Googlebot".into()
+        }
     );
 }
 
@@ -159,10 +185,16 @@ async fn an_operator_ptr_that_resolves_to_nothing_is_spoofed_and_not_cached() {
     for _ in 0..2 {
         assert_eq!(
             v.verify(Some(GOOGLEBOT_UA), ip("66.249.66.1")).await,
-            CrawlerVerdict::Spoofed { claimed: "Googlebot".into() }
+            CrawlerVerdict::Spoofed {
+                claimed: "Googlebot".into()
+            }
         );
     }
-    assert_eq!(calls.load(Ordering::SeqCst), 2, "judged again each time, in case DNS failed");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "judged again each time, in case DNS failed"
+    );
     assert_eq!(v.cache_len(), 0);
 }
 
@@ -197,7 +229,8 @@ async fn cache_is_bounded() {
     }
     let v = CrawlerVerifier::with_specs(dns, builtin_specs(), 5);
     for i in 1..=20u8 {
-        v.verify(Some(GOOGLEBOT_UA), ip(&format!("203.0.113.{i}"))).await;
+        v.verify(Some(GOOGLEBOT_UA), ip(&format!("203.0.113.{i}")))
+            .await;
     }
     assert!(v.cache_len() <= 5, "cache grew to {}", v.cache_len());
 }
@@ -213,35 +246,64 @@ async fn custom_specs_and_case_insensitive_token() {
     let v = CrawlerVerifier::with_specs(dns, vec![spec], 100);
     assert_eq!(
         v.verify(Some("EXAMPLEBOT/1.0"), ip("198.51.100.7")).await,
-        CrawlerVerdict::Verified { name: "ExampleBot".into() }
+        CrawlerVerdict::Verified {
+            name: "ExampleBot".into()
+        }
     );
     // Googlebot is not in this verifier's specs.
-    assert_eq!(v.verify(Some(GOOGLEBOT_UA), ip("198.51.100.7")).await, CrawlerVerdict::NoClaim);
+    assert_eq!(
+        v.verify(Some(GOOGLEBOT_UA), ip("198.51.100.7")).await,
+        CrawlerVerdict::NoClaim
+    );
 }
 
 #[test]
 fn builtin_specs_cover_the_major_crawlers() {
     let specs = builtin_specs();
-    for name in ["Googlebot", "Bingbot", "Applebot", "YandexBot", "Baiduspider"] {
+    for name in [
+        "Googlebot",
+        "Bingbot",
+        "Applebot",
+        "YandexBot",
+        "Baiduspider",
+    ] {
         let s = specs
             .iter()
             .find(|s| s.name == name)
             .unwrap_or_else(|| panic!("missing spec for {name}"));
         assert!(!s.rdns_suffixes.is_empty());
-        assert!(s.rdns_suffixes.iter().all(|x| !x.starts_with('.') && !x.ends_with('.')));
+        assert!(s
+            .rdns_suffixes
+            .iter()
+            .all(|x| !x.starts_with('.') && !x.ends_with('.')));
     }
 }
 
 #[test]
 fn verdict_detections() {
-    let d = CrawlerVerdict::Spoofed { claimed: "Googlebot".into() }.detection().unwrap();
+    let d = CrawlerVerdict::Spoofed {
+        claimed: "Googlebot".into(),
+    }
+    .detection()
+    .unwrap();
     assert_eq!(d.id, "crawler_spoofed");
-    assert_eq!((d.penalty, d.class_hint, d.layer), (90, Some(Class::Malicious), Layer::Identity));
-    let d = CrawlerVerdict::Unresolved { claimed: "Googlebot".into() }.detection().unwrap();
+    assert_eq!(
+        (d.penalty, d.class_hint, d.layer),
+        (90, Some(Class::Malicious), Layer::Identity)
+    );
+    let d = CrawlerVerdict::Unresolved {
+        claimed: "Googlebot".into(),
+    }
+    .detection()
+    .unwrap();
     assert_eq!(d.id, "crawler_unresolved");
     assert_eq!((d.penalty, d.class_hint), (10, None));
     assert!(CrawlerVerdict::NoClaim.detection().is_none());
-    assert!(CrawlerVerdict::Verified { name: "Googlebot".into() }.detection().is_none());
+    assert!(CrawlerVerdict::Verified {
+        name: "Googlebot".into()
+    }
+    .detection()
+    .is_none());
 }
 
 const TSV: &str = "1.0.0.0\t1.0.0.255\t13335\tUS\tCLOUDFLARENET\n\
@@ -258,7 +320,10 @@ fn asn_lookup_v4_and_v6() {
     assert_eq!(db.len(), 5);
 
     let aws = db.lookup(ip("3.1.2.3")).unwrap();
-    assert_eq!((aws.asn, aws.org.as_str(), aws.class), (16509, "AMAZON-02", NetClass::Hosting));
+    assert_eq!(
+        (aws.asn, aws.org.as_str(), aws.class),
+        (16509, "AMAZON-02", NetClass::Hosting)
+    );
     assert_eq!(db.lookup(ip("3.0.0.0")).unwrap().asn, 16509);
     assert_eq!(db.lookup(ip("3.1.255.255")).unwrap().asn, 16509);
     assert!(db.lookup(ip("3.2.0.0")).is_none());
@@ -279,7 +344,10 @@ fn asn_detection_and_edge_cases() {
     let db = AsnDb::from_iptoasn_tsv(TSV).unwrap();
     let d = db.lookup(ip("3.1.2.3")).unwrap().detection().unwrap();
     assert_eq!(d.id, "net_hosting");
-    assert_eq!((d.penalty, d.class_hint, d.layer), (20, None, Layer::Identity));
+    assert_eq!(
+        (d.penalty, d.class_hint, d.layer),
+        (20, None, Layer::Identity)
+    );
     assert!(db.lookup(ip("24.1.2.3")).unwrap().detection().is_none());
 
     let empty = AsnDb::empty();
@@ -288,7 +356,9 @@ fn asn_detection_and_edge_cases() {
 
     // Blank lines are ignored; malformed lines report their line number.
     assert_eq!(AsnDb::from_iptoasn_tsv("\n\n").unwrap().len(), 0);
-    match AsnDb::from_iptoasn_tsv("3.0.0.0\t3.1.255.255\t16509\tUS\tAMAZON-02\nnot-an-ip\tx\ty\tz\tw\n") {
+    match AsnDb::from_iptoasn_tsv(
+        "3.0.0.0\t3.1.255.255\t16509\tUS\tAMAZON-02\nnot-an-ip\tx\ty\tz\tw\n",
+    ) {
         Err(AsnError::BadLine(2, _)) => {}
         other => panic!("expected BadLine(2, _), got {:?}", other.map(|d| d.len())),
     }

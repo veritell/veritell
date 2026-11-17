@@ -115,7 +115,14 @@ impl Table {
 
     /// Finds the identity or starts tracking it (evicting the least recently
     /// used one if the table is full, O(1)), and marks it most recently used.
-    fn find_or_insert(&mut self, key: u128, cap: usize, slots: usize, slot: u64, day: u64) -> Option<usize> {
+    fn find_or_insert(
+        &mut self,
+        key: u128,
+        cap: usize,
+        slots: usize,
+        slot: u64,
+        day: u64,
+    ) -> Option<usize> {
         if let Some(&idx) = self.map.get(&key) {
             self.touch(idx);
             return Some(idx);
@@ -167,10 +174,15 @@ impl Quotas {
     /// Checks the configuration (see [`ConfigError`]; `Zero` is reported
     /// before `TooLarge`) and starts with nothing tracked.
     pub fn new(config: Config) -> Result<Quotas, ConfigError> {
-        if config.slot_secs == 0 || config.window_slots == 0 || config.day_secs == 0 || config.max_identities == 0 {
+        if config.slot_secs == 0
+            || config.window_slots == 0
+            || config.day_secs == 0
+            || config.max_identities == 0
+        {
             return Err(ConfigError::Zero);
         }
-        if config.slot_secs > 3600 || config.window_slots > 60 || config.max_identities > 1_000_000 {
+        if config.slot_secs > 3600 || config.window_slots > 60 || config.max_identities > 1_000_000
+        {
             return Err(ConfigError::TooLarge);
         }
         let key = match config.hash_seed {
@@ -216,7 +228,13 @@ impl Quotas {
         let slot = now / self.slot_secs;
         let day = now / self.day_secs;
         let window = u64::from(self.window_slots);
-        let idx = match t.find_or_insert(key, self.max_identities, self.window_slots as usize, slot, day) {
+        let idx = match t.find_or_insert(
+            key,
+            self.max_identities,
+            self.window_slots as usize,
+            slot,
+            day,
+        ) {
             Some(i) => i,
             None => return false,
         };
@@ -262,7 +280,13 @@ impl Quotas {
         let now = t.advance_time(now);
         let slot = now / self.slot_secs;
         let day = now / self.day_secs;
-        let idx = match t.find_or_insert(key, self.max_identities, self.window_slots as usize, slot, day) {
+        let idx = match t.find_or_insert(
+            key,
+            self.max_identities,
+            self.window_slots as usize,
+            slot,
+            day,
+        ) {
             Some(i) => i,
             None => return 0,
         };
@@ -339,8 +363,16 @@ impl Quotas {
     /// `now` is `Malformed`. Returns how many identities are now tracked.
     pub fn import(&self, bytes: &[u8], now: u64) -> Result<usize, crate::SnapshotError> {
         use crate::SnapshotError::{Malformed, Mismatch, NotEmpty};
-        let be64 = |o: usize| -> Option<u64> { Some(u64::from_be_bytes(bytes.get(o..o.checked_add(8)?)?.try_into().ok()?)) };
-        let be32 = |o: usize| -> Option<u32> { Some(u32::from_be_bytes(bytes.get(o..o.checked_add(4)?)?.try_into().ok()?)) };
+        let be64 = |o: usize| -> Option<u64> {
+            Some(u64::from_be_bytes(
+                bytes.get(o..o.checked_add(8)?)?.try_into().ok()?,
+            ))
+        };
+        let be32 = |o: usize| -> Option<u32> {
+            Some(u32::from_be_bytes(
+                bytes.get(o..o.checked_add(4)?)?.try_into().ok()?,
+            ))
+        };
         if bytes.first() != Some(&1) {
             return Err(Malformed);
         }
@@ -349,7 +381,10 @@ impl Quotas {
         let day_secs = be64(17).ok_or(Malformed)?;
         let snap_day = be64(25).ok_or(Malformed)?;
         let count = be32(33).ok_or(Malformed)? as usize;
-        let expected = count.checked_mul(20).and_then(|n| n.checked_add(37)).ok_or(Malformed)?;
+        let expected = count
+            .checked_mul(20)
+            .and_then(|n| n.checked_add(37))
+            .ok_or(Malformed)?;
         if bytes.len() != expected {
             return Err(Malformed);
         }
@@ -382,7 +417,13 @@ impl Quotas {
             let slot = eff / self.slot_secs;
             let skip = entries.len().saturating_sub(self.max_identities);
             for &(h, used) in entries.iter().skip(skip) {
-                if let Some(idx) = t.find_or_insert(h, self.max_identities, self.window_slots as usize, slot, day) {
+                if let Some(idx) = t.find_or_insert(
+                    h,
+                    self.max_identities,
+                    self.window_slots as usize,
+                    slot,
+                    day,
+                ) {
                     if let Some(n) = t.nodes.get_mut(idx) {
                         n.day = day;
                         n.day_used = used;
@@ -418,7 +459,12 @@ mod tests {
     use super::*;
 
     fn q(max: usize) -> Quotas {
-        Quotas::new(Config { max_identities: max, hash_seed: Some([1; 16]), ..Config::default() }).unwrap()
+        Quotas::new(Config {
+            max_identities: max,
+            hash_seed: Some([1; 16]),
+            ..Config::default()
+        })
+        .unwrap()
     }
 
     /// Checks the list, map and slab agree.
@@ -462,7 +508,11 @@ mod tests {
         let a = q(2);
         let long = "z".repeat(5000);
         assert_ne!(a.hash(&long), a.hash(&format!("{long}!")));
-        let b = Quotas::new(Config { hash_seed: Some([2; 16]), ..Config::default() }).unwrap();
+        let b = Quotas::new(Config {
+            hash_seed: Some([2; 16]),
+            ..Config::default()
+        })
+        .unwrap();
         assert_ne!(a.hash("x"), b.hash("x"));
     }
 

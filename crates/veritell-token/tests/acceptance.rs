@@ -31,8 +31,14 @@ fn cookie_safe(s: &str) -> bool {
 
 #[test]
 fn weak_secrets_are_rejected() {
-    assert!(matches!(Keys::from_secret(b""), Err(TokenError::WeakSecret)));
-    assert!(matches!(Keys::from_secret(&[7u8; 31]), Err(TokenError::WeakSecret)));
+    assert!(matches!(
+        Keys::from_secret(b""),
+        Err(TokenError::WeakSecret)
+    ));
+    assert!(matches!(
+        Keys::from_secret(&[7u8; 31]),
+        Err(TokenError::WeakSecret)
+    ));
     assert!(Keys::from_secret(&[7u8; 32]).is_ok());
 }
 
@@ -59,8 +65,14 @@ fn expiry_boundaries() {
     let k = keys();
     let t = issue(&k, &binding(), NOW, 600, 5);
     assert!(verify(&k, &t, &binding(), NOW + 599).is_ok());
-    assert_eq!(verify(&k, &t, &binding(), NOW + 600), Err(TokenError::Expired));
-    assert_eq!(verify(&k, &t, &binding(), u64::MAX), Err(TokenError::Expired));
+    assert_eq!(
+        verify(&k, &t, &binding(), NOW + 600),
+        Err(TokenError::Expired)
+    );
+    assert_eq!(
+        verify(&k, &t, &binding(), u64::MAX),
+        Err(TokenError::Expired)
+    );
     // Overflowing ttl must not wrap around into the past.
     let t = issue(&k, &binding(), NOW, u64::MAX, 5);
     assert!(verify(&k, &t, &binding(), NOW + 1_000_000).is_ok());
@@ -71,7 +83,10 @@ fn wrong_key_and_tampering_fail_signature() {
     let k = keys();
     let t = issue(&k, &binding(), NOW, 600, 5);
     let other = Keys::from_secret(OTHER_SECRET).unwrap();
-    assert_eq!(verify(&other, &t, &binding(), NOW), Err(TokenError::BadSignature));
+    assert_eq!(
+        verify(&other, &t, &binding(), NOW),
+        Err(TokenError::BadSignature)
+    );
 
     // Flip every single character in turn: none may verify.
     let bytes = t.as_bytes();
@@ -84,7 +99,10 @@ fn wrong_key_and_tampering_fail_signature() {
         }
         let r = verify(&k, &m, &binding(), NOW);
         assert!(
-            matches!(r, Err(TokenError::BadSignature) | Err(TokenError::Malformed)),
+            matches!(
+                r,
+                Err(TokenError::BadSignature) | Err(TokenError::Malformed)
+            ),
             "tampered byte {i} gave {r:?}"
         );
     }
@@ -94,7 +112,17 @@ fn wrong_key_and_tampering_fail_signature() {
 fn malformed_tokens_do_not_panic() {
     let k = keys();
     let long = "A".repeat(100_000);
-    for bad in ["", ".", "..", "a.b", "a.b.c.d", "====", "\u{1F600}", " ", long.as_str()] {
+    for bad in [
+        "",
+        ".",
+        "..",
+        "a.b",
+        "a.b.c.d",
+        "====",
+        "\u{1F600}",
+        " ",
+        long.as_str(),
+    ] {
         assert!(verify(&k, bad, &binding(), NOW).is_err(), "{bad:?}");
     }
     let t = issue(&k, &binding(), NOW, 600, 5);
@@ -106,13 +134,28 @@ fn malformed_tokens_do_not_panic() {
 #[test]
 fn binding_changes_with_each_input() {
     let base = binding();
-    assert_eq!(base, Binding::derive(Some(JA4), ip("203.0.113.9"), Some(UA)));
+    assert_eq!(
+        base,
+        Binding::derive(Some(JA4), ip("203.0.113.9"), Some(UA))
+    );
     // Same /24: still the same client.
-    assert_eq!(base, Binding::derive(Some(JA4), ip("203.0.113.200"), Some(UA)));
-    assert_ne!(base, Binding::derive(Some(JA4), ip("203.0.114.9"), Some(UA)));
-    assert_ne!(base, Binding::derive(Some("t13d4907h2_x_y"), ip("203.0.113.9"), Some(UA)));
+    assert_eq!(
+        base,
+        Binding::derive(Some(JA4), ip("203.0.113.200"), Some(UA))
+    );
+    assert_ne!(
+        base,
+        Binding::derive(Some(JA4), ip("203.0.114.9"), Some(UA))
+    );
+    assert_ne!(
+        base,
+        Binding::derive(Some("t13d4907h2_x_y"), ip("203.0.113.9"), Some(UA))
+    );
     assert_ne!(base, Binding::derive(None, ip("203.0.113.9"), Some(UA)));
-    assert_ne!(base, Binding::derive(Some(JA4), ip("203.0.113.9"), Some("curl/8")));
+    assert_ne!(
+        base,
+        Binding::derive(Some(JA4), ip("203.0.113.9"), Some("curl/8"))
+    );
     assert_ne!(base, Binding::derive(Some(JA4), ip("203.0.113.9"), None));
     // Concatenation must not collide.
     assert_ne!(
@@ -126,16 +169,29 @@ fn binding_changes_with_each_input() {
     );
     // IPv6 uses /48.
     let v6 = Binding::derive(Some(JA4), ip("2001:db8:1:2::1"), Some(UA));
-    assert_eq!(v6, Binding::derive(Some(JA4), ip("2001:db8:1:ffff::9"), Some(UA)));
-    assert_ne!(v6, Binding::derive(Some(JA4), ip("2001:db8:2:2::1"), Some(UA)));
+    assert_eq!(
+        v6,
+        Binding::derive(Some(JA4), ip("2001:db8:1:ffff::9"), Some(UA))
+    );
+    assert_ne!(
+        v6,
+        Binding::derive(Some(JA4), ip("2001:db8:2:2::1"), Some(UA))
+    );
 }
 
 #[test]
 fn token_copied_to_another_client_fails() {
     let k = keys();
     let t = issue(&k, &binding(), NOW, 600, 5);
-    let thief = Binding::derive(Some("t13d4907h2_0d8feac7bc37_7395dae3b2f3"), ip("198.51.100.1"), Some(UA));
-    assert_eq!(verify(&k, &t, &thief, NOW), Err(TokenError::BindingMismatch));
+    let thief = Binding::derive(
+        Some("t13d4907h2_0d8feac7bc37_7395dae3b2f3"),
+        ip("198.51.100.1"),
+        Some(UA),
+    );
+    assert_eq!(
+        verify(&k, &t, &thief, NOW),
+        Err(TokenError::BindingMismatch)
+    );
     // Expiry is reported before binding.
     assert_eq!(verify(&k, &t, &thief, NOW + 600), Err(TokenError::Expired));
 }
@@ -174,7 +230,9 @@ fn budget_store_is_thread_safe() {
         .map(|_| {
             let s = s.clone();
             std::thread::spawn(move || {
-                (0..100).filter(|_| s.consume(&id, 50, NOW + 100, NOW)).count()
+                (0..100)
+                    .filter(|_| s.consume(&id, 50, NOW + 100, NOW))
+                    .count()
             })
         })
         .collect();
@@ -267,7 +325,12 @@ fn difficulty_is_clamped_and_scaled() {
         let ch = pow::issue_challenge(&k, &binding(), NOW, 120, asked);
         if got <= 16 {
             let c = pow::solve(&ch, 1 << 24).unwrap();
-            assert_eq!(pow::verify_solution(&k, &ch, c, &binding(), NOW).unwrap().difficulty, got);
+            assert_eq!(
+                pow::verify_solution(&k, &ch, c, &binding(), NOW)
+                    .unwrap()
+                    .difficulty,
+                got
+            );
         }
     }
     assert_eq!(pow::difficulty_for_score(99), 8);
@@ -282,7 +345,12 @@ fn difficulty_is_clamped_and_scaled() {
 
 #[test]
 fn return_to_is_restricted_to_same_origin_paths() {
-    for ok in ["/", "/products/42?color=red&size=9", "/a/b#frag", "/%2e%2e/x"] {
+    for ok in [
+        "/",
+        "/products/42?color=red&size=9",
+        "/a/b#frag",
+        "/%2e%2e/x",
+    ] {
         assert_eq!(pow::sanitize_return_to(ok), ok);
     }
     for bad in [
@@ -313,19 +381,35 @@ fn challenge_page_is_self_contained_and_escaped() {
         assert!(page.contains(field), "missing form field {field}");
     }
     // No external resources.
-    for needle in ["src=\"http", "src='http", "href=\"http", "href='http", "src=\"//", "@import"] {
+    for needle in [
+        "src=\"http",
+        "src='http",
+        "href=\"http",
+        "href='http",
+        "src=\"//",
+        "@import",
+    ] {
         assert!(!page.contains(needle), "external reference: {needle}");
     }
 
     // Hostile inputs must not appear unescaped anywhere in the page.
     let evil_path = "/x\"><script>alert(1)</script><!--'</script>";
     let page = pow::challenge_page(&ch, evil_path);
-    assert!(!page.contains("<script>alert(1)"), "return_to was not escaped");
-    assert!(!page.contains("\"><script>"), "return_to broke out of an attribute");
+    assert!(
+        !page.contains("<script>alert(1)"),
+        "return_to was not escaped"
+    );
+    assert!(
+        !page.contains("\"><script>"),
+        "return_to broke out of an attribute"
+    );
 
     let evil_challenge = "abc\"</script><script>alert(2)</script>";
     let page = pow::challenge_page(evil_challenge, "/");
-    assert!(!page.contains("<script>alert(2)"), "challenge was not escaped");
+    assert!(
+        !page.contains("<script>alert(2)"),
+        "challenge was not escaped"
+    );
 
     // An off-site return target is replaced, not embedded.
     let page = pow::challenge_page(&ch, "https://evil.example/phish");

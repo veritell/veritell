@@ -53,7 +53,8 @@ impl Model {
         while self.held.len() >= self.capacity {
             dropped.extend(self.evict_one());
         }
-        self.held.push((expires.saturating_add(CLOCK_SKEW_SECS), id));
+        self.held
+            .push((expires.saturating_add(CLOCK_SKEW_SECS), id));
         (true, dropped)
     }
 
@@ -74,7 +75,12 @@ impl Model {
     }
 
     fn entries(&self, now: u64) -> Vec<([u8; 32], u64)> {
-        let mut e: Vec<_> = self.held.iter().filter(|(until, _)| *until >= now).copied().collect();
+        let mut e: Vec<_> = self
+            .held
+            .iter()
+            .filter(|(until, _)| *until >= now)
+            .copied()
+            .collect();
         e.sort();
         e.into_iter().map(|(until, id)| (id, until)).collect()
     }
@@ -97,7 +103,9 @@ fn rel(now: u64, d: u8) -> u64 {
 }
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    let Some((&cap, mut ops)) = data.split_first() else { return };
+    let Some((&cap, mut ops)) = data.split_first() else {
+        return;
+    };
     let capacity = 1 + usize::from(cap % 8);
     let mut cache = ReplayCache::new(capacity);
     let mut model = Model {
@@ -149,13 +157,25 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                 for &(id, until) in &saved {
                     fresh.restore(id, until, now);
                 }
-                assert_eq!(fresh.entries(now), saved, "a restart lost or changed entries");
+                assert_eq!(
+                    fresh.entries(now),
+                    saved,
+                    "a restart lost or changed entries"
+                );
                 cache = fresh;
                 model.held.retain(|&(until, _)| until >= now);
             }
         }
-        assert!(cache.len() <= capacity, "{} entries over capacity {capacity}", cache.len());
+        assert!(
+            cache.len() <= capacity,
+            "{} entries over capacity {capacity}",
+            cache.len()
+        );
         assert_eq!(cache.is_empty(), cache.len() == 0);
-        assert_eq!(cache.entries(now), model.entries(now), "held set differs from the model");
+        assert_eq!(
+            cache.entries(now),
+            model.entries(now),
+            "held set differs from the model"
+        );
     }
 });

@@ -10,10 +10,10 @@ use crate::{valid_server_name, PassError};
 
 /// The AlgorithmIdentifier of RFC 9578 section 6.5, with its SEQUENCE header.
 const ALGORITHM: [u8; 63] = [
-    0x30, 0x3d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a, 0x30, 0x30, 0xa0, 0x0d, 0x30, 0x0b,
-    0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0xa1, 0x1a, 0x30, 0x18, 0x06, 0x09, 0x2a, 0x86,
-    0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x08, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
-    0x02, 0xa2, 0x03, 0x02, 0x01, 0x30,
+    0x30, 0x3d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a, 0x30, 0x30, 0xa0,
+    0x0d, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0xa1, 0x1a,
+    0x30, 0x18, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x08, 0x30, 0x0b, 0x06,
+    0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0xa2, 0x03, 0x02, 0x01, 0x30,
 ];
 
 const TAG_INTEGER: u8 = 0x02;
@@ -48,7 +48,9 @@ fn read_tlv(input: &[u8], tag: u8) -> Option<(&[u8], &[u8])> {
         if *bytes.first()? == 0 {
             return None;
         }
-        let len = bytes.iter().fold(0usize, |acc, b| (acc << 8) | usize::from(*b));
+        let len = bytes
+            .iter()
+            .fold(0usize, |acc, b| (acc << 8) | usize::from(*b));
         // Under 128 the short form was required.
         if len < 0x80 {
             return None;
@@ -89,7 +91,8 @@ fn check_rsa_public_key(der: &[u8]) -> Result<(), &'static str> {
     if modulus.len() != 256 || modulus.first().is_none_or(|b| b & 0x80 == 0) {
         return Err("modulus is not 2048 bits");
     }
-    let exponent = positive_integer(exponent).ok_or("exponent is not a minimal positive INTEGER")?;
+    let exponent =
+        positive_integer(exponent).ok_or("exponent is not a minimal positive INTEGER")?;
     if exponent.len() > 5 {
         return Err("exponent is longer than 5 bytes");
     }
@@ -105,7 +108,9 @@ fn check_rsa_public_key(der: &[u8]) -> Result<(), &'static str> {
 /// Parses the SPKI and returns the RSAPublicKey inside it.
 fn parse_spki(spki_der: &[u8]) -> Result<&[u8], &'static str> {
     let body = read_whole(spki_der, TAG_SEQUENCE).ok_or("not a DER SEQUENCE spanning the input")?;
-    let rest = body.strip_prefix(ALGORITHM.as_slice()).ok_or("algorithm is not RSASSA-PSS with SHA-384, MGF1 SHA-384, salt 48")?;
+    let rest = body
+        .strip_prefix(ALGORITHM.as_slice())
+        .ok_or("algorithm is not RSASSA-PSS with SHA-384, MGF1 SHA-384, salt 48")?;
     let bits = read_whole(rest, TAG_BIT_STRING).ok_or("no BIT STRING after the algorithm")?;
     let (unused, rsa) = bits.split_first().ok_or("empty BIT STRING")?;
     if *unused != 0 {
@@ -168,7 +173,9 @@ impl IssuerKey {
         if !valid_server_name(issuer_name) {
             return Err(PassError::Name);
         }
-        let der = LENIENT.decode(text).map_err(|_| PassError::Key("not base64url"))?;
+        let der = LENIENT
+            .decode(text)
+            .map_err(|_| PassError::Key("not base64url"))?;
         IssuerKey::new(issuer_name, &der)
     }
 
@@ -194,7 +201,9 @@ impl IssuerKey {
     /// Checks an RSASSA-PSS signature (SHA-384, MGF1 SHA-384, salt 48) by
     /// this key. Used by `verify`; public so it can be tested alone.
     pub fn verify_signature(&self, message: &[u8], signature: &[u8]) -> bool {
-        UnparsedPublicKey::new(&RSA_PSS_2048_8192_SHA384, &self.rsa_public_key).verify(message, signature).is_ok()
+        UnparsedPublicKey::new(&RSA_PSS_2048_8192_SHA384, &self.rsa_public_key)
+            .verify(message, signature)
+            .is_ok()
     }
 }
 
@@ -205,7 +214,10 @@ mod tests {
     #[test]
     fn algorithm_constant_is_the_rfc_one() {
         assert_eq!(ALGORITHM.len(), 63);
-        assert_eq!(read_whole(&ALGORITHM, TAG_SEQUENCE).map(<[u8]>::len), Some(61));
+        assert_eq!(
+            read_whole(&ALGORITHM, TAG_SEQUENCE).map(<[u8]>::len),
+            Some(61)
+        );
     }
 
     #[test]
@@ -214,7 +226,10 @@ mod tests {
         assert!(read_tlv(&[0x04, 0x01, 0xaa], 0x04).is_some());
         let mut long = vec![0x04, 0x81, 0x80];
         long.extend([0u8; 128]);
-        assert_eq!(read_tlv(&long, 0x04).map(|(c, r)| (c.len(), r.len())), Some((128, 0)));
+        assert_eq!(
+            read_tlv(&long, 0x04).map(|(c, r)| (c.len(), r.len())),
+            Some((128, 0))
+        );
         let mut two = vec![0x04, 0x82, 0x01, 0x00];
         two.extend([0u8; 256]);
         assert!(read_tlv(&two, 0x04).is_some());
@@ -236,7 +251,10 @@ mod tests {
     fn trailing_bytes_are_refused() {
         assert_eq!(read_whole(&[0x04, 0x01, 0xaa], 0x04), Some(&[0xaa][..]));
         assert_eq!(read_whole(&[0x04, 0x01, 0xaa, 0x00], 0x04), None);
-        assert_eq!(read_tlv(&[0x04, 0x01, 0xaa, 0x00], 0x04), Some((&[0xaa][..], &[0x00][..])));
+        assert_eq!(
+            read_tlv(&[0x04, 0x01, 0xaa, 0x00], 0x04),
+            Some((&[0xaa][..], &[0x00][..]))
+        );
     }
 
     #[test]

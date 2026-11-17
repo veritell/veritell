@@ -30,11 +30,15 @@ fn main() {
     if args.first().map(String::as_str) == Some("jwks") {
         let key = SigningKey::from_bytes(&seed_of(args.get(1).map(String::as_str)));
         let x = URL_SAFE_NO_PAD.encode(key.verifying_key().to_bytes());
-        println!("{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"{x}\",\"use\":\"sig\"}}]}}");
+        println!(
+            "{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"{x}\",\"use\":\"sig\"}}]}}"
+        );
         return;
     }
-    let (Some(authority), Some(created)) = (args.first(), args.get(1).and_then(|t| t.parse::<u64>().ok()))
-    else {
+    let (Some(authority), Some(created)) = (
+        args.first(),
+        args.get(1).and_then(|t| t.parse::<u64>().ok()),
+    ) else {
         eprintln!("usage: sign <authority> <unix-time> [rfc|other] [signature-agent-url] | sign jwks [rfc|other]");
         std::process::exit(2);
     };
@@ -54,7 +58,10 @@ fn main() {
     let mut target_lines = String::new();
     if let (Ok(method), Ok(path)) = (std::env::var("SIGN_METHOD"), std::env::var("SIGN_PATH")) {
         covered = covered.replacen("\"@authority\"", "\"@authority\" \"@method\" \"@path\"", 1);
-        target_lines = format!("\"@method\": {}\n\"@path\": {path}\n", method.to_ascii_uppercase());
+        target_lines = format!(
+            "\"@method\": {}\n\"@path\": {path}\n",
+            method.to_ascii_uppercase()
+        );
     }
     let member = format!(
         "({covered});created={created};expires={};keyid=\"{keyid}\";alg=\"ed25519\";nonce=\"{}\";tag=\"web-bot-auth\"",

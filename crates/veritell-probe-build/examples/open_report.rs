@@ -16,9 +16,12 @@ fn main() {
         Ok(a) => a,
         Err(_) => fail("usage: open_report <template path> <secret> <unix now> < sealed-body"),
     };
-    let now: u64 = now.parse().unwrap_or_else(|_| fail("unix now must be an integer"));
+    let now: u64 = now
+        .parse()
+        .unwrap_or_else(|_| fail("unix now must be an integer"));
     let template = std::fs::read_to_string(&path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
-    let builder = Builder::new(&template, secret.as_bytes()).unwrap_or_else(|e| fail(&e.to_string()));
+    let builder =
+        Builder::new(&template, secret.as_bytes()).unwrap_or_else(|e| fail(&e.to_string()));
     let mut body = Vec::new();
     if let Err(e) = std::io::stdin().take(1 << 20).read_to_end(&mut body) {
         fail(&format!("stdin: {e}"));
@@ -32,7 +35,9 @@ fn main() {
                 let written: Vec<&String> = page.iter().filter(|k| order.contains(k)).collect();
                 let expected: Vec<&String> = order.iter().filter(|k| page.contains(k)).collect();
                 if written != expected {
-                    fail(&format!("keys not in the build's order: {written:?}, expected {expected:?}"));
+                    fail(&format!(
+                        "keys not in the build's order: {written:?}, expected {expected:?}"
+                    ));
                 }
             }
             println!("{}", String::from_utf8_lossy(&opened.report_json));
@@ -92,5 +97,7 @@ fn page_keys(json: &[u8]) -> Vec<String> {
         }
     }
 
-    serde_json::from_slice::<Top>(json).map(|t| t.0).unwrap_or_default()
+    serde_json::from_slice::<Top>(json)
+        .map(|t| t.0)
+        .unwrap_or_default()
 }

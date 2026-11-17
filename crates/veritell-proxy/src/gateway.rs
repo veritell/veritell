@@ -10,12 +10,14 @@ use pingora::prelude::*;
 
 use std::sync::Arc;
 
-use veritell_core::{score_proven, Action, ChallengeKind, Class, Detection, Layer, Proven, Verdict};
+use veritell_core::{
+    score_proven, Action, ChallengeKind, Class, Detection, Layer, Proven, Verdict,
+};
 use veritell_events::{Event, EventKind, EventSink};
 use veritell_identity::{AsnDb, CrawlerVerdict, CrawlerVerifier, NetClass};
+use veritell_policy::{Decision, Policy, PolicyInput, NO_QUOTA};
 use veritell_probe::{NonceError, ProbeKey};
 use veritell_probe_build::OpenError;
-use veritell_policy::{Decision, Policy, PolicyInput, NO_QUOTA};
 use veritell_token::pow::{self, VERIFY_PATH};
 use veritell_token::{Binding, Consumed, Keys, MemoryBudgetStore};
 use veritell_ua::Observed;
@@ -224,7 +226,10 @@ fn original_request(
     own_method: &str,
 ) -> std::result::Result<Original, SidecarError> {
     let pick = |name: &str, same: fn(&str, &str) -> bool| {
-        let (a, b) = (get(&format!("x-original-{name}")), get(&format!("x-forwarded-{name}")));
+        let (a, b) = (
+            get(&format!("x-original-{name}")),
+            get(&format!("x-forwarded-{name}")),
+        );
         match (a, b) {
             (Some(a), Some(b)) if !same(&a, &b) => Err(SidecarError::Conflict),
             (a, b) => Ok(b.or(a)),
@@ -240,9 +245,17 @@ fn original_request(
         Some(uri) => (Some(uri), Some(own_method.to_string())),
         None => (pick("uri", exact)?, pick("method", exact)?),
     };
-    let uri = uri.filter(|u| u.starts_with('/')).ok_or(SidecarError::Missing)?;
-    let host = pick("host", same_host)?.or_else(|| get("host")).unwrap_or_default();
-    Ok(Original { uri, method: method.unwrap_or_else(|| "GET".to_string()), host })
+    let uri = uri
+        .filter(|u| u.starts_with('/'))
+        .ok_or(SidecarError::Missing)?;
+    let host = pick("host", same_host)?
+        .or_else(|| get("host"))
+        .unwrap_or_default();
+    Ok(Original {
+        uri,
+        method: method.unwrap_or_else(|| "GET".to_string()),
+        host,
+    })
 }
 
 impl Gateway {
@@ -316,9 +329,16 @@ async fn read_body(session: &mut Session, max: usize, limit: Duration) -> Result
     loop {
         let chunk = match tokio::time::timeout_at(until, session.read_request_body()).await {
             Ok(chunk) => chunk?,
-            Err(_) => return Err(Error::explain(ErrorType::ReadTimedout, "request body not complete in time")),
+            Err(_) => {
+                return Err(Error::explain(
+                    ErrorType::ReadTimedout,
+                    "request body not complete in time",
+                ))
+            }
         };
-        let Some(chunk) = chunk else { return Ok(Some(body)) };
+        let Some(chunk) = chunk else {
+            return Ok(Some(body));
+        };
         if body.len().saturating_add(chunk.len()) > max {
             return Ok(None);
         }
@@ -344,7 +364,9 @@ fn without_bot_claim(user_agent: &str, detail: &str) -> Option<String> {
 pub fn source_link(url: &str) -> Option<String> {
     let ok = (url.starts_with("https://") || url.starts_with("http://"))
         && url.len() <= 512
-        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '<' | '>' | '\'' | '`'));
+        && !url.chars().any(|c| {
+            c.is_whitespace() || c.is_control() || matches!(c, '"' | '<' | '>' | '\'' | '`')
+        });
     ok.then(|| {
         let url = url.replace('&', "&amp;");
         format!(
@@ -368,7 +390,11 @@ fn effective_action(
         _ if !d.enforced => Action::Pass,
         Action::Challenge(_) if has_token => Action::Pass,
         Action::Throttle { per_minute } => {
-            if allow(per_minute) { Action::Pass } else { d.action }
+            if allow(per_minute) {
+                Action::Pass
+            } else {
+                d.action
+            }
         }
         Action::Charge if receipt_claimed => Action::Pass,
         other => other,
@@ -388,8 +414,15 @@ fn check_solution(
 ) -> Option<pow::Solved> {
     form.get("challenge")
         .zip(form.get("counter").and_then(|c| c.parse::<u64>().ok()))
-        .and_then(|(challenge, counter)| pow::verify_solution(keys, challenge, counter, binding, now).ok())
-        .filter(|s| admitted(used.try_consume(&s.id, 1, s.expires_at, now), "solved challenges"))
+        .and_then(|(challenge, counter)| {
+            pow::verify_solution(keys, challenge, counter, binding, now).ok()
+        })
+        .filter(|s| {
+            admitted(
+                used.try_consume(&s.id, 1, s.expires_at, now),
+                "solved challenges",
+            )
+        })
 }
 
 /// The level the authorization endpoint set for a challenge link: the
@@ -457,7 +490,12 @@ fn upstream_sni(authority: Option<&str>, configured: Option<&str>, upstream_host
 /// its cookies as several fields (RFC 9113, section 8.2.3), and the server
 /// must read them as one; taking the first field would lose the rest.
 fn cookies(req: &RequestHeader) -> Option<String> {
-    join_cookie_fields(req.headers.get_all("cookie").iter().filter_map(|v| v.to_str().ok()))
+    join_cookie_fields(
+        req.headers
+            .get_all("cookie")
+            .iter()
+            .filter_map(|v| v.to_str().ok()),
+    )
 }
 
 fn join_cookie_fields<'a>(fields: impl Iterator<Item = &'a str>) -> Option<String> {
@@ -500,7 +538,9 @@ impl Facts {
     /// Whether the request loads a page. Without `sec-fetch-mode` it is
     /// taken to: an older browser gets the page, as before.
     fn is_navigation(&self) -> bool {
-        self.fetch_mode.as_deref().is_none_or(|m| m.eq_ignore_ascii_case("navigate"))
+        self.fetch_mode
+            .as_deref()
+            .is_none_or(|m| m.eq_ignore_ascii_case("navigate"))
     }
 }
 
@@ -516,13 +556,22 @@ fn forwarded_ip(value: &str) -> Option<IpAddr> {
 /// makes the whole header unusable.
 fn last_forwarded<'a>(lines: impl Iterator<Item = Option<&'a str>>) -> Option<IpAddr> {
     let lines: Vec<&str> = lines.collect::<Option<_>>()?;
-    let joined: Vec<&str> = lines.into_iter().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let joined: Vec<&str> = lines
+        .into_iter()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     forwarded_ip(&joined.join(", "))
 }
 
 /// The client address in a request from a trusted proxy.
 fn forwarded_for(req: &RequestHeader) -> Option<IpAddr> {
-    last_forwarded(req.headers.get_all("x-forwarded-for").iter().map(|v| v.to_str().ok()))
+    last_forwarded(
+        req.headers
+            .get_all("x-forwarded-for")
+            .iter()
+            .map(|v| v.to_str().ok()),
+    )
 }
 
 /// An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) as the IPv4 address it
@@ -668,12 +717,18 @@ const APPLE_SYSTEM_H2_SETTINGS: &str = "2:0;4:2097152;3:100;9:1";
 const APPLE_SYSTEM_H2_ORDER: &str = "m,s,p,a";
 /// What an iOS app's own icon fetch trips when it borrows the browser's
 /// User-Agent: the engine check sees Apple's system client, not WebKit.
-const IOS_APP_ICON_IDS: [&str; 3] = ["h2_settings_mismatch", "h2_pseudo_order_mismatch", "missing_sec_fetch"];
+const IOS_APP_ICON_IDS: [&str; 3] = [
+    "h2_settings_mismatch",
+    "h2_pseudo_order_mismatch",
+    "missing_sec_fetch",
+];
 
 /// A site icon, as browsers and apps fetch them from the site's root.
 fn is_icon_path(path: &str) -> bool {
     matches!(path, "/favicon.ico" | "/favicon.png" | "/favicon.svg")
-        || (path.starts_with("/apple-touch-icon") && path.ends_with(".png") && !path[1..].contains('/'))
+        || (path.starts_with("/apple-touch-icon")
+            && path.ends_with(".png")
+            && !path[1..].contains('/'))
 }
 
 /// iOS browsers built on WebKit (DuckDuckGo, for one) fetch a site's icons
@@ -685,11 +740,19 @@ fn is_icon_path(path: &str) -> bool {
 /// User-Agent, Apple's system HTTP/2 exactly, TLS that matched), those three
 /// findings are dropped; anything else that fired stays. An icon is worth
 /// nothing to a scraper, and the TLS must still be Apple's.
-fn drop_ios_app_icon_fetch(detections: &mut Vec<Detection>, method: &str, path: &str, ua: Option<&str>, h2: Option<&str>) {
+fn drop_ios_app_icon_fetch(
+    detections: &mut Vec<Detection>,
+    method: &str,
+    path: &str,
+    ua: Option<&str>,
+    h2: Option<&str>,
+) {
     let ios = ua.is_some_and(|u| ["iPhone", "iPad", "iPod"].iter().any(|d| u.contains(d)));
     let apple_h2 = h2.is_some_and(|h| {
         let parts: Vec<&str> = h.split('|').collect();
-        parts.len() == 4 && parts[0] == APPLE_SYSTEM_H2_SETTINGS && parts[3] == APPLE_SYSTEM_H2_ORDER
+        parts.len() == 4
+            && parts[0] == APPLE_SYSTEM_H2_SETTINGS
+            && parts[3] == APPLE_SYSTEM_H2_ORDER
     });
     if !(ios && apple_h2 && matches!(method, "GET" | "HEAD") && is_icon_path(path)) {
         return;
@@ -710,7 +773,11 @@ fn drop_ios_app_icon_fetch(detections: &mut Vec<Detection>, method: &str, path: 
 /// request is judged by its User-Agent alone, and an unfamiliar one is then
 /// no evidence of an agent (a browser the table does not list looks the
 /// same). The finding and its penalty stay; only the class hint is left off.
-fn unknown_agent_is_not_a_person(detections: &mut [Detection], ja4: Option<&str>, h2: Option<&str>) {
+fn unknown_agent_is_not_a_person(
+    detections: &mut [Detection],
+    ja4: Option<&str>,
+    h2: Option<&str>,
+) {
     if ja4.is_none() && h2.is_none() {
         return;
     }
@@ -743,9 +810,11 @@ fn crawler_from_another_network(detections: &mut Vec<Detection>, claimed: &str, 
         return;
     }
     detections.retain(|d| d.id != "crawler_unresolved");
-    let mut d = CrawlerVerdict::Spoofed { claimed: claimed.to_string() }
-        .detection()
-        .expect("a spoofed claim always has a detection");
+    let mut d = CrawlerVerdict::Spoofed {
+        claimed: claimed.to_string(),
+    }
+    .detection()
+    .expect("a spoofed claim always has a detection");
     d.detail = format!("claims to be {claimed}, from AS{asn}, which is not that operator's network (no reverse DNS)");
     detections.push(d);
 }
@@ -840,7 +909,13 @@ impl Gateway {
             h2_akamai: f.h2.as_deref(),
             header_names: &f.header_names,
         });
-        drop_ios_app_icon_fetch(&mut detections, &f.method, &f.path, f.user_agent.as_deref(), f.h2.as_deref());
+        drop_ios_app_icon_fetch(
+            &mut detections,
+            &f.method,
+            &f.path,
+            f.user_agent.as_deref(),
+            f.h2.as_deref(),
+        );
         unknown_agent_is_not_a_person(&mut detections, f.ja4.as_deref(), f.h2.as_deref());
 
         let crawler = self.crawlers.verify(f.user_agent.as_deref(), f.ip).await;
@@ -875,8 +950,14 @@ impl Gateway {
                 .then(|| veritell_wba::signature_info(&parts))
                 .flatten();
             let mut replays = self.wba_replays.lock();
-            let (agent, found) =
-                signed_agent_of(verdict, info.as_ref(), is_write(&f.method), f.query.is_some(), &mut replays, now);
+            let (agent, found) = signed_agent_of(
+                verdict,
+                info.as_ref(),
+                is_write(&f.method),
+                f.query.is_some(),
+                &mut replays,
+                now,
+            );
             drop(replays);
             // A signed agent is returned only after the cache recorded a new
             // signature, which is what the next state save has to write.
@@ -938,10 +1019,12 @@ impl Gateway {
         {
             None => TokenState::None,
             Some(token) => match veritell_token::verify(&self.keys, token, &self.binding(f), now) {
-                Ok(claims) => match self
-                    .token_budgets
-                    .try_consume(&claims.id, claims.budget, claims.expires_at, now)
-                {
+                Ok(claims) => match self.token_budgets.try_consume(
+                    &claims.id,
+                    claims.budget,
+                    claims.expires_at,
+                    now,
+                ) {
                     Consumed::Used => TokenState::Valid,
                     Consumed::Spent => TokenState::BudgetSpent,
                     // A full store cannot count this token's uses, so the
@@ -979,7 +1062,10 @@ impl Gateway {
         // How this client has used the pages it loaded, if it has reported.
         if let Some(seen) = self.behaviors.get(&self.binding(f).0, now) {
             let writes = matches!(f.method.as_str(), "POST" | "PUT" | "PATCH" | "DELETE");
-            let known = seen.detections.iter().any(|d| d.id == veritell_behavior::NO_INPUT);
+            let known = seen
+                .detections
+                .iter()
+                .any(|d| d.id == veritell_behavior::NO_INPUT);
             detections.extend(seen.detections);
             // A form posted without a `submit` event (a script calling
             // `form.submit()`, or a client posting directly) shows up here.
@@ -1014,7 +1100,10 @@ impl Gateway {
             // `response_filter`), so a scraper is not let off by claiming
             // its requests are not page loads.
             detections.extend(self.page_rates.detections(f.ip, self.binding(f).0, now));
-            detections.extend(self.fp_surge.detection(self.fp_surge.key(&fingerprint), now));
+            detections.extend(
+                self.fp_surge
+                    .detection(self.fp_surge.key(&fingerprint), now),
+            );
             // Every page carried the probe, and this client never ran it. A
             // token holder without a report already has `probe_missing`.
             if self.inject_probe && !probe_reported && !token.is_valid() {
@@ -1047,7 +1136,10 @@ impl Gateway {
         // Every request by a proven identity counts against its day,
         // whatever is decided afterwards.
         let quota_left = match (&identity_key, &identity) {
-            (Some(key), Some(name)) => self.policy.quota_for(name).map(|per_day| self.quotas.take(key, per_day, now)),
+            (Some(key), Some(name)) => self
+                .policy
+                .quota_for(name)
+                .map(|per_day| self.quotas.take(key, per_day, now)),
             _ => None,
         };
 
@@ -1059,12 +1151,22 @@ impl Gateway {
                 .into_iter()
                 .filter_map(|(i, by)| Some((names.get(i)?.clone(), by)))
                 .collect();
-            Some(ModelOpinion { score: result.score(), probability: result.probability, top })
+            Some(ModelOpinion {
+                score: result.score(),
+                probability: result.probability,
+                top,
+            })
         });
 
         let verdict = score_proven(detections, proven);
         if let (Some(share), Some((fingerprint, leaned))) = (&self.share, &shared) {
-            share.note(fingerprint, veritell_agg::network_of(f.ip), verdict.class, *leaned, now);
+            share.note(
+                fingerprint,
+                veritell_agg::network_of(f.ip),
+                verdict.class,
+                *leaned,
+                now,
+            );
         }
         Assessment {
             model,
@@ -1180,7 +1282,11 @@ impl Gateway {
             outcome: outcome.to_string(),
             known: f.known.clone(),
             summary: String::new(),
-            tcp: f.syn.as_ref().map(|s| s.signature.clone()).unwrap_or_default(),
+            tcp: f
+                .syn
+                .as_ref()
+                .map(|s| s.signature.clone())
+                .unwrap_or_default(),
             tcp_ttl: f.syn.as_ref().map_or(0, |s| s.ttl),
         });
     }
@@ -1194,7 +1300,14 @@ impl Gateway {
     /// A side event that also carries a behaviour report's counts. It records
     /// the visitor's network like a request does, but adds no network
     /// detection: a side event's detections are those of the report itself.
-    fn side_event_with(&self, kind: EventKind, f: &Facts, detections: Vec<Detection>, outcome: &str, summary: String) {
+    fn side_event_with(
+        &self,
+        kind: EventKind,
+        f: &Facts,
+        detections: Vec<Detection>,
+        outcome: &str,
+        summary: String,
+    ) {
         let (asn, net_class, _) = network_of(&self.asn, f.ip);
         let ids: Vec<&str> = detections.iter().map(|d| d.id.as_str()).collect();
         if self.log_requests {
@@ -1231,7 +1344,11 @@ impl Gateway {
             outcome: outcome.to_string(),
             known: f.known.clone(),
             summary,
-            tcp: f.syn.as_ref().map(|s| s.signature.clone()).unwrap_or_default(),
+            tcp: f
+                .syn
+                .as_ref()
+                .map(|s| s.signature.clone())
+                .unwrap_or_default(),
             tcp_ttl: f.syn.as_ref().map_or(0, |s| s.ttl),
         });
     }
@@ -1241,8 +1358,10 @@ impl Gateway {
         use crate::shed::Trust;
         if a.token.is_valid() || !f.known.is_empty() || a.identity.is_some() {
             Trust::Kept
-        } else if matches!(a.verdict.class, Class::Automated | Class::Malicious | Class::UnverifiedAgent)
-            || a.net_class == "hosting"
+        } else if matches!(
+            a.verdict.class,
+            Class::Automated | Class::Malicious | Class::UnverifiedAgent
+        ) || a.net_class == "hosting"
             || a.verdict.score < 60
         {
             Trust::Low
@@ -1254,7 +1373,12 @@ impl Gateway {
     /// The flood guard. `None` when the request was answered (429) and
     /// must go no further; otherwise whether it goes on quietly (see
     /// `Facts::quiet`). In `log` mode it only reports and samples.
-    async fn flood_check(&self, session: &mut Session, f: &Facts, now: u64) -> Result<Option<bool>> {
+    async fn flood_check(
+        &self,
+        session: &mut Session,
+        f: &Facts,
+        now: u64,
+    ) -> Result<Option<bool>> {
         use crate::flood::{GuardMode, GuardVerdict};
         let verdict = self.flood.check(f.ip, now);
         let (report, total) = match verdict {
@@ -1289,15 +1413,22 @@ impl Gateway {
             return Ok(Some(quiet));
         }
         let retry = self.flood.retry_after().to_string();
-        self.respond(session, 429, "text/plain", b"too many requests".to_vec(), &[("retry-after", retry)])
-            .await?;
+        self.respond(
+            session,
+            429,
+            "text/plain",
+            b"too many requests".to_vec(),
+            &[("retry-after", retry)],
+        )
+        .await?;
         Ok(None)
     }
 
     /// The gateway's ordinary not-found. A decoyed request gets exactly this
     /// answer, on either path, so it looks like any page that is not there.
     async fn not_found(&self, session: &mut Session) -> Result<()> {
-        self.respond(session, 404, "text/plain", b"not found".to_vec(), &[]).await
+        self.respond(session, 404, "text/plain", b"not found".to_vec(), &[])
+            .await
     }
 
     async fn respond(
@@ -1346,7 +1477,8 @@ impl Gateway {
         // With a token challenge on a page load in a browser that may hold
         // a token, the page waits before leaving, so that the browser's
         // reload with the token is not cut short (Phase 3, L20).
-        let root = if status == 401 && f.is_navigation() && may_hold_token(f.user_agent.as_deref()) {
+        let root = if status == 401 && f.is_navigation() && may_hold_token(f.user_agent.as_deref())
+        {
             format!("<html lang=\"en\" data-probe data-wait=\"{TOKEN_WAIT_MS}\">")
         } else {
             "<html lang=\"en\" data-probe>".to_string()
@@ -1404,13 +1536,8 @@ impl Gateway {
                 .await;
         }
 
-        let token = veritell_token::issue(
-            &self.keys,
-            &binding,
-            now,
-            TOKEN_TTL_SECS,
-            self.token_budget,
-        );
+        let token =
+            veritell_token::issue(&self.keys, &binding, now, TOKEN_TTL_SECS, self.token_budget);
         let cookie = format!(
             "{COOKIE_NAME}={token}; Path=/; Max-Age={TOKEN_TTL_SECS}; HttpOnly; Secure; SameSite=Lax"
         );
@@ -1447,8 +1574,19 @@ impl Gateway {
     /// `probe::Refusal::is_forgery`) and that names a nonce issued to this
     /// client leaves state behind, a `probe_forged` detection on the client.
     async fn handle_probe_report(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
-        let Some(body) = read_body(session, veritell_probe_build::MAX_SEALED_BYTES, self.body_timeout).await? else {
-            self.side_event(EventKind::Probe, f, Vec::new(), probe::Refusal::TooLarge.as_str());
+        let Some(body) = read_body(
+            session,
+            veritell_probe_build::MAX_SEALED_BYTES,
+            self.body_timeout,
+        )
+        .await?
+        else {
+            self.side_event(
+                EventKind::Probe,
+                f,
+                Vec::new(),
+                probe::Refusal::TooLarge.as_str(),
+            );
             return self
                 .respond(session, 413, "text/plain", b"too large".to_vec(), &[])
                 .await;
@@ -1464,7 +1602,9 @@ impl Gateway {
                 OpenError::UnknownBuild => probe::Refusal::BuildUnknown,
                 OpenError::ExpiredBuild => probe::Refusal::BuildExpired,
                 OpenError::Decrypt => probe::Refusal::SealInvalid,
-                OpenError::TooLarge | OpenError::Malformed | OpenError::Keys => probe::Refusal::Malformed,
+                OpenError::TooLarge | OpenError::Malformed | OpenError::Keys => {
+                    probe::Refusal::Malformed
+                }
             })
             .and_then(|opened| {
                 let report = veritell_probe::parse_report(&opened.report_json)
@@ -1478,7 +1618,11 @@ impl Gateway {
                 // that it ran it: the build key is in the script. The order
                 // in which the build writes the page's keys differs from
                 // build to build and only a run of it produces that order.
-                let orders = self.probe_builds.builder.key_order(&opened.build_id).unwrap_or_default();
+                let orders = self
+                    .probe_builds
+                    .builder
+                    .key_order(&opened.build_id)
+                    .unwrap_or_default();
                 if !probe::in_build_order(&orders, &opened.report_json) {
                     return Err(probe::Refusal::BuildOrder);
                 }
@@ -1488,13 +1632,16 @@ impl Gateway {
                 let info =
                     veritell_probe::verify_nonce(&self.probe_key, &report.nonce, &binding.0, now)
                         .map_err(|e| match e {
-                            NonceError::Expired => probe::Refusal::NonceExpired,
-                            NonceError::BindingMismatch => probe::Refusal::NonceOtherClient,
-                            NonceError::Malformed | NonceError::BadMac => probe::Refusal::NonceInvalid,
-                        })?;
+                        NonceError::Expired => probe::Refusal::NonceExpired,
+                        NonceError::BindingMismatch => probe::Refusal::NonceOtherClient,
+                        NonceError::Malformed | NonceError::BadMac => probe::Refusal::NonceInvalid,
+                    })?;
                 // Single use: a captured report cannot be sent again. A full
                 // store cannot tell a replay, so the report is refused.
-                match self.used_nonces.try_consume(&info.id, 1, info.expires_at, now) {
+                match self
+                    .used_nonces
+                    .try_consume(&info.id, 1, info.expires_at, now)
+                {
                     Consumed::Used => {}
                     Consumed::Spent => return Err(probe::Refusal::NonceReused),
                     Consumed::Full => {
@@ -1524,7 +1671,12 @@ impl Gateway {
                 };
                 let found = if why.is_forgery() && names_our_nonce() {
                     let found = vec![probe::forged(why)];
-                    self.probes.put(binding.0, found.clone(), now.saturating_add(PROBE_RESULT_TTL_SECS), now);
+                    self.probes.put(
+                        binding.0,
+                        found.clone(),
+                        now.saturating_add(PROBE_RESULT_TTL_SECS),
+                        now,
+                    );
                     found
                 } else {
                     Vec::new()
@@ -1540,7 +1692,11 @@ impl Gateway {
             &probe::claimed(f.user_agent.as_deref()),
             &self.data.engine_truth.load(),
         );
-        let outcome = if found.is_empty() { "probe_clean" } else { "probe_flagged" };
+        let outcome = if found.is_empty() {
+            "probe_clean"
+        } else {
+            "probe_flagged"
+        };
         self.side_event(EventKind::Probe, f, found.clone(), outcome);
         self.probes.put(
             binding.0,
@@ -1548,11 +1704,17 @@ impl Gateway {
             now.saturating_add(PROBE_RESULT_TTL_SECS),
             now,
         );
-        self.respond(session, 204, "text/plain", Vec::new(), &[]).await
+        self.respond(session, 204, "text/plain", Vec::new(), &[])
+            .await
     }
 
     /// GET /__veritell/behavior.js: the behaviour script with a nonce.
-    async fn serve_behavior_script(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
+    async fn serve_behavior_script(
+        &self,
+        session: &mut Session,
+        f: &Facts,
+        now: u64,
+    ) -> Result<()> {
         let nonce = veritell_probe::issue_nonce(
             &self.probe_key,
             &behavior::nonce_binding(&self.binding(f).0),
@@ -1571,9 +1733,25 @@ impl Gateway {
 
     /// POST /__veritell/behavior: check and analyse a behaviour summary. A
     /// rejected summary is logged and counts as a strike against the client.
-    async fn handle_behavior_report(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
-        let Some(body) = read_body(session, veritell_behavior::MAX_SUMMARY_BYTES, self.body_timeout).await? else {
-            self.side_event(EventKind::Probe, f, Vec::new(), behavior::Refusal::TooLarge.as_str());
+    async fn handle_behavior_report(
+        &self,
+        session: &mut Session,
+        f: &Facts,
+        now: u64,
+    ) -> Result<()> {
+        let Some(body) = read_body(
+            session,
+            veritell_behavior::MAX_SUMMARY_BYTES,
+            self.body_timeout,
+        )
+        .await?
+        else {
+            self.side_event(
+                EventKind::Probe,
+                f,
+                Vec::new(),
+                behavior::Refusal::TooLarge.as_str(),
+            );
             return self
                 .respond(session, 413, "text/plain", b"too large".to_vec(), &[])
                 .await;
@@ -1621,7 +1799,11 @@ impl Gateway {
             }
         };
         let found = veritell_behavior::analyze(&summary, &self.behavior_params);
-        let outcome = if found.is_empty() { "behavior_clean" } else { "behavior_flagged" };
+        let outcome = if found.is_empty() {
+            "behavior_clean"
+        } else {
+            "behavior_flagged"
+        };
         // The counts themselves, so that thresholds can be set from what
         // real traffic sends. They are counts only; see probe/BEHAVIOR.md.
         let s = &summary;
@@ -1645,7 +1827,13 @@ impl Gateway {
         }
         // The same counts go into the event, so that the event store holds
         // them for as long as it keeps events, whatever happens to the log.
-        self.side_event_with(EventKind::Probe, f, found.clone(), outcome, counts.to_string());
+        self.side_event_with(
+            EventKind::Probe,
+            f,
+            found.clone(),
+            outcome,
+            counts.to_string(),
+        );
         self.behaviors.put(
             binding.0,
             found,
@@ -1653,20 +1841,26 @@ impl Gateway {
             now.saturating_add(BEHAVIOR_RESULT_TTL_SECS),
             now,
         );
-        self.respond(session, 204, "text/plain", Vec::new(), &[]).await
+        self.respond(session, 204, "text/plain", Vec::new(), &[])
+            .await
     }
 
     /// What is actually done: nothing in shadow mode, and a challenge or a
     /// throttle only when a token or the rate allowance does not cover it.
     fn effective(&self, f: &Facts, a: &Assessment, d: &Decision, now: u64) -> Action {
-        effective_action(d, a.token.is_valid(), Self::claims_receipt(f, d), |per_minute| {
-            // A proven identity is limited as itself, wherever it comes
-            // from; everyone else by address.
-            match &a.identity_key {
-                Some(key) => self.quotas.allow_rate(key, per_minute, now),
-                None => self.throttle.allow(f.ip, per_minute, now),
-            }
-        })
+        effective_action(
+            d,
+            a.token.is_valid(),
+            Self::claims_receipt(f, d),
+            |per_minute| {
+                // A proven identity is limited as itself, wherever it comes
+                // from; everyone else by address.
+                match &a.identity_key {
+                    Some(key) => self.quotas.allow_rate(key, per_minute, now),
+                    None => self.throttle.allow(f.ip, per_minute, now),
+                }
+            },
+        )
     }
 
     /// Whether the request carries the header the offer names as a claim of
@@ -1686,7 +1880,10 @@ impl Gateway {
     /// what was detected.
     fn offer_answer(d: &Decision) -> (Vec<u8>, Vec<(&'static str, String)>) {
         match &d.offer {
-            Some(o) => (o.body_json().into_bytes(), vec![("veritell-offer", o.header_value())]),
+            Some(o) => (
+                o.body_json().into_bytes(),
+                vec![("veritell-offer", o.header_value())],
+            ),
             None => (b"{}".to_vec(), Vec::new()),
         }
     }
@@ -1695,7 +1892,12 @@ impl Gateway {
     /// request. A proxy in sidecar mode sends a client here when the
     /// authorization endpoint asks for a challenge, with the endpoint's
     /// `x-veritell-challenge` as `c`.
-    async fn serve_challenge_on_request(&self, session: &mut Session, f: &Facts, now: u64) -> Result<()> {
+    async fn serve_challenge_on_request(
+        &self,
+        session: &mut Session,
+        f: &Facts,
+        now: u64,
+    ) -> Result<()> {
         let query = parse_form(f.query.as_deref().unwrap_or("").as_bytes());
         let return_to = pow::sanitize_return_to(query.get("return_to").map_or("/", String::as_str));
         let difficulty = match link_difficulty(&self.keys, &query) {
@@ -1705,7 +1907,8 @@ impl Gateway {
             // in the population, as the authorization call already did.
             None => pow::difficulty_for_score(self.assess(f, now).await.verdict.score),
         };
-        self.serve_challenge(session, f, difficulty, return_to, now, (403, &[])).await
+        self.serve_challenge(session, f, difficulty, return_to, now, (403, &[]))
+            .await
     }
 
     /// The authorization endpoint for a proxy that asks before it serves
@@ -1764,7 +1967,9 @@ impl Gateway {
                     "sidecar_conflict" => b"original request given twice, differently",
                     _ => b"original request missing",
                 };
-                return self.respond(session, 400, "text/plain", body.to_vec(), &[]).await;
+                return self
+                    .respond(session, 400, "text/plain", body.to_vec(), &[])
+                    .await;
             }
         };
         let Original { uri, method, host } = original;
@@ -1800,7 +2005,9 @@ impl Gateway {
                 req.headers
                     .iter()
                     .filter(|(k, _)| client_header(k.as_str()))
-                    .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
+                    .filter_map(|(k, v)| {
+                        Some((k.as_str().to_string(), v.to_str().ok()?.to_string()))
+                    })
                     .collect()
             } else {
                 Vec::new()
@@ -1857,7 +2064,8 @@ impl Gateway {
             Action::Block => (403, "blocked"),
         };
         self.log(&f, &a, &d, outcome, now);
-        self.respond(session, status, "text/plain", Vec::new(), &answer).await
+        self.respond(session, status, "text/plain", Vec::new(), &answer)
+            .await
     }
 
     /// With no upstream configured the gateway answers itself, which is
@@ -1947,15 +2155,24 @@ impl ProxyHttp for Gateway {
         // would go to the default site under no name at all.
         {
             let req = session.req_header();
-            if req.version == http::Version::HTTP_11 && req.uri.authority().is_none() && !req.headers.contains_key("host") {
-                self.respond(session, 400, "text/plain", b"missing Host".to_vec(), &[]).await?;
+            if req.version == http::Version::HTTP_11
+                && req.uri.authority().is_none()
+                && !req.headers.contains_key("host")
+            {
+                self.respond(session, 400, "text/plain", b"missing Host".to_vec(), &[])
+                    .await?;
                 return Ok(true);
             }
         }
         let mut f = gather(session, &self.trusted_proxies);
-        ctx.peer_ip = session.client_addr().and_then(|a| a.as_inet()).map(|a| canonical(a.ip()));
+        ctx.peer_ip = session
+            .client_addr()
+            .and_then(|a| a.as_inet())
+            .map(|a| canonical(a.ip()));
         ctx.client_ip = Some(f.ip);
-        ctx.behind_proxy = ctx.peer_ip.is_some_and(|p| self.trusted_proxies.contains(&p));
+        ctx.behind_proxy = ctx
+            .peer_ip
+            .is_some_and(|p| self.trusted_proxies.contains(&p));
         match self.flood_check(session, &f, now).await? {
             None => return Ok(true),
             Some(quiet) => f.quiet = quiet,
@@ -1971,7 +2188,10 @@ impl ProxyHttp for Gateway {
             }
             if f.method == "GET" {
                 if let Some(label) = key.label_from_path(&f.path) {
-                    println!("{}", serde_json::json!({ "ts": now, "kind": "known_enrolled", "known": label }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "ts": now, "kind": "known_enrolled", "known": label })
+                    );
                     // The page goes on to the site's home page after a few
                     // seconds, so the person can start browsing straight away.
                     // The label is [a-z0-9-] only (label_from_path), so it is
@@ -1983,8 +2203,14 @@ impl ProxyHttp for Gateway {
                          <p><a href=\"/\">Continue to the site</a></p>"
                     );
                     let cookie = key.set_cookie(label);
-                    self.respond(session, 200, "text/html; charset=utf-8", body.into_bytes(), &[("set-cookie", cookie)])
-                        .await?;
+                    self.respond(
+                        session,
+                        200,
+                        "text/html; charset=utf-8",
+                        body.into_bytes(),
+                        &[("set-cookie", cookie)],
+                    )
+                    .await?;
                     return Ok(true);
                 }
             }
@@ -1994,8 +2220,14 @@ impl ProxyHttp for Gateway {
             if f.method == "GET" {
                 self.serve_challenge_on_request(session, &f, now).await?;
             } else {
-                self.respond(session, 405, "text/plain", b"method not allowed".to_vec(), &[])
-                    .await?;
+                self.respond(
+                    session,
+                    405,
+                    "text/plain",
+                    b"method not allowed".to_vec(),
+                    &[],
+                )
+                .await?;
             }
             return Ok(true);
         }
@@ -2004,8 +2236,14 @@ impl ProxyHttp for Gateway {
             if f.method == "POST" {
                 self.handle_verify(session, &f, now).await?;
             } else {
-                self.respond(session, 405, "text/plain", b"method not allowed".to_vec(), &[])
-                    .await?;
+                self.respond(
+                    session,
+                    405,
+                    "text/plain",
+                    b"method not allowed".to_vec(),
+                    &[],
+                )
+                .await?;
             }
             return Ok(true);
         }
@@ -2013,8 +2251,14 @@ impl ProxyHttp for Gateway {
             if f.method == "GET" {
                 self.serve_probe_script(session, &f, now).await?;
             } else {
-                self.respond(session, 405, "text/plain", b"method not allowed".to_vec(), &[])
-                    .await?;
+                self.respond(
+                    session,
+                    405,
+                    "text/plain",
+                    b"method not allowed".to_vec(),
+                    &[],
+                )
+                .await?;
             }
             return Ok(true);
         }
@@ -2022,8 +2266,14 @@ impl ProxyHttp for Gateway {
             if f.method == "POST" {
                 self.handle_probe_report(session, &f, now).await?;
             } else {
-                self.respond(session, 405, "text/plain", b"method not allowed".to_vec(), &[])
-                    .await?;
+                self.respond(
+                    session,
+                    405,
+                    "text/plain",
+                    b"method not allowed".to_vec(),
+                    &[],
+                )
+                .await?;
             }
             return Ok(true);
         }
@@ -2032,8 +2282,14 @@ impl ProxyHttp for Gateway {
             if f.method == "GET" {
                 self.serve_behavior_script(session, &f, now).await?;
             } else {
-                self.respond(session, 405, "text/plain", b"method not allowed".to_vec(), &[])
-                    .await?;
+                self.respond(
+                    session,
+                    405,
+                    "text/plain",
+                    b"method not allowed".to_vec(),
+                    &[],
+                )
+                .await?;
             }
             return Ok(true);
         }
@@ -2041,8 +2297,14 @@ impl ProxyHttp for Gateway {
             if f.method == "POST" {
                 self.handle_behavior_report(session, &f, now).await?;
             } else {
-                self.respond(session, 405, "text/plain", b"method not allowed".to_vec(), &[])
-                    .await?;
+                self.respond(
+                    session,
+                    405,
+                    "text/plain",
+                    b"method not allowed".to_vec(),
+                    &[],
+                )
+                .await?;
             }
             return Ok(true);
         }
@@ -2065,20 +2327,33 @@ impl ProxyHttp for Gateway {
                 }
                 if shed == crate::shed::ShedVerdict::Shed {
                     self.log(&f, &a, &d, "shed", now);
-                    self.respond(session, 503, "text/plain", b"busy, try again shortly".to_vec(), &[("retry-after", "5".to_string())])
-                        .await?;
+                    self.respond(
+                        session,
+                        503,
+                        "text/plain",
+                        b"busy, try again shortly".to_vec(),
+                        &[("retry-after", "5".to_string())],
+                    )
+                    .await?;
                     return Ok(true);
                 }
                 ctx.in_flight = Some(self.shed.enter());
                 let receipt = Self::claims_receipt(&f, &d);
-                self.log(&f, &a, &d, if receipt { "charge_receipt" } else { "passed" }, now);
+                self.log(
+                    &f,
+                    &a,
+                    &d,
+                    if receipt { "charge_receipt" } else { "passed" },
+                    now,
+                );
                 if self.upstream.is_none() {
                     self.serve_report(session, &f, &a).await?;
                     return Ok(true);
                 }
                 ctx.upstream_headers = Self::origin_headers(&f, &a, &d);
                 if receipt {
-                    ctx.upstream_headers.push(("x-veritell-receipt", "unverified".to_string()));
+                    ctx.upstream_headers
+                        .push(("x-veritell-receipt", "unverified".to_string()));
                 }
                 Ok(false)
             }
@@ -2115,7 +2390,8 @@ impl ProxyHttp for Gateway {
                                 return Ok(true);
                             }
                             ctx.upstream_headers = Self::origin_headers(&f, &a, &d);
-                            ctx.upstream_headers.push(("x-veritell-token", "privacy-pass".to_string()));
+                            ctx.upstream_headers
+                                .push(("x-veritell-token", "privacy-pass".to_string()));
                             return Ok(false);
                         }
                         Redemption::Redeemed => {
@@ -2161,8 +2437,14 @@ impl ProxyHttp for Gateway {
             Action::Tarpit => {
                 self.log(&f, &a, &d, "tarpitted", now);
                 tokio::time::sleep(TARPIT_DELAY).await;
-                self.respond(session, 429, "text/plain", b"too many requests".to_vec(), &[])
-                    .await?;
+                self.respond(
+                    session,
+                    429,
+                    "text/plain",
+                    b"too many requests".to_vec(),
+                    &[],
+                )
+                .await?;
                 Ok(true)
             }
             // The same not-found the sidecar path answers: the client cannot
@@ -2175,7 +2457,8 @@ impl ProxyHttp for Gateway {
             Action::Charge => {
                 self.log(&f, &a, &d, "charged", now);
                 let (body, extra) = Self::offer_answer(&d);
-                self.respond(session, 402, "application/json", body, &extra).await?;
+                self.respond(session, 402, "application/json", body, &extra)
+                    .await?;
                 Ok(true)
             }
             Action::Block => {
@@ -2197,8 +2480,15 @@ impl ProxyHttp for Gateway {
         _end_of_stream: bool,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
-        if body.is_some() && ctx.request_started.is_some_and(|t| t.elapsed() > self.body_timeout) {
-            return Err(Error::explain(ErrorType::ReadTimedout, "request body not complete in time"));
+        if body.is_some()
+            && ctx
+                .request_started
+                .is_some_and(|t| t.elapsed() > self.body_timeout)
+        {
+            return Err(Error::explain(
+                ErrorType::ReadTimedout,
+                "request body not complete in time",
+            ));
         }
         Ok(())
     }
@@ -2210,10 +2500,20 @@ impl ProxyHttp for Gateway {
     ) -> Result<Box<HttpPeer>> {
         if !self.host_upstreams.is_empty() {
             let req = session.req_header();
-            let authority = req.uri.authority().map(|a| a.as_str()).or_else(|| header(req, "host"));
-            let name = authority.and_then(host_name).map(|h| h.trim_end_matches('.').to_ascii_lowercase());
+            let authority = req
+                .uri
+                .authority()
+                .map(|a| a.as_str())
+                .or_else(|| header(req, "host"));
+            let name = authority
+                .and_then(host_name)
+                .map(|h| h.trim_end_matches('.').to_ascii_lowercase());
             if let Some((host, port)) = name.and_then(|n| self.host_upstreams.get(&n)) {
-                return Ok(Box::new(HttpPeer::new((host.as_str(), *port), false, host.clone())));
+                return Ok(Box::new(HttpPeer::new(
+                    (host.as_str(), *port),
+                    false,
+                    host.clone(),
+                )));
             }
         }
         let (host, port) = self
@@ -2221,10 +2521,18 @@ impl ProxyHttp for Gateway {
             .clone()
             .ok_or_else(|| Error::explain(ErrorType::InternalError, "no upstream configured"))?;
         if !self.upstream_tls {
-            return Ok(Box::new(HttpPeer::new((host.as_str(), port), false, host.clone())));
+            return Ok(Box::new(HttpPeer::new(
+                (host.as_str(), port),
+                false,
+                host.clone(),
+            )));
         }
         let req = session.req_header();
-        let authority = req.uri.authority().map(|a| a.as_str()).or_else(|| header(req, "host"));
+        let authority = req
+            .uri
+            .authority()
+            .map(|a| a.as_str())
+            .or_else(|| header(req, "host"));
         let sni = upstream_sni(authority, self.upstream_sni.as_deref(), &host);
         let mut peer = HttpPeer::new((host.as_str(), port), true, sni);
         // HttpPeer::new leaves both checks on; stated so a change is seen.
@@ -2242,12 +2550,22 @@ impl ProxyHttp for Gateway {
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
-        let value = |name: &str| upstream_response.headers.get(name).and_then(|v| v.to_str().ok());
-        let (status, content_type, encoding) =
-            (upstream_response.status.as_u16(), value("content-type"), value("content-encoding"));
+        let value = |name: &str| {
+            upstream_response
+                .headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+        };
+        let (status, content_type, encoding) = (
+            upstream_response.status.as_u16(),
+            value("content-type"),
+            value("content-encoding"),
+        );
         let etag = value("etag").map(crate::inject::weaken_etag);
         let html = content_type.is_some_and(|t| {
-            t.split(';').next().is_some_and(|m| m.trim().eq_ignore_ascii_case("text/html"))
+            t.split(';')
+                .next()
+                .is_some_and(|m| m.trim().eq_ignore_ascii_case("text/html"))
         });
         if let (true, Some((ip, client))) = (html, ctx.page_key) {
             self.page_rates.record(ip, client, now_secs());
@@ -2350,7 +2668,11 @@ mod tests {
         fn without_any_fingerprint_the_hint_is_left_off() {
             let mut d = vec![det("ua_unknown"), det("missing_sec_fetch")];
             unknown_agent_is_not_a_person(&mut d, None, None);
-            assert_eq!(ids(&d), ["ua_unknown", "missing_sec_fetch"], "detections stay");
+            assert_eq!(
+                ids(&d),
+                ["ua_unknown", "missing_sec_fetch"],
+                "detections stay"
+            );
             assert_eq!(d[0].penalty, 10, "score unchanged");
             assert_eq!(d[0].class_hint, None);
         }
@@ -2373,7 +2695,12 @@ mod tests {
 
         #[test]
         fn the_operators_own_network_stays_unresolved() {
-            for (name, asn) in [("Googlebot", 15169), ("Bingbot", 8075), ("Applebot", 714), ("Applebot", 6185)] {
+            for (name, asn) in [
+                ("Googlebot", 15169),
+                ("Bingbot", 8075),
+                ("Applebot", 714),
+                ("Applebot", 6185),
+            ] {
                 let mut d = vec![det("crawler_unresolved")];
                 crawler_from_another_network(&mut d, name, asn);
                 assert_eq!(ids(&d), ["crawler_unresolved"], "{name} {asn}");
@@ -2399,18 +2726,29 @@ mod tests {
         const WEBKIT: &str = "2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p";
 
         fn fired(ids: &[&str]) -> Vec<Detection> {
-            ids.iter().map(|i| Detection::new(i, Layer::Network, 10, "test")).collect()
+            ids.iter()
+                .map(|i| Detection::new(i, Layer::Network, 10, "test"))
+                .collect()
         }
         fn after(method: &str, path: &str, ua: &str, h2: &str, ids: &[&str]) -> Vec<String> {
             let mut d = fired(ids);
             drop_ios_app_icon_fetch(&mut d, method, path, Some(ua), Some(h2));
             d.into_iter().map(|d| d.id.to_string()).collect()
         }
-        const SEEN: [&str; 3] = ["h2_settings_mismatch", "h2_pseudo_order_mismatch", "missing_sec_fetch"];
+        const SEEN: [&str; 3] = [
+            "h2_settings_mismatch",
+            "h2_pseudo_order_mismatch",
+            "missing_sec_fetch",
+        ];
 
         #[test]
         fn an_ios_apps_icon_fetch_is_clean() {
-            for path in ["/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-240x240-precomposed.png", "/favicon.svg"] {
+            for path in [
+                "/favicon.ico",
+                "/apple-touch-icon.png",
+                "/apple-touch-icon-240x240-precomposed.png",
+                "/favicon.svg",
+            ] {
                 assert!(after("GET", path, DDG, APPLE, &SEEN).is_empty(), "{path}");
             }
             assert!(after("HEAD", "/favicon.ico", DDG, APPLE, &SEEN).is_empty());
@@ -2418,12 +2756,28 @@ mod tests {
 
         #[test]
         fn other_findings_stay() {
-            assert_eq!(after("GET", "/favicon.ico", DDG, APPLE, &["h2_settings_mismatch", "net_hosting"]), ["net_hosting"]);
+            assert_eq!(
+                after(
+                    "GET",
+                    "/favicon.ico",
+                    DDG,
+                    APPLE,
+                    &["h2_settings_mismatch", "net_hosting"]
+                ),
+                ["net_hosting"]
+            );
         }
 
         #[test]
         fn only_icons() {
-            for path in ["/", "/missions", "/item/1", "/favicon.ico.php", "/img/apple-touch-icon.png", "/apple-touch-icon.png/x"] {
+            for path in [
+                "/",
+                "/missions",
+                "/item/1",
+                "/favicon.ico.php",
+                "/img/apple-touch-icon.png",
+                "/apple-touch-icon.png/x",
+            ] {
                 assert_eq!(after("GET", path, DDG, APPLE, &SEEN).len(), 3, "{path}");
             }
             assert_eq!(after("POST", "/favicon.ico", DDG, APPLE, &SEEN).len(), 3);
@@ -2434,12 +2788,27 @@ mod tests {
             let mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.3 Safari/605.1.15";
             assert_eq!(after("GET", "/favicon.ico", mac, APPLE, &SEEN).len(), 3);
             assert_eq!(after("GET", "/favicon.ico", DDG, WEBKIT, &SEEN).len(), 3);
-            assert_eq!(after("GET", "/favicon.ico", DDG, "1:65536;2:0;4:6291456|15663105|0|m,a,s,p", &SEEN).len(), 3);
+            assert_eq!(
+                after(
+                    "GET",
+                    "/favicon.ico",
+                    DDG,
+                    "1:65536;2:0;4:6291456|15663105|0|m,a,s,p",
+                    &SEEN
+                )
+                .len(),
+                3
+            );
         }
 
         #[test]
         fn not_with_another_tls_stack() {
-            let ids = ["tls_ua_mismatch", "h2_settings_mismatch", "h2_pseudo_order_mismatch", "missing_sec_fetch"];
+            let ids = [
+                "tls_ua_mismatch",
+                "h2_settings_mismatch",
+                "h2_pseudo_order_mismatch",
+                "missing_sec_fetch",
+            ];
             assert_eq!(after("GET", "/favicon.ico", DDG, APPLE, &ids).len(), 4);
         }
     }
@@ -2468,9 +2837,15 @@ mod tests {
         assert_eq!((asn, class, det.is_none()), (0, "unknown", true));
     }
 
+    use super::{
+        admitted, last_forwarded, original_request, set_forwarding, signed_agent_of, Ctx, Original,
+        SidecarError,
+    };
+    use super::{
+        check_solution, effective_action, link_difficulty, retry_difficulty, source_link,
+        without_bot_claim,
+    };
     use super::{forwarded_ip, stable_ja4, upstream_sni};
-    use super::{admitted, signed_agent_of, last_forwarded, original_request, set_forwarding, Ctx, Original, SidecarError};
-    use super::{check_solution, effective_action, link_difficulty, retry_difficulty, source_link, without_bot_claim};
 
     #[test]
     fn the_source_link_takes_plain_urls_only() {
@@ -2481,8 +2856,17 @@ mod tests {
                  <a href=\"https://github.com/veritell/veritell\">Source code</a> (AGPL-3.0)</p>\n</body>"
             )
         );
-        assert!(source_link("https://example.test/src?a=1&b=2").unwrap().contains("?a=1&amp;b=2"));
-        for bad in ["javascript:alert(1)", "ftp://x.test/", "https://x.test/\"onclick=\"x", "https://x.test/<b>", "https://x.test/ a", ""] {
+        assert!(source_link("https://example.test/src?a=1&b=2")
+            .unwrap()
+            .contains("?a=1&amp;b=2"));
+        for bad in [
+            "javascript:alert(1)",
+            "ftp://x.test/",
+            "https://x.test/\"onclick=\"x",
+            "https://x.test/<b>",
+            "https://x.test/ a",
+            "",
+        ] {
             assert_eq!(source_link(bad), None, "{bad}");
         }
     }
@@ -2493,7 +2877,10 @@ mod tests {
         use super::super::{is_write, signed_agent_of};
         use base64::Engine as _;
         use ed25519_dalek::{Signer, SigningKey};
-        use veritell_wba::{signature_base, signature_info, verify, Ed25519Key, ReplayCache, RequestParts, TrustedAgents};
+        use veritell_wba::{
+            signature_base, signature_info, verify, Ed25519Key, ReplayCache, RequestParts,
+            TrustedAgents,
+        };
 
         const NOW: u64 = 1_800_000_000;
 
@@ -2503,7 +2890,12 @@ mod tests {
 
         fn trusting(k: &SigningKey) -> TrustedAgents {
             let mut t = TrustedAgents::new();
-            t.add("agent.test", None, vec![Ed25519Key::from_public(k.verifying_key().to_bytes())]).unwrap();
+            t.add(
+                "agent.test",
+                None,
+                vec![Ed25519Key::from_public(k.verifying_key().to_bytes())],
+            )
+            .unwrap();
             t
         }
 
@@ -2521,29 +2913,71 @@ mod tests {
         }
 
         /// Signs `method target` on shop.test, covering `components`.
-        fn sign(k: &SigningKey, method: &str, target: &str, components: &[&str], nonce: &str) -> Signed {
+        fn sign(
+            k: &SigningKey,
+            method: &str,
+            target: &str,
+            components: &[&str],
+            nonce: &str,
+        ) -> Signed {
             let (path, query) = split(target);
             let keyid = Ed25519Key::from_public(k.verifying_key().to_bytes()).keyid;
-            let list = components.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(" ");
+            let list = components
+                .iter()
+                .map(|c| format!("\"{c}\""))
+                .collect::<Vec<_>>()
+                .join(" ");
             let member = format!(
                 "({list});created={};expires={};keyid=\"{keyid}\";nonce=\"{nonce}\";tag=\"web-bot-auth\"",
                 NOW - 10,
                 NOW + 300
             );
-            let parts = RequestParts { method, authority: "shop.test", path, query, headers: &[] };
+            let parts = RequestParts {
+                method,
+                authority: "shop.test",
+                path,
+                query,
+                headers: &[],
+            };
             let base = signature_base(&parts, &member).unwrap();
-            let sig = base64::engine::general_purpose::STANDARD.encode(k.sign(base.as_bytes()).to_bytes());
-            Signed { input: format!("sig1={member}"), signature: format!("sig1=:{sig}:") }
+            let sig = base64::engine::general_purpose::STANDARD
+                .encode(k.sign(base.as_bytes()).to_bytes());
+            Signed {
+                input: format!("sig1={member}"),
+                signature: format!("sig1=:{sig}:"),
+            }
         }
 
         /// What the gateway concludes for `method target` carrying `s`.
-        fn judge(trusted: &TrustedAgents, cache: &mut ReplayCache, method: &str, target: &str, s: &Signed) -> (Option<String>, Option<String>) {
+        fn judge(
+            trusted: &TrustedAgents,
+            cache: &mut ReplayCache,
+            method: &str,
+            target: &str,
+            s: &Signed,
+        ) -> (Option<String>, Option<String>) {
             let (path, query) = split(target);
-            let headers = [("signature-input", s.input.as_str()), ("signature", s.signature.as_str())];
-            let parts = RequestParts { method, authority: "shop.test", path, query, headers: &headers };
+            let headers = [
+                ("signature-input", s.input.as_str()),
+                ("signature", s.signature.as_str()),
+            ];
+            let parts = RequestParts {
+                method,
+                authority: "shop.test",
+                path,
+                query,
+                headers: &headers,
+            };
             let verdict = verify(&parts, trusted, NOW);
             let info = signature_info(&parts);
-            let (agent, found) = signed_agent_of(verdict, info.as_ref(), is_write(method), query.is_some(), cache, NOW);
+            let (agent, found) = signed_agent_of(
+                verdict,
+                info.as_ref(),
+                is_write(method),
+                query.is_some(),
+                cache,
+                NOW,
+            );
             (agent, found.map(|d| d.id))
         }
 
@@ -2551,7 +2985,13 @@ mod tests {
         fn a_read_signed_over_the_authority_alone_proves_the_agent() {
             let k = key(1);
             let s = sign(&k, "GET", "/catalog", &["@authority"], "n1");
-            let got = judge(&trusting(&k), &mut ReplayCache::new(64), "GET", "/catalog", &s);
+            let got = judge(
+                &trusting(&k),
+                &mut ReplayCache::new(64),
+                "GET",
+                "/catalog",
+                &s,
+            );
             assert_eq!(got, (Some("agent.test".into()), None));
         }
 
@@ -2566,15 +3006,30 @@ mod tests {
                 ("DELETE", &["@authority"][..]),
                 ("PUT", &["@authority", "@query"][..]),
             ] {
-                let s = sign(&k, method, "/cart", covered, &format!("{method}{}", covered.len()));
+                let s = sign(
+                    &k,
+                    method,
+                    "/cart",
+                    covered,
+                    &format!("{method}{}", covered.len()),
+                );
                 assert_eq!(
                     judge(&t, &mut cache, method, "/cart", &s),
                     (None, Some("wba_write_unbound".into())),
                     "{method} covering {covered:?}"
                 );
             }
-            let s = sign(&k, "POST", "/cart", &["@authority", "@method", "@path"], "bound");
-            assert_eq!(judge(&t, &mut cache, "POST", "/cart", &s), (Some("agent.test".into()), None));
+            let s = sign(
+                &k,
+                "POST",
+                "/cart",
+                &["@authority", "@method", "@path"],
+                "bound",
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "POST", "/cart", &s),
+                (Some("agent.test".into()), None)
+            );
         }
 
         #[test]
@@ -2582,8 +3037,17 @@ mod tests {
             let (k, mut cache) = (key(1), ReplayCache::new(64));
             let t = trusting(&k);
             // Method and path alone leave the query free: unbound.
-            let s = sign(&k, "POST", "/cart?id=4", &["@authority", "@method", "@path"], "q1");
-            assert_eq!(judge(&t, &mut cache, "POST", "/cart?id=4", &s), (None, Some("wba_write_unbound".into())));
+            let s = sign(
+                &k,
+                "POST",
+                "/cart?id=4",
+                &["@authority", "@method", "@path"],
+                "q1",
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "POST", "/cart?id=4", &s),
+                (None, Some("wba_write_unbound".into()))
+            );
             for (n, covered) in [
                 &["@authority", "@method", "@path", "@query"][..],
                 &["@authority", "@method", "@request-target"][..],
@@ -2593,21 +3057,49 @@ mod tests {
             .enumerate()
             {
                 let s = sign(&k, "POST", "/cart?id=4", covered, &format!("q2-{n}"));
-                assert_eq!(judge(&t, &mut cache, "POST", "/cart?id=4", &s), (Some("agent.test".into()), None), "{covered:?}");
+                assert_eq!(
+                    judge(&t, &mut cache, "POST", "/cart?id=4", &s),
+                    (Some("agent.test".into()), None),
+                    "{covered:?}"
+                );
             }
             // The whole target binds the path without @path.
-            let s = sign(&k, "POST", "/cart", &["@authority", "@method", "@request-target"], "q3");
-            assert_eq!(judge(&t, &mut cache, "POST", "/cart", &s), (Some("agent.test".into()), None));
+            let s = sign(
+                &k,
+                "POST",
+                "/cart",
+                &["@authority", "@method", "@request-target"],
+                "q3",
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "POST", "/cart", &s),
+                (Some("agent.test".into()), None)
+            );
             // And a query signed with the target cannot be swapped.
-            let s = sign(&k, "POST", "/cart?id=4", &["@authority", "@method", "@target-uri"], "q4");
-            assert_eq!(judge(&t, &mut cache, "POST", "/cart?id=5", &s).1.as_deref(), Some("wba_bad_signature"));
+            let s = sign(
+                &k,
+                "POST",
+                "/cart?id=4",
+                &["@authority", "@method", "@target-uri"],
+                "q4",
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "POST", "/cart?id=5", &s).1.as_deref(),
+                Some("wba_bad_signature")
+            );
         }
 
         #[test]
         fn a_bound_signature_does_not_carry_over_to_another_method_or_path() {
             let (k, mut cache) = (key(1), ReplayCache::new(64));
             let t = trusting(&k);
-            let s = sign(&k, "POST", "/cart", &["@authority", "@method", "@path"], "n2");
+            let s = sign(
+                &k,
+                "POST",
+                "/cart",
+                &["@authority", "@method", "@path"],
+                "n2",
+            );
             let (agent, found) = judge(&t, &mut cache, "POST", "/account/delete", &s);
             assert_eq!((agent, found.as_deref()), (None, Some("wba_bad_signature")));
             let (agent, found) = judge(&t, &mut cache, "DELETE", "/cart", &s);
@@ -2621,25 +3113,58 @@ mod tests {
             let (k, mut cache) = (key(1), ReplayCache::new(64));
             let t = trusting(&k);
             let s = sign(&k, "GET", "/", &["@authority"], "n3");
-            assert_eq!(judge(&t, &mut cache, "GET", "/", &s).0.as_deref(), Some("agent.test"));
-            assert_eq!(judge(&t, &mut cache, "POST", "/cart", &s), (None, Some("wba_write_unbound".into())));
-            assert_eq!(judge(&t, &mut cache, "GET", "/", &s), (None, Some("wba_replay".into())));
+            assert_eq!(
+                judge(&t, &mut cache, "GET", "/", &s).0.as_deref(),
+                Some("agent.test")
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "POST", "/cart", &s),
+                (None, Some("wba_write_unbound".into()))
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "GET", "/", &s),
+                (None, Some("wba_replay".into()))
+            );
         }
 
         #[test]
         fn a_bound_write_is_still_single_use() {
             let (k, mut cache) = (key(1), ReplayCache::new(64));
             let t = trusting(&k);
-            let s = sign(&k, "POST", "/cart", &["@authority", "@method", "@path"], "n4");
-            assert_eq!(judge(&t, &mut cache, "POST", "/cart", &s).0.as_deref(), Some("agent.test"));
-            assert_eq!(judge(&t, &mut cache, "POST", "/cart", &s), (None, Some("wba_replay".into())));
+            let s = sign(
+                &k,
+                "POST",
+                "/cart",
+                &["@authority", "@method", "@path"],
+                "n4",
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "POST", "/cart", &s).0.as_deref(),
+                Some("agent.test")
+            );
+            assert_eq!(
+                judge(&t, &mut cache, "POST", "/cart", &s),
+                (None, Some("wba_replay".into()))
+            );
         }
 
         #[test]
         fn an_untrusted_key_proves_nothing_even_when_it_binds_everything() {
             let (signer, other) = (key(1), key(2));
-            let s = sign(&signer, "POST", "/cart", &["@authority", "@method", "@path"], "n5");
-            let got = judge(&trusting(&other), &mut ReplayCache::new(64), "POST", "/cart", &s);
+            let s = sign(
+                &signer,
+                "POST",
+                "/cart",
+                &["@authority", "@method", "@path"],
+                "n5",
+            );
+            let got = judge(
+                &trusting(&other),
+                &mut ReplayCache::new(64),
+                "POST",
+                "/cart",
+                &s,
+            );
             assert_eq!(got, (None, Some("wba_unknown_key".into())));
         }
 
@@ -2648,7 +3173,9 @@ mod tests {
             for m in ["GET", "HEAD", "OPTIONS"] {
                 assert!(!is_write(m), "{m}");
             }
-            for m in ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE", "PROPFIND"] {
+            for m in [
+                "POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE", "PROPFIND",
+            ] {
                 assert!(is_write(m), "{m}");
             }
         }
@@ -2658,11 +3185,23 @@ mod tests {
     fn a_challenge_link_carries_the_endpoints_level() {
         let (k, b) = (keys(), Binding([1; 16]));
         let c = pow::issue_challenge(&k, &b, 1_000, 120, 14);
-        assert_eq!(link_difficulty(&k, &form(&[("c", &c), ("return_to", "/a")])), Some(14));
-        assert_eq!(link_difficulty(&k, &form(&[("return_to", "/a")])), None, "no c: the page scores the request");
+        assert_eq!(
+            link_difficulty(&k, &form(&[("c", &c), ("return_to", "/a")])),
+            Some(14)
+        );
+        assert_eq!(
+            link_difficulty(&k, &form(&[("return_to", "/a")])),
+            None,
+            "no c: the page scores the request"
+        );
         assert_eq!(link_difficulty(&k, &form(&[("c", "made-up")])), None);
-        let other = pow::issue_challenge(&Keys::from_secret(&[8u8; 32]).unwrap(), &b, 1_000, 120, 8);
-        assert_eq!(link_difficulty(&k, &form(&[("c", &other)])), None, "another gateway's string");
+        let other =
+            pow::issue_challenge(&Keys::from_secret(&[8u8; 32]).unwrap(), &b, 1_000, 120, 8);
+        assert_eq!(
+            link_difficulty(&k, &form(&[("c", &other)])),
+            None,
+            "another gateway's string"
+        );
     }
 
     #[test]
@@ -2670,17 +3209,34 @@ mod tests {
         let table = veritell_ua::TruthTable::builtin();
         let curl_ja4 = "t13d4907h2_0d8feac7bc37_7395dae3b2f3";
         let ua = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
-        let check = |ua: &str| table.check(&veritell_ua::Observed { user_agent: Some(ua), ja4: Some(curl_ja4), ..Default::default() });
+        let check = |ua: &str| {
+            table.check(&veritell_ua::Observed {
+                user_agent: Some(ua),
+                ja4: Some(curl_ja4),
+                ..Default::default()
+            })
+        };
         let first = check(ua);
         let ids: Vec<&str> = first.iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, ["ua_declared_bot"], "the table trusts a known name");
         let neutral = without_bot_claim(ua, &first[0].detail).expect("name found");
-        assert!(neutral.contains("Unverifiedbot/2.1") && !neutral.contains("Googlebot"), "{neutral}");
+        assert!(
+            neutral.contains("Unverifiedbot/2.1") && !neutral.contains("Googlebot"),
+            "{neutral}"
+        );
         let again = check(&neutral);
-        assert!(again.iter().any(|d| d.id != "ua_declared_bot" && d.penalty > 0),
-            "curl's TLS stack behind a crawler claim must show: {:?}", again.iter().map(|d| &d.id).collect::<Vec<_>>());
+        assert!(
+            again
+                .iter()
+                .any(|d| d.id != "ua_declared_bot" && d.penalty > 0),
+            "curl's TLS stack behind a crawler claim must show: {:?}",
+            again.iter().map(|d| &d.id).collect::<Vec<_>>()
+        );
         // A detail without a name found in the User-Agent changes nothing.
-        assert_eq!(without_bot_claim(ua, "User-Agent claims to be a crawler: Nobot"), None);
+        assert_eq!(
+            without_bot_claim(ua, "User-Agent claims to be a crawler: Nobot"),
+            None
+        );
         assert_eq!(without_bot_claim(ua, "no colon"), None);
     }
     use veritell_core::{Action, ChallengeKind};
@@ -2688,7 +3244,14 @@ mod tests {
     use veritell_token::{pow, Binding, Keys, MemoryBudgetStore};
 
     fn decision(action: Action, enforced: bool) -> Decision {
-        Decision { action, enforced, route: None, rule: None, error: None, offer: None }
+        Decision {
+            action,
+            enforced,
+            route: None,
+            rule: None,
+            error: None,
+            offer: None,
+        }
     }
 
     #[test]
@@ -2707,20 +3270,43 @@ mod tests {
                 false
             });
             assert_eq!(got, Action::Pass, "{action:?}");
-            assert!(!asked, "shadow mode must not count against a rate: {action:?}");
+            assert!(
+                !asked,
+                "shadow mode must not count against a rate: {action:?}"
+            );
         }
     }
 
     #[test]
     fn enforced_actions_and_their_waivers() {
         let pow = Action::Challenge(ChallengeKind::Pow);
-        assert_eq!(effective_action(&decision(pow, true), false, false, |_| true), pow);
-        assert_eq!(effective_action(&decision(pow, true), true, false, |_| true), Action::Pass, "a token waives a challenge");
+        assert_eq!(
+            effective_action(&decision(pow, true), false, false, |_| true),
+            pow
+        );
+        assert_eq!(
+            effective_action(&decision(pow, true), true, false, |_| true),
+            Action::Pass,
+            "a token waives a challenge"
+        );
         // A token waives only a challenge.
-        assert_eq!(effective_action(&decision(Action::Block, true), true, true, |_| true), Action::Block);
-        assert_eq!(effective_action(&decision(Action::Charge, true), false, false, |_| true), Action::Charge);
-        assert_eq!(effective_action(&decision(Action::Charge, true), false, true, |_| true), Action::Pass, "a receipt claim waives a charge");
-        assert_eq!(effective_action(&decision(Action::Pass, true), false, false, |_| false), Action::Pass);
+        assert_eq!(
+            effective_action(&decision(Action::Block, true), true, true, |_| true),
+            Action::Block
+        );
+        assert_eq!(
+            effective_action(&decision(Action::Charge, true), false, false, |_| true),
+            Action::Charge
+        );
+        assert_eq!(
+            effective_action(&decision(Action::Charge, true), false, true, |_| true),
+            Action::Pass,
+            "a receipt claim waives a charge"
+        );
+        assert_eq!(
+            effective_action(&decision(Action::Pass, true), false, false, |_| false),
+            Action::Pass
+        );
     }
 
     #[test]
@@ -2732,7 +3318,10 @@ mod tests {
             true
         });
         assert_eq!((got, rate), (Action::Pass, 30));
-        assert_eq!(effective_action(&decision(throttle, true), true, true, |_| false), throttle);
+        assert_eq!(
+            effective_action(&decision(throttle, true), true, true, |_| false),
+            throttle
+        );
     }
 
     fn keys() -> Keys {
@@ -2740,7 +3329,10 @@ mod tests {
     }
 
     fn form(fields: &[(&str, &str)]) -> HashMap<String, String> {
-        fields.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        fields
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     /// A challenge for `binding` at the lowest difficulty, and its answer.
@@ -2756,7 +3348,10 @@ mod tests {
         let (c, n) = solved(&k, &b, 1_000);
         let f = form(&[("challenge", &c), ("counter", &n)]);
         assert!(check_solution(&k, &used, &f, &b, 1_010).is_some());
-        assert!(check_solution(&k, &used, &f, &b, 1_011).is_none(), "a replay must not mint a second token");
+        assert!(
+            check_solution(&k, &used, &f, &b, 1_011).is_none(),
+            "a replay must not mint a second token"
+        );
     }
 
     #[test]
@@ -2787,7 +3382,14 @@ mod tests {
         let (k, b) = (keys(), Binding([1; 16]));
         let used = MemoryBudgetStore::new(0);
         let (c, n) = solved(&k, &b, 1_000);
-        assert!(check_solution(&k, &used, &form(&[("challenge", &c), ("counter", &n)]), &b, 1_010).is_none());
+        assert!(check_solution(
+            &k,
+            &used,
+            &form(&[("challenge", &c), ("counter", &n)]),
+            &b,
+            1_010
+        )
+        .is_none());
     }
 
     #[test]
@@ -2796,10 +3398,17 @@ mod tests {
         let c = pow::issue_challenge(&k, &b, 1_000, 120, 14);
         assert_eq!(retry_difficulty(&k, &form(&[("challenge", &c)])), 14);
         let hardest = pow::difficulty_for_score(1);
-        assert_eq!(retry_difficulty(&k, &form(&[("challenge", "not ours")])), hardest);
+        assert_eq!(
+            retry_difficulty(&k, &form(&[("challenge", "not ours")])),
+            hardest
+        );
         assert_eq!(retry_difficulty(&k, &form(&[])), hardest);
-        let foreign = pow::issue_challenge(&Keys::from_secret(&[8u8; 32]).unwrap(), &b, 1_000, 120, 8);
-        assert_eq!(retry_difficulty(&k, &form(&[("challenge", &foreign)])), hardest);
+        let foreign =
+            pow::issue_challenge(&Keys::from_secret(&[8u8; 32]).unwrap(), &b, 1_000, 120, 8);
+        assert_eq!(
+            retry_difficulty(&k, &form(&[("challenge", &foreign)])),
+            hardest
+        );
     }
     use pingora::http::RequestHeader;
     use std::collections::HashMap;
@@ -2809,48 +3418,113 @@ mod tests {
     fn every_forwarded_line_is_read_and_the_last_entry_wins() {
         let last = |lines: &[&str]| last_forwarded(lines.iter().map(|l| Some(*l)));
         // The client's own line first, the proxy's line after it.
-        assert_eq!(last(&["66.249.66.1", "198.51.100.7"]), "198.51.100.7".parse().ok());
-        assert_eq!(last(&["1.1.1.1, 2.2.2.2", " 198.51.100.7 "]), "198.51.100.7".parse().ok());
+        assert_eq!(
+            last(&["66.249.66.1", "198.51.100.7"]),
+            "198.51.100.7".parse().ok()
+        );
+        assert_eq!(
+            last(&["1.1.1.1, 2.2.2.2", " 198.51.100.7 "]),
+            "198.51.100.7".parse().ok()
+        );
         assert_eq!(last(&["198.51.100.7", ""]), "198.51.100.7".parse().ok());
         assert_eq!(last(&["198.51.100.7"]), "198.51.100.7".parse().ok());
         assert_eq!(last(&[]), None);
         assert_eq!(last(&["198.51.100.7", "garbage"]), None);
         // A line that is not text spoils the whole header.
-        assert_eq!(last_forwarded([Some("66.249.66.1"), None].into_iter()), None);
+        assert_eq!(
+            last_forwarded([Some("66.249.66.1"), None].into_iter()),
+            None
+        );
     }
 
     fn original(headers: &[(&str, &str)], suffix: Option<&str>) -> Result<Original, SidecarError> {
-        let map: HashMap<String, String> =
-            headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let map: HashMap<String, String> = headers
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         original_request(|n| map.get(n).cloned(), suffix.map(str::to_owned), "POST")
     }
 
     #[test]
     fn sidecar_reads_either_header_family() {
-        let o = original(&[("x-original-uri", "/a?b=1"), ("x-original-method", "PUT"), ("x-original-host", "site.test")], None).unwrap();
-        assert_eq!(o, Original { uri: "/a?b=1".into(), method: "PUT".into(), host: "site.test".into() });
+        let o = original(
+            &[
+                ("x-original-uri", "/a?b=1"),
+                ("x-original-method", "PUT"),
+                ("x-original-host", "site.test"),
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            o,
+            Original {
+                uri: "/a?b=1".into(),
+                method: "PUT".into(),
+                host: "site.test".into()
+            }
+        );
         let o = original(&[("x-forwarded-uri", "/a"), ("host", "gw.test")], None).unwrap();
-        assert_eq!(o, Original { uri: "/a".into(), method: "GET".into(), host: "gw.test".into() });
+        assert_eq!(
+            o,
+            Original {
+                uri: "/a".into(),
+                method: "GET".into(),
+                host: "gw.test".into()
+            }
+        );
         // The same value in both is fine; hosts compare by name.
-        let o = original(&[("x-original-uri", "/a"), ("x-forwarded-uri", "/a"), ("x-original-host", "Site.test"), ("x-forwarded-host", "site.test:443")], None).unwrap();
+        let o = original(
+            &[
+                ("x-original-uri", "/a"),
+                ("x-forwarded-uri", "/a"),
+                ("x-original-host", "Site.test"),
+                ("x-forwarded-host", "site.test:443"),
+            ],
+            None,
+        )
+        .unwrap();
         assert_eq!((o.uri.as_str(), o.host.as_str()), ("/a", "site.test:443"));
     }
 
     #[test]
     fn a_spoofed_original_header_is_refused() {
         // Caddy or Traefik set x-forwarded-*; the client added x-original-*.
-        for (name, fwd, spoof) in [("uri", "/admin", "/open/x"), ("method", "POST", "GET"), ("host", "admin.test", "open.test")] {
-            let headers = [(format!("x-forwarded-{name}"), fwd), (format!("x-original-{name}"), spoof), ("x-forwarded-uri".to_string(), "/admin")];
-            let headers: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-            assert_eq!(original(&headers, None), Err(SidecarError::Conflict), "{name}");
+        for (name, fwd, spoof) in [
+            ("uri", "/admin", "/open/x"),
+            ("method", "POST", "GET"),
+            ("host", "admin.test", "open.test"),
+        ] {
+            let headers = [
+                (format!("x-forwarded-{name}"), fwd),
+                (format!("x-original-{name}"), spoof),
+                ("x-forwarded-uri".to_string(), "/admin"),
+            ];
+            let headers: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+            assert_eq!(
+                original(&headers, None),
+                Err(SidecarError::Conflict),
+                "{name}"
+            );
         }
         assert_eq!(original(&[], None), Err(SidecarError::Missing));
-        assert_eq!(original(&[("x-original-uri", "http://evil.test/")], None), Err(SidecarError::Missing));
+        assert_eq!(
+            original(&[("x-original-uri", "http://evil.test/")], None),
+            Err(SidecarError::Missing)
+        );
     }
 
     #[test]
     fn sidecar_path_suffix_uses_the_calls_own_method() {
-        let o = original(&[("x-original-uri", "/elsewhere"), ("x-original-method", "GET")], Some("/open/y?z=2")).unwrap();
+        let o = original(
+            &[
+                ("x-original-uri", "/elsewhere"),
+                ("x-original-method", "GET"),
+            ],
+            Some("/open/y?z=2"),
+        )
+        .unwrap();
         assert_eq!((o.uri.as_str(), o.method.as_str()), ("/open/y?z=2", "POST"));
     }
 
@@ -2858,26 +3532,62 @@ mod tests {
     fn a_replayed_signature_proves_no_agent() {
         use veritell_wba::{ReplayCache, SignatureInfo, WbaVerdict};
         let mut cache = ReplayCache::new(10);
-        let info = SignatureInfo { replay_id: [7; 32], expires: 1_000, components: vec!["@authority".into()] };
-        let verified = || WbaVerdict::Verified { agent: "agent.test".into(), keyid: "k".into() };
-        let (agent, found) = signed_agent_of(verified(), Some(&info), false, false, &mut cache, 900);
-        assert_eq!((agent.as_deref(), found.is_none()), (Some("agent.test"), true));
+        let info = SignatureInfo {
+            replay_id: [7; 32],
+            expires: 1_000,
+            components: vec!["@authority".into()],
+        };
+        let verified = || WbaVerdict::Verified {
+            agent: "agent.test".into(),
+            keyid: "k".into(),
+        };
+        let (agent, found) =
+            signed_agent_of(verified(), Some(&info), false, false, &mut cache, 900);
+        assert_eq!(
+            (agent.as_deref(), found.is_none()),
+            (Some("agent.test"), true)
+        );
         // The same signature again is a replay.
-        let (agent, found) = signed_agent_of(verified(), Some(&info), false, false, &mut cache, 901);
-        assert_eq!((agent, found.map(|d| d.id)), (None, Some("wba_replay".to_string())));
+        let (agent, found) =
+            signed_agent_of(verified(), Some(&info), false, false, &mut cache, 901);
+        assert_eq!(
+            (agent, found.map(|d| d.id)),
+            (None, Some("wba_replay".to_string()))
+        );
         // A new signature from the same agent is fine.
-        let other = SignatureInfo { replay_id: [8; 32], ..info.clone() };
-        assert_eq!(signed_agent_of(verified(), Some(&other), false, false, &mut cache, 902).0.as_deref(), Some("agent.test"));
+        let other = SignatureInfo {
+            replay_id: [8; 32],
+            ..info.clone()
+        };
+        assert_eq!(
+            signed_agent_of(verified(), Some(&other), false, false, &mut cache, 902)
+                .0
+                .as_deref(),
+            Some("agent.test")
+        );
         // No replay facts: not believed.
-        assert_eq!(signed_agent_of(verified(), None, false, false, &mut cache, 902).0, None);
+        assert_eq!(
+            signed_agent_of(verified(), None, false, false, &mut cache, 902).0,
+            None
+        );
     }
 
     #[test]
     fn an_unknown_key_proves_no_agent() {
         use veritell_wba::{ReplayCache, WbaVerdict};
         let mut cache = ReplayCache::new(10);
-        let (agent, found) = signed_agent_of(WbaVerdict::UnknownKey { keyid: "k".into() }, None, false, false, &mut cache, 1);
-        assert_eq!((agent, found.map(|d| d.id)), (None, Some("wba_unknown_key".to_string())));
+        let (agent, found) = signed_agent_of(
+            WbaVerdict::UnknownKey { keyid: "k".into() },
+            None,
+            false,
+            false,
+            &mut cache,
+            1,
+        );
+        assert_eq!(
+            (agent, found.map(|d| d.id)),
+            (None, Some("wba_unknown_key".to_string()))
+        );
         assert!(cache.is_empty(), "an unknown key fills nothing");
         let (agent, found) = signed_agent_of(WbaVerdict::Absent, None, false, false, &mut cache, 1);
         assert!(agent.is_none() && found.is_none());
@@ -2914,9 +3624,15 @@ mod tests {
             ("x-forwarded-for", "66.249.66.1"),
         ];
         let peer = "198.51.100.7".parse().ok();
-        let ctx = Ctx { peer_ip: peer, client_ip: peer, ..Ctx::default() };
+        let ctx = Ctx {
+            peer_ip: peer,
+            client_ip: peer,
+            ..Ctx::default()
+        };
         let pairs = |v: &[(&str, &str)]| -> Vec<(String, String)> {
-            v.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+            v.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
         };
         assert_eq!(
             forwarded(&ctx, false, &spoofed),
@@ -2928,7 +3644,11 @@ mod tests {
         );
         assert_eq!(
             forwarded(&ctx, true, &spoofed),
-            pairs(&[("x-forwarded-for", "198.51.100.7"), ("x-forwarded-proto", "https"), ("x-real-ip", "198.51.100.7")])
+            pairs(&[
+                ("x-forwarded-for", "198.51.100.7"),
+                ("x-forwarded-proto", "https"),
+                ("x-real-ip", "198.51.100.7")
+            ])
         );
         // Behind a trusted proxy, its forwarding headers stay, and the client
         // is the address it reported.
@@ -2938,7 +3658,14 @@ mod tests {
             behind_proxy: true,
             ..Ctx::default()
         };
-        let got = forwarded(&ctx, false, &[("x-forwarded-host", "site.test"), ("x-forwarded-for", "203.0.113.5")]);
+        let got = forwarded(
+            &ctx,
+            false,
+            &[
+                ("x-forwarded-host", "site.test"),
+                ("x-forwarded-for", "203.0.113.5"),
+            ],
+        );
         assert!(got.contains(&("x-forwarded-host".into(), "site.test".into())));
         assert!(got.contains(&("x-real-ip".into(), "203.0.113.5".into())));
         assert!(got.contains(&("x-forwarded-for".into(), "203.0.113.5, 10.0.0.1".into())));
@@ -2949,7 +3676,10 @@ mod tests {
         let sni = |a, c| upstream_sni(a, c, "10.0.0.1");
         assert_eq!(sni(Some("site.test"), None), "site.test");
         assert_eq!(sni(Some("site.test:8443"), Some("other.test")), "site.test");
-        assert_eq!(sni(Some("127.0.0.1:8443"), Some("other.test")), "other.test");
+        assert_eq!(
+            sni(Some("127.0.0.1:8443"), Some("other.test")),
+            "other.test"
+        );
         assert_eq!(sni(Some("[::1]:8443"), Some("other.test")), "other.test");
         assert_eq!(sni(Some("[::1]"), None), "10.0.0.1");
         assert_eq!(sni(Some("[2001:db8::1]:443"), None), "10.0.0.1");
@@ -2964,8 +3694,14 @@ mod tests {
     #[test]
     fn cookie_fields_are_joined() {
         use super::join_cookie_fields;
-        assert_eq!(join_cookie_fields(["a=1", "b=2"].into_iter()), Some("a=1; b=2".into()));
-        assert_eq!(join_cookie_fields(["a=1; b=2", " c=3 "].into_iter()), Some("a=1; b=2; c=3".into()));
+        assert_eq!(
+            join_cookie_fields(["a=1", "b=2"].into_iter()),
+            Some("a=1; b=2".into())
+        );
+        assert_eq!(
+            join_cookie_fields(["a=1; b=2", " c=3 "].into_iter()),
+            Some("a=1; b=2; c=3".into())
+        );
         assert_eq!(join_cookie_fields(["", "  "].into_iter()), None);
         assert_eq!(join_cookie_fields(std::iter::empty()), None);
     }
@@ -2973,17 +3709,32 @@ mod tests {
     #[test]
     fn mapped_addresses_are_canonical() {
         use super::canonical;
-        assert_eq!(canonical("::ffff:10.0.0.1".parse().unwrap()), "10.0.0.1".parse::<std::net::IpAddr>().unwrap());
-        assert_eq!(canonical("10.0.0.1".parse().unwrap()), "10.0.0.1".parse::<std::net::IpAddr>().unwrap());
-        assert_eq!(canonical("2001:db8::1".parse().unwrap()), "2001:db8::1".parse::<std::net::IpAddr>().unwrap());
-        assert_eq!(forwarded_ip("1.1.1.1, ::ffff:203.0.113.9"), "203.0.113.9".parse().ok());
+        assert_eq!(
+            canonical("::ffff:10.0.0.1".parse().unwrap()),
+            "10.0.0.1".parse::<std::net::IpAddr>().unwrap()
+        );
+        assert_eq!(
+            canonical("10.0.0.1".parse().unwrap()),
+            "10.0.0.1".parse::<std::net::IpAddr>().unwrap()
+        );
+        assert_eq!(
+            canonical("2001:db8::1".parse().unwrap()),
+            "2001:db8::1".parse::<std::net::IpAddr>().unwrap()
+        );
+        assert_eq!(
+            forwarded_ip("1.1.1.1, ::ffff:203.0.113.9"),
+            "203.0.113.9".parse().ok()
+        );
     }
 
     #[test]
     fn forwarded_address_is_the_last_entry() {
         assert_eq!(forwarded_ip("203.0.113.9"), "203.0.113.9".parse().ok());
         // Earlier entries are whatever the client claimed.
-        assert_eq!(forwarded_ip("1.1.1.1, 10.0.0.1 , 2001:db8::7"), "2001:db8::7".parse().ok());
+        assert_eq!(
+            forwarded_ip("1.1.1.1, 10.0.0.1 , 2001:db8::7"),
+            "2001:db8::7".parse().ok()
+        );
         for bad in ["", ",", "unknown", "1.2.3.4:80", "1.2.3.4,"] {
             assert_eq!(forwarded_ip(bad), None, "{bad:?}");
         }

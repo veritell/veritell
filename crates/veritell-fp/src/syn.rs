@@ -86,7 +86,12 @@ pub fn parse(bytes: &[u8]) -> Option<SynFp> {
             let src = IpAddr::from([bytes[12], bytes[13], bytes[14], bytes[15]]);
             // A SYN with data (TCP Fast Open) is longer than what was saved:
             // only the headers are kept. Parse what is there.
-            (bytes[8], src, ihl - 20, (&bytes[ihl..total.min(bytes.len())], total - ihl))
+            (
+                bytes[8],
+                src,
+                ihl - 20,
+                (&bytes[ihl..total.min(bytes.len())], total - ihl),
+            )
         }
         6 => {
             if bytes.len() < 40 || bytes[6] != 6 {
@@ -103,7 +108,12 @@ pub fn parse(bytes: &[u8]) -> Option<SynFp> {
             }
             let mut a = [0u8; 16];
             a.copy_from_slice(&bytes[8..24]);
-            (bytes[7], IpAddr::from(a), 0, (&bytes[40..(40 + payload).min(bytes.len())], payload))
+            (
+                bytes[7],
+                IpAddr::from(a),
+                0,
+                (&bytes[40..(40 + payload).min(bytes.len())], payload),
+            )
         }
         _ => return None,
     };
@@ -301,12 +311,20 @@ mod tests {
         );
         let opts = [2, 4, 0x05, 0xb4, 1, 3, 3, 8, 0];
         let p = v4(113, true, 1, &tcp(64240, &opts));
-        assert_eq!(parse(&p).unwrap().signature, "4:128:0:1460:64240,8:mss,nop,ws,eol+3:df,id+");
+        assert_eq!(
+            parse(&p).unwrap().signature,
+            "4:128:0:1460:64240,8:mss,nop,ws,eol+3:df,id+"
+        );
     }
 
     #[test]
     fn ipv6_syn() {
-        let t = tcp(65535, &[2, 4, 0x05, 0xa0, 1, 3, 3, 6, 1, 1, 8, 10, 0, 0, 0, 9, 0, 0, 0, 0, 4, 2, 0, 0]);
+        let t = tcp(
+            65535,
+            &[
+                2, 4, 0x05, 0xa0, 1, 3, 3, 6, 1, 1, 8, 10, 0, 0, 0, 9, 0, 0, 0, 0, 4, 2, 0, 0,
+            ],
+        );
         let mut p = vec![0x60, 0x0a, 0xbc, 0xde];
         p.extend_from_slice(&(t.len() as u16).to_be_bytes());
         p.extend_from_slice(&[6, 64]);
@@ -315,7 +333,10 @@ mod tests {
         p.extend_from_slice(&[0u8; 16]);
         p.extend_from_slice(&t);
         let fp = parse(&p).unwrap();
-        assert_eq!(fp.signature, "6:64:0:1440:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:flow");
+        assert_eq!(
+            fp.signature,
+            "6:64:0:1440:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:flow"
+        );
         assert_eq!(fp.ttl, 64);
         assert_eq!(fp.src, IpAddr::from(src));
     }
@@ -326,7 +347,10 @@ mod tests {
         // non-zero echo; window scale over 14.
         let opts = [8, 10, 0, 0, 0, 0, 0, 0, 0, 5, 3, 3, 15];
         let p = v4(250, false, 0, &tcp(1024, &opts));
-        assert_eq!(parse(&p).unwrap().signature, "4:255:0:*:1024,15:ts,ws,eol+2:id-,ts1-,ts2+,exws");
+        assert_eq!(
+            parse(&p).unwrap().signature,
+            "4:255:0:*:1024,15:ts,ws,eol+2:id-,ts1-,ts2+,exws"
+        );
     }
 
     #[test]
@@ -359,7 +383,10 @@ mod tests {
         assert!(parse(&p).unwrap().signature.ends_with(",bad"));
         // A known option with the wrong length.
         let p = v4(64, true, 1, &tcp(1, &[2, 3, 0, 1]));
-        assert_eq!(parse(&p).unwrap().signature, "4:64:0:*:1,*:?2,nop:df,id+,bad");
+        assert_eq!(
+            parse(&p).unwrap().signature,
+            "4:64:0:*:1,*:?2,nop:df,id+,bad"
+        );
         // Every byte value at every position: never a panic.
         let base = v4(64, true, 1, &tcp(64240, &LINUX_OPTS));
         for pos in 0..base.len() {
@@ -378,10 +405,16 @@ mod tests {
         let mut p = v4(57, true, 0x1c46, &tcp(64240, &LINUX_OPTS));
         let total = (p.len() + 100) as u16;
         p[2..4].copy_from_slice(&total.to_be_bytes());
-        assert_eq!(parse(&p).unwrap().signature, "4:64:0:1460:64240,7:mss,sok,ts,nop,ws:df,id+,data+");
+        assert_eq!(
+            parse(&p).unwrap().signature,
+            "4:64:0:1460:64240,7:mss,sok,ts,nop,ws:df,id+,data+"
+        );
         // The same with the data present.
         p.extend_from_slice(&[0xab; 100]);
-        assert_eq!(parse(&p).unwrap().signature, "4:64:0:1460:64240,7:mss,sok,ts,nop,ws:df,id+,data+");
+        assert_eq!(
+            parse(&p).unwrap().signature,
+            "4:64:0:1460:64240,7:mss,sok,ts,nop,ws:df,id+,data+"
+        );
         // IPv6.
         let t = tcp(65535, &[2, 4, 0x05, 0xa0]);
         let mut p = vec![0x60, 0, 0, 0];
@@ -390,7 +423,10 @@ mod tests {
         p.extend_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]);
         p.extend_from_slice(&[0u8; 16]);
         p.extend_from_slice(&t);
-        assert_eq!(parse(&p).unwrap().signature, "6:64:0:1440:65535,*:mss:data+");
+        assert_eq!(
+            parse(&p).unwrap().signature,
+            "6:64:0:1440:65535,*:mss:data+"
+        );
     }
 
     #[test]
@@ -400,10 +436,16 @@ mod tests {
         assert_eq!(parse(&p).unwrap().signature, "4:64:0:*:1024,*::df,id+,ecn");
         let ip_only = p.clone();
         p[20 + 13] |= 0xc0; // ECE and CWR as well
-        assert_eq!(parse(&p).unwrap().signature, parse(&ip_only).unwrap().signature);
+        assert_eq!(
+            parse(&p).unwrap().signature,
+            parse(&ip_only).unwrap().signature
+        );
         let mut t = tcp(1024, &[]);
         t[13] |= 0xc0; // TCP flags only
-        assert_eq!(parse(&v4(64, true, 1, &t)).unwrap().signature, "4:64:0:*:1024,*::df,id+,ecn");
+        assert_eq!(
+            parse(&v4(64, true, 1, &t)).unwrap().signature,
+            "4:64:0:*:1024,*::df,id+,ecn"
+        );
     }
 
     #[test]

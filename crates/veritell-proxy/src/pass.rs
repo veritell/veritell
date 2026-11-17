@@ -19,8 +19,8 @@
 //! listed; tokens for any listed key are still taken.
 
 use veritell_privacypass::{
-    challenge_digest, redemption_context, token_challenge, token_from_authorization, valid_server_name,
-    verify, www_authenticate, Accepted, IssuerKey, PassError,
+    challenge_digest, redemption_context, token_challenge, token_from_authorization,
+    valid_server_name, verify, www_authenticate, Accepted, IssuerKey, PassError,
 };
 use veritell_token::MemoryBudgetStore;
 
@@ -106,7 +106,10 @@ impl PrivacyPass {
             let until = window.saturating_add(2).saturating_mul(WINDOW_SECS);
             for key in &self.keys {
                 if let Some(c) = self.challenge(key, origin, window) {
-                    let entry = Accepted { challenge_digest: challenge_digest(&c), key_id: *key.key_id() };
+                    let entry = Accepted {
+                        challenge_digest: challenge_digest(&c),
+                        key_id: *key.key_id(),
+                    };
                     if !out.iter().any(|(a, _)| *a == entry) {
                         out.push((entry, until));
                     }
@@ -181,12 +184,19 @@ mod tests {
     /// half these tests do not hold.
     fn rfc_key() -> IssuerKey {
         let hex = "30820152303d06092a864886f70d01010a3030a00d300b0609608648016503040202a11a301806092a864886f70d010108300b0609608648016503040202a2030201300382010f003082010a0282010100cb1aed6b6a95f5b1ce013a4cfcab25b94b2e64a23034e4250a7eab43c0df3a8c12993af12b111908d4b471bec31d4b6c9ad9cdda90612a2ee903523e6de5a224d6b02f09e5c374d0cfe01d8f529c500a78a2f67908fa682b5a2b430c81eaf1af72d7b5e794fc98a3139276879757ce453b526ef9bf6ceb99979b8423b90f4461a22af37aab0cf5733f7597abe44d31c732db68a181c6cbbe607d8c0e52e0655fd9996dc584eca0be87afbcd78a337d17b1dba9e828bbd81e291317144e7ff89f55619709b096cbb9ea474cead264c2073fe49740c01f00e109106066983d21e5f83f086e2e823c879cd43cef700d2a352a9babd612d03cad02db134b7e225a5f0203010001";
-        let der: Vec<u8> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect();
+        let der: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
         IssuerKey::new("rfc.test", &der).unwrap()
     }
 
     fn pass_with(keys: Vec<IssuerKey>, capacity: usize) -> PrivacyPass {
-        PrivacyPass { keys, secret: b"gateway secret".to_vec(), used: Arc::new(MemoryBudgetStore::new(capacity)) }
+        PrivacyPass {
+            keys,
+            secret: b"gateway secret".to_vec(),
+            used: Arc::new(MemoryBudgetStore::new(capacity)),
+        }
     }
 
     fn pass() -> PrivacyPass {
@@ -202,7 +212,14 @@ mod tests {
         token.extend_from_slice(key().key_id());
         let signer = RsaKeyPair::from_der(PRIVATE).expect("the test private key");
         let mut signature = vec![0u8; signer.public().modulus_len()];
-        signer.sign(&RSA_PSS_SHA384, &SystemRandom::new(), &token, &mut signature).expect("signing");
+        signer
+            .sign(
+                &RSA_PSS_SHA384,
+                &SystemRandom::new(),
+                &token,
+                &mut signature,
+            )
+            .expect("signing");
         token.extend_from_slice(&signature);
         assert_eq!(token.len(), veritell_privacypass::TOKEN_BYTES);
         token
@@ -217,7 +234,9 @@ mod tests {
         let header = p.offer(origin, now).expect("a challenge is offered");
         let start = header.find("challenge=\"").expect("a challenge") + "challenge=\"".len();
         let end = start + header[start..].find('"').expect("closing quote");
-        URL_SAFE.decode(&header[start..end]).expect("base64url challenge")
+        URL_SAFE
+            .decode(&header[start..end])
+            .expect("base64url challenge")
     }
 
     // ---------- parse_issuers ----------
@@ -251,13 +270,22 @@ mod tests {
         let header = p.offer(SITE, NOW).unwrap();
         assert!(header.starts_with("PrivateToken challenge=\""), "{header}");
         assert_eq!(header.matches("challenge=").count(), 1);
-        assert!(header.contains(&format!("token-key=\"{}\"", key().token_key())), "{header}");
+        assert!(
+            header.contains(&format!("token-key=\"{}\"", key().token_key())),
+            "{header}"
+        );
     }
 
     #[test]
     fn no_challenge_without_a_key_or_a_server_name() {
-        assert!(pass_with(Vec::new(), 10).offer(SITE, NOW).is_none(), "no issuer configured");
-        assert!(pass().offer("[2001:db8::1]", NOW).is_none(), "an address literal is not a name");
+        assert!(
+            pass_with(Vec::new(), 10).offer(SITE, NOW).is_none(),
+            "no issuer configured"
+        );
+        assert!(
+            pass().offer("[2001:db8::1]", NOW).is_none(),
+            "an address literal is not a name"
+        );
         assert!(pass().offer("", NOW).is_none());
     }
 
@@ -267,9 +295,20 @@ mod tests {
         let here = offered(&p, SITE, NOW);
         assert_eq!(here, offered(&p, SITE, NOW + 1), "the same window");
         assert_ne!(here, offered(&p, "other.test", NOW), "another site");
-        assert_ne!(here, offered(&p, SITE, NOW + WINDOW_SECS), "the next window");
-        let other_gateway = PrivacyPass { secret: b"another secret".to_vec(), ..pass() };
-        assert_ne!(here, offered(&other_gateway, SITE, NOW), "another gateway's secret");
+        assert_ne!(
+            here,
+            offered(&p, SITE, NOW + WINDOW_SECS),
+            "the next window"
+        );
+        let other_gateway = PrivacyPass {
+            secret: b"another secret".to_vec(),
+            ..pass()
+        };
+        assert_ne!(
+            here,
+            offered(&other_gateway, SITE, NOW),
+            "another gateway's secret"
+        );
     }
 
     // ---------- redeem ----------
@@ -279,15 +318,24 @@ mod tests {
         let p = pass();
         assert_eq!(p.redeem(None, SITE, NOW), Redemption::None);
         assert_eq!(p.redeem(Some("Bearer abc"), SITE, NOW), Redemption::None);
-        assert_eq!(p.redeem(Some("Basic dXNlcjpwYXNz"), SITE, NOW), Redemption::None);
+        assert_eq!(
+            p.redeem(Some("Basic dXNlcjpwYXNz"), SITE, NOW),
+            Redemption::None
+        );
     }
 
     #[test]
     fn our_scheme_without_a_usable_token_is_refused() {
         let p = pass();
-        assert_eq!(p.redeem(Some("PrivateToken token=\"!!!\""), SITE, NOW), Redemption::Refused("token_invalid"));
+        assert_eq!(
+            p.redeem(Some("PrivateToken token=\"!!!\""), SITE, NOW),
+            Redemption::Refused("token_invalid")
+        );
         let short = authorization(&[0u8; 10]);
-        assert_eq!(p.redeem(Some(&short), SITE, NOW), Redemption::Refused("token_invalid"));
+        assert_eq!(
+            p.redeem(Some(&short), SITE, NOW),
+            Redemption::Refused("token_invalid")
+        );
     }
 
     #[test]
@@ -296,7 +344,10 @@ mod tests {
         let token = mint(&offered(&p, SITE, NOW), [1; 32]);
         let auth = authorization(&token);
         assert_eq!(p.redeem(Some(&auth), SITE, NOW), Redemption::Redeemed);
-        assert_eq!(p.redeem(Some(&auth), SITE, NOW + 1), Redemption::Refused("token_replayed"));
+        assert_eq!(
+            p.redeem(Some(&auth), SITE, NOW + 1),
+            Redemption::Refused("token_replayed")
+        );
     }
 
     #[test]
@@ -307,8 +358,14 @@ mod tests {
         let mut b = [7u8; 32];
         a[31] = 1;
         b[31] = 2;
-        assert_eq!(p.redeem(Some(&authorization(&mint(&challenge, a))), SITE, NOW), Redemption::Redeemed);
-        assert_eq!(p.redeem(Some(&authorization(&mint(&challenge, b))), SITE, NOW), Redemption::Redeemed);
+        assert_eq!(
+            p.redeem(Some(&authorization(&mint(&challenge, a))), SITE, NOW),
+            Redemption::Redeemed
+        );
+        assert_eq!(
+            p.redeem(Some(&authorization(&mint(&challenge, b))), SITE, NOW),
+            Redemption::Redeemed
+        );
     }
 
     #[test]
@@ -317,7 +374,11 @@ mod tests {
         let start = NOW - NOW % WINDOW_SECS;
         let challenge = offered(&p, SITE, start);
         let next = authorization(&mint(&challenge, [2; 32]));
-        assert_eq!(p.redeem(Some(&next), SITE, start + WINDOW_SECS + 10), Redemption::Redeemed, "the next window");
+        assert_eq!(
+            p.redeem(Some(&next), SITE, start + WINDOW_SECS + 10),
+            Redemption::Redeemed,
+            "the next window"
+        );
         let late = authorization(&mint(&challenge, [3; 32]));
         assert_eq!(
             p.redeem(Some(&late), SITE, start + 2 * WINDOW_SECS),
@@ -333,7 +394,10 @@ mod tests {
         let auth = authorization(&mint(&offered(&p, SITE, start), [4; 32]));
         assert_eq!(p.redeem(Some(&auth), SITE, start), Redemption::Redeemed);
         let last_moment = start + 2 * WINDOW_SECS - 1;
-        assert_eq!(p.redeem(Some(&auth), SITE, last_moment), Redemption::Refused("token_replayed"));
+        assert_eq!(
+            p.redeem(Some(&auth), SITE, last_moment),
+            Redemption::Refused("token_replayed")
+        );
         assert_eq!(
             p.redeem(Some(&auth), SITE, last_moment + 1),
             Redemption::Refused("token_wrong_challenge"),
@@ -345,7 +409,10 @@ mod tests {
     fn a_token_fetched_for_another_site_is_refused() {
         let p = pass();
         let auth = authorization(&mint(&offered(&p, "other.test", NOW), [5; 32]));
-        assert_eq!(p.redeem(Some(&auth), SITE, NOW), Redemption::Refused("token_wrong_challenge"));
+        assert_eq!(
+            p.redeem(Some(&auth), SITE, NOW),
+            Redemption::Refused("token_wrong_challenge")
+        );
     }
 
     #[test]
@@ -353,7 +420,10 @@ mod tests {
         let signer = pass();
         let auth = authorization(&mint(&offered(&signer, SITE, NOW), [6; 32]));
         let other = pass_with(vec![rfc_key()], 10);
-        assert_eq!(other.redeem(Some(&auth), SITE, NOW), Redemption::Refused("token_unknown_issuer"));
+        assert_eq!(
+            other.redeem(Some(&auth), SITE, NOW),
+            Redemption::Refused("token_unknown_issuer")
+        );
     }
 
     #[test]
@@ -362,14 +432,20 @@ mod tests {
         let mut token = mint(&offered(&p, SITE, NOW), [8; 32]);
         let last = token.len() - 1;
         token[last] ^= 1;
-        assert_eq!(p.redeem(Some(&authorization(&token)), SITE, NOW), Redemption::Refused("token_invalid"));
+        assert_eq!(
+            p.redeem(Some(&authorization(&token)), SITE, NOW),
+            Redemption::Refused("token_invalid")
+        );
     }
 
     #[test]
     fn a_full_store_refuses_rather_than_forgets() {
         let p = pass_with(vec![key()], 1);
         let challenge = offered(&p, SITE, NOW);
-        assert_eq!(p.redeem(Some(&authorization(&mint(&challenge, [9; 32]))), SITE, NOW), Redemption::Redeemed);
+        assert_eq!(
+            p.redeem(Some(&authorization(&mint(&challenge, [9; 32]))), SITE, NOW),
+            Redemption::Redeemed
+        );
         assert_eq!(
             p.redeem(Some(&authorization(&mint(&challenge, [10; 32]))), SITE, NOW),
             Redemption::Refused("token_store_full")

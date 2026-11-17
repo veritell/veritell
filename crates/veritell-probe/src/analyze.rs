@@ -14,7 +14,10 @@ const PRIVACY_PATCHES: &[(&str, Engine, &[&str])] = &[
     (
         " Ddg/",
         Engine::Webkit,
-        &["Navigator.prototype.hardwareConcurrency", "Permissions.prototype.query"],
+        &[
+            "Navigator.prototype.hardwareConcurrency",
+            "Permissions.prototype.query",
+        ],
     ),
 ];
 
@@ -23,9 +26,9 @@ fn privacy_patch(claimed: &Claimed<'_>, target: &str) -> bool {
     let Some(ua) = claimed.user_agent else {
         return false;
     };
-    PRIVACY_PATCHES
-        .iter()
-        .any(|(marker, engine, targets)| ua.contains(marker) && claimed.engine == Some(*engine) && targets.contains(&target))
+    PRIVACY_PATCHES.iter().any(|(marker, engine, targets)| {
+        ua.contains(marker) && claimed.engine == Some(*engine) && targets.contains(&target)
+    })
 }
 
 /// Turns a report into detections. All are `Layer::Client`.
@@ -103,25 +106,51 @@ pub fn analyze(report: &ProbeReport, claimed: &Claimed<'_>, truth: &EngineTruth)
         .map(|(n, _)| *n)
         .collect();
     if !wd.is_empty() {
-        push(&mut out, "webdriver_true", 70, Some(Class::Automated), format!("webdriver true in: {}", wd.join(", ")));
+        push(
+            &mut out,
+            "webdriver_true",
+            70,
+            Some(Class::Automated),
+            format!("webdriver true in: {}", wd.join(", ")),
+        );
     }
 
     // 2
     if !page.globals.is_empty() {
         let names: Vec<String> = page.globals.iter().map(|g| clean(g)).collect();
-        push(&mut out, "automation_globals", 70, Some(Class::Automated), format!("globals: {}", names.join(", ")));
+        push(
+            &mut out,
+            "automation_globals",
+            70,
+            Some(Class::Automated),
+            format!("globals: {}", names.join(", ")),
+        );
     }
 
     // 3
     let mut tampered = Vec::new();
     for (name, r) in &realms {
-        for t in r.tamper.iter().filter(|t| !privacy_patch(claimed, &t.target)) {
+        for t in r
+            .tamper
+            .iter()
+            .filter(|t| !privacy_patch(claimed, &t.target))
+        {
             let kinds: Vec<String> = t.kinds.iter().map(|k| clean(k)).collect();
-            tampered.push(format!("{name}: {} ({})", clean(&t.target), kinds.join(",")));
+            tampered.push(format!(
+                "{name}: {} ({})",
+                clean(&t.target),
+                kinds.join(",")
+            ));
         }
     }
     if !tampered.is_empty() {
-        push(&mut out, "native_tampered", 50, Some(Class::Automated), tampered.join("; "));
+        push(
+            &mut out,
+            "native_tampered",
+            50,
+            Some(Class::Automated),
+            tampered.join("; "),
+        );
     }
 
     // 4
@@ -140,7 +169,13 @@ pub fn analyze(report: &ProbeReport, claimed: &Claimed<'_>, truth: &EngineTruth)
         }
     }
     if !diffs.is_empty() {
-        push(&mut out, "realm_mismatch", 50, Some(Class::Automated), diffs.join("; "));
+        push(
+            &mut out,
+            "realm_mismatch",
+            50,
+            Some(Class::Automated),
+            diffs.join("; "),
+        );
     }
 
     // 5
@@ -162,7 +197,13 @@ pub fn analyze(report: &ProbeReport, claimed: &Claimed<'_>, truth: &EngineTruth)
     // 7
     if let Some(os) = claimed.os {
         if !platform_fits(os, &main.platform) {
-            push(&mut out, "platform_mismatch", 40, None, format!("claimed os {os:?}; platform={}", clean(&main.platform)));
+            push(
+                &mut out,
+                "platform_mismatch",
+                40,
+                None,
+                format!("claimed os {os:?}; platform={}", clean(&main.platform)),
+            );
         }
     }
 
@@ -180,7 +221,10 @@ pub fn analyze(report: &ProbeReport, claimed: &Claimed<'_>, truth: &EngineTruth)
             }
         }
         if uad.mobile != claimed.mobile {
-            why.push(format!("uad mobile={}; claimed mobile={}", uad.mobile, claimed.mobile));
+            why.push(format!(
+                "uad mobile={}; claimed mobile={}",
+                uad.mobile, claimed.mobile
+            ));
         }
         if !why.is_empty() {
             push(&mut out, "uad_mismatch", 40, None, why.join("; "));
@@ -189,12 +233,22 @@ pub fn analyze(report: &ProbeReport, claimed: &Claimed<'_>, truth: &EngineTruth)
 
     // 9
     if claimed.mobile && page.touch_points == 0 {
-        push(&mut out, "touch_mismatch", 25, None, "mobile claimed but no touch points".to_string());
+        push(
+            &mut out,
+            "touch_mismatch",
+            25,
+            None,
+            "mobile claimed but no touch points".to_string(),
+        );
     }
 
     // 10
     if let (Some(os), Some(r)) = (claimed.os, renderer.as_deref()) {
-        let found: Vec<&str> = foreign_gpu_markers(os).iter().copied().filter(|m| r.contains(m)).collect();
+        let found: Vec<&str> = foreign_gpu_markers(os)
+            .iter()
+            .copied()
+            .filter(|m| r.contains(m))
+            .collect();
         if !found.is_empty() {
             push(
                 &mut out,
@@ -208,8 +262,17 @@ pub fn analyze(report: &ProbeReport, claimed: &Claimed<'_>, truth: &EngineTruth)
 
     // 11
     if let Some(r) = renderer.as_deref() {
-        if ["swiftshader", "llvmpipe", "softpipe"].iter().any(|m| r.contains(m)) {
-            push(&mut out, "gpu_software", 25, None, format!("software renderer={}", clean(r)));
+        if ["swiftshader", "llvmpipe", "softpipe"]
+            .iter()
+            .any(|m| r.contains(m))
+        {
+            push(
+                &mut out,
+                "gpu_software",
+                25,
+                None,
+                format!("software renderer={}", clean(r)),
+            );
         }
     }
 
@@ -217,19 +280,37 @@ pub fn analyze(report: &ProbeReport, claimed: &Claimed<'_>, truth: &EngineTruth)
     let [sw, sh, _, _] = page.screen;
     let [_, _, ow, oh] = page.window;
     if ow == 0 || oh == 0 || sw == 0 || sh == 0 {
-        push(&mut out, "window_implausible", 20, None, "zero sized window or screen".to_string());
+        push(
+            &mut out,
+            "window_implausible",
+            20,
+            None,
+            "zero sized window or screen".to_string(),
+        );
     }
 
     // 13
     if main.languages.is_empty() {
-        push(&mut out, "languages_empty", 30, None, "navigator.languages is empty".to_string());
+        push(
+            &mut out,
+            "languages_empty",
+            30,
+            None,
+            "navigator.languages is empty".to_string(),
+        );
     }
 
     // 14
     if page.notif_permission.as_deref() == Some("denied")
         && page.perm_query_notif.as_deref() == Some("prompt")
     {
-        push(&mut out, "headless_permissions", 30, Some(Class::Automated), "Notification denied but permissions query says prompt".to_string());
+        push(
+            &mut out,
+            "headless_permissions",
+            30,
+            Some(Class::Automated),
+            "Notification denied but permissions query says prompt".to_string(),
+        );
     }
 
     out
@@ -320,9 +401,16 @@ fn profile_check(p: &EngineProfile, e: &EngineSignals) -> (Vec<String>, usize) {
     (failed, checked)
 }
 
-fn engine_rule(out: &mut Vec<Detection>, claimed: &Claimed<'_>, truth: &EngineTruth, e: &EngineSignals) {
+fn engine_rule(
+    out: &mut Vec<Detection>,
+    claimed: &Claimed<'_>,
+    truth: &EngineTruth,
+    e: &EngineSignals,
+) {
     let Some(want) = claimed.engine else { return };
-    let Some(profile) = truth.profiles.iter().find(|p| p.engine == want) else { return };
+    let Some(profile) = truth.profiles.iter().find(|p| p.engine == want) else {
+        return;
+    };
     let (failed, _) = profile_check(profile, e);
     if failed.is_empty() {
         return;

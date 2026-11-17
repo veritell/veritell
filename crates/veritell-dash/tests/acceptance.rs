@@ -16,7 +16,10 @@ struct Fake {
 
 impl EventQuery for Fake {
     fn recent(&self, limit: usize, filter: &Filter) -> Vec<Event> {
-        self.asked_recent.lock().unwrap().push((limit, filter.clone()));
+        self.asked_recent
+            .lock()
+            .unwrap()
+            .push((limit, filter.clone()));
         self.events.iter().take(limit).cloned().collect()
     }
 
@@ -42,7 +45,12 @@ fn event() -> Event {
         h2: "1:2".into(),
         score: 39,
         class: Class::Automated,
-        detections: vec![Detection::new("ua_declared_tool", Layer::Network, 60, "says it is curl")],
+        detections: vec![Detection::new(
+            "ua_declared_tool",
+            Layer::Network,
+            60,
+            "says it is curl",
+        )],
         identity: String::new(),
         asn: 0,
         net_class: "unknown".into(),
@@ -73,7 +81,10 @@ fn get(f: &Fake, target: &str) -> Response {
 }
 
 fn header<'a>(r: &'a Response, name: &str) -> Option<&'a str> {
-    r.headers.iter().find(|(k, _)| *k == name).map(|(_, v)| v.as_str())
+    r.headers
+        .iter()
+        .find(|(k, _)| *k == name)
+        .map(|(_, v)| v.as_str())
 }
 
 fn last_filter(f: &Fake) -> (usize, Filter) {
@@ -111,10 +122,26 @@ fn security_headers_are_on_every_response() {
         ("GET", "/api/events?class=bogus"),
     ] {
         let r = handle(method, target, &f, NOW);
-        assert_eq!(header(&r, "content-security-policy"), Some(CSP), "{method} {target}");
-        assert_eq!(header(&r, "x-content-type-options"), Some("nosniff"), "{method} {target}");
-        assert_eq!(header(&r, "cache-control"), Some("no-store"), "{method} {target}");
-        assert_eq!(header(&r, "referrer-policy"), Some("no-referrer"), "{method} {target}");
+        assert_eq!(
+            header(&r, "content-security-policy"),
+            Some(CSP),
+            "{method} {target}"
+        );
+        assert_eq!(
+            header(&r, "x-content-type-options"),
+            Some("nosniff"),
+            "{method} {target}"
+        );
+        assert_eq!(
+            header(&r, "cache-control"),
+            Some("no-store"),
+            "{method} {target}"
+        );
+        assert_eq!(
+            header(&r, "referrer-policy"),
+            Some("no-referrer"),
+            "{method} {target}"
+        );
     }
     assert!(!CSP.contains("unsafe"));
 }
@@ -145,8 +172,14 @@ fn the_page_never_builds_html_from_data() {
     // resources are not allowed at all.
     assert!(!lower.contains("<style"), "inline style");
     assert!(!lower.contains(" style="), "inline style attribute");
-    assert!(!lower.contains("http://") && !lower.contains("https://"), "external reference");
-    assert!(!lower.contains(" onclick=") && !lower.contains(" onload="), "inline handler");
+    assert!(
+        !lower.contains("http://") && !lower.contains("https://"),
+        "external reference"
+    );
+    assert!(
+        !lower.contains(" onclick=") && !lower.contains(" onload="),
+        "inline handler"
+    );
     for part in lower.split("<script").skip(1) {
         let tag = part.split('>').next().unwrap_or("");
         assert!(tag.contains("src="), "inline script");
@@ -238,7 +271,11 @@ fn events_api_parameters() {
         ("limit=", DEFAULT_LIMIT),
         ("limit=3&limit=9", 3),
     ] {
-        assert_eq!(get(&f, &format!("/api/events?{query}")).status, 200, "{query}");
+        assert_eq!(
+            get(&f, &format!("/api/events?{query}")).status,
+            200,
+            "{query}"
+        );
         assert_eq!(last_filter(&f).0, limit, "{query}");
     }
 
@@ -247,7 +284,14 @@ fn events_api_parameters() {
     assert_eq!(filter.outcome.as_deref(), Some("a b c"));
     assert!(filter.detection.is_some());
 
-    for class in ["human", "verified_bot", "signed_agent", "unverified_agent", "automated", "malicious"] {
+    for class in [
+        "human",
+        "verified_bot",
+        "signed_agent",
+        "unverified_agent",
+        "automated",
+        "malicious",
+    ] {
         assert_eq!(get(&f, &format!("/api/events?class={class}")).status, 200);
         assert_eq!(last_filter(&f).1.class.map(|c| c.as_str()), Some(class));
     }
@@ -257,7 +301,14 @@ fn events_api_parameters() {
 fn events_api_rejects_bad_values() {
     let f = fake();
     let before = f.asked_recent.lock().unwrap().len();
-    for query in ["class=bogus", "class=", "kind=nope", "max_score=300", "max_score=x", "max_score=-1"] {
+    for query in [
+        "class=bogus",
+        "class=",
+        "kind=nope",
+        "max_score=300",
+        "max_score=x",
+        "max_score=-1",
+    ] {
         let r = get(&f, &format!("/api/events?{query}"));
         assert_eq!(r.status, 400, "{query}");
         assert_eq!(r.content_type, "text/plain; charset=utf-8");
@@ -293,10 +344,17 @@ fn summary_api() {
         ("?window_secs=abc", NOW - DEFAULT_WINDOW_SECS * 1000),
         ("?window_secs=0", NOW),
         ("?window_secs=99999999", NOW - MAX_WINDOW_SECS * 1000),
-        ("?window_secs=18446744073709551615", NOW - MAX_WINDOW_SECS * 1000),
+        (
+            "?window_secs=18446744073709551615",
+            NOW - MAX_WINDOW_SECS * 1000,
+        ),
     ] {
         assert_eq!(get(&f, &format!("/api/summary{query}")).status, 200);
-        assert_eq!(f.asked_summary.lock().unwrap().last().copied(), Some(since), "{query}");
+        assert_eq!(
+            f.asked_summary.lock().unwrap().last().copied(),
+            Some(since),
+            "{query}"
+        );
     }
     // A small clock value must not underflow.
     assert_eq!(handle("GET", "/api/summary", &f, 5).status, 200);
@@ -322,6 +380,10 @@ fn hostile_targets_do_not_panic() {
         "/api/events??limit=2",
     ] {
         let r = get(&f, target);
-        assert!([200, 400, 404].contains(&r.status), "{target:?} gave {}", r.status);
+        assert!(
+            [200, 400, 404].contains(&r.status),
+            "{target:?} gave {}",
+            r.status
+        );
     }
 }

@@ -4,9 +4,9 @@
 //! on), not browser facts. Real values live in `data/engine_v1.json` and are
 //! captured from real browsers.
 
+use serde_json::{json, Value};
 use veritell_core::{Class, Detection, Layer};
 use veritell_probe::*;
-use serde_json::{json, Value};
 
 const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
@@ -113,7 +113,10 @@ fn only(v: &Value, c: &Claimed<'_>) -> Detection {
 }
 
 fn check(d: &Detection, id: &str, penalty: u8, hint: Option<Class>) {
-    assert_eq!((d.id.as_str(), d.penalty, d.class_hint), (id, penalty, hint));
+    assert_eq!(
+        (d.id.as_str(), d.penalty, d.class_hint),
+        (id, penalty, hint)
+    );
 }
 
 // ---------- clean ----------
@@ -157,17 +160,30 @@ fn rule_1_webdriver() {
         v["main"]["webdriver"] = json!(true);
         v["iframe"]["webdriver"] = json!(true);
         let _ = realm;
-        check(&only(&v, &claimed()), "webdriver_true", 70, Some(Class::Automated));
+        check(
+            &only(&v, &claimed()),
+            "webdriver_true",
+            70,
+            Some(Class::Automated),
+        );
     }
     let mut v = clean();
     v["worker"]["webdriver"] = json!(true);
-    check(&only(&v, &claimed()), "webdriver_true", 70, Some(Class::Automated));
+    check(
+        &only(&v, &claimed()),
+        "webdriver_true",
+        70,
+        Some(Class::Automated),
+    );
 }
 
 #[test]
 fn rule_2_automation_globals() {
     let mut v = clean();
-    v["page"]["globals"] = json!(["cdc_adoQpoasnfa76pfcZLmcfl_Array", "__playwright__binding__"]);
+    v["page"]["globals"] = json!([
+        "cdc_adoQpoasnfa76pfcZLmcfl_Array",
+        "__playwright__binding__"
+    ]);
     let d = only(&v, &claimed());
     check(&d, "automation_globals", 70, Some(Class::Automated));
     assert!(d.detail.contains("__playwright__binding__"), "{}", d.detail);
@@ -177,10 +193,15 @@ fn rule_2_automation_globals() {
 fn rule_3_native_tampered() {
     for realm in ["main", "iframe", "worker"] {
         let mut v = clean();
-        v[realm]["tamper"] = json!([{ "target": "Navigator.prototype.webdriver", "kinds": ["to_string"] }]);
+        v[realm]["tamper"] =
+            json!([{ "target": "Navigator.prototype.webdriver", "kinds": ["to_string"] }]);
         let d = only(&v, &claimed());
         check(&d, "native_tampered", 50, Some(Class::Automated));
-        assert!(d.detail.contains("Navigator.prototype.webdriver"), "{}", d.detail);
+        assert!(
+            d.detail.contains("Navigator.prototype.webdriver"),
+            "{}",
+            d.detail
+        );
     }
 }
 
@@ -203,12 +224,25 @@ fn rule_4_realm_mismatch() {
             assert!(run(&v).is_empty());
             continue;
         }
-        check(&only(&v, &claimed()), "realm_mismatch", 50, Some(Class::Automated));
+        check(
+            &only(&v, &claimed()),
+            "realm_mismatch",
+            50,
+            Some(Class::Automated),
+        );
     }
-    for (field, value) in [("err_msg", json!("TEST-BLINK old wording")), ("eval_len", json!(34))] {
+    for (field, value) in [
+        ("err_msg", json!("TEST-BLINK old wording")),
+        ("eval_len", json!(34)),
+    ] {
         let mut v = clean();
         v["worker"]["engine"][field] = value;
-        check(&only(&v, &claimed()), "realm_mismatch", 50, Some(Class::Automated));
+        check(
+            &only(&v, &claimed()),
+            "realm_mismatch",
+            50,
+            Some(Class::Automated),
+        );
     }
     // webdriver false in main, true in the iframe: both rule 1 and rule 4.
     let mut v = clean();
@@ -222,7 +256,12 @@ fn rule_5_http_ua_mismatch() {
         user_agent: Some("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
         ..claimed()
     };
-    check(&only(&clean(), &c), "http_ua_mismatch", 50, Some(Class::Automated));
+    check(
+        &only(&clean(), &c),
+        "http_ua_mismatch",
+        50,
+        Some(Class::Automated),
+    );
 }
 
 #[test]
@@ -250,12 +289,25 @@ fn rule_6_engine_mismatch() {
         for realm in ["main", "iframe", "worker"] {
             v[realm]["engine"][field] = value.clone();
         }
-        check(&only(&v, &claimed()), "engine_mismatch", 60, Some(Class::Automated));
+        check(
+            &only(&v, &claimed()),
+            "engine_mismatch",
+            60,
+            Some(Class::Automated),
+        );
     }
-    for features in [json!({ "f_a": false, "f_b": false }), json!({ "f_b": false })] {
+    for features in [
+        json!({ "f_a": false, "f_b": false }),
+        json!({ "f_b": false }),
+    ] {
         let mut v = clean();
         v["main"]["engine"]["features"] = features;
-        check(&only(&v, &claimed()), "engine_mismatch", 60, Some(Class::Automated));
+        check(
+            &only(&v, &claimed()),
+            "engine_mismatch",
+            60,
+            Some(Class::Automated),
+        );
     }
 
     // A second accepted wording, and a feature the profile does not list.
@@ -280,7 +332,10 @@ fn rule_6_unverified_profile_is_weak_and_unknown_engine_is_skipped() {
     }
     check(&only(&v, &c), "engine_mismatch", 20, None);
 
-    let c = Claimed { engine: None, ..claimed() };
+    let c = Claimed {
+        engine: None,
+        ..claimed()
+    };
     assert!(run_with(&v, &c).is_empty());
 
     // No profile for the claimed engine: skipped.
@@ -312,7 +367,10 @@ fn rule_7_platform_mismatch() {
             v[realm]["uad"] = Value::Null;
         }
         v["page"]["webgl_renderer"] = Value::Null;
-        let c = Claimed { os: Some(os), ..claimed() };
+        let c = Claimed {
+            os: Some(os),
+            ..claimed()
+        };
         assert!(run_with(&v, &c).is_empty(), "{os:?} {platform}");
     }
     let misfits: [(Os, &str); 5] = [
@@ -329,7 +387,10 @@ fn rule_7_platform_mismatch() {
             v[realm]["uad"] = Value::Null;
         }
         v["page"]["webgl_renderer"] = Value::Null;
-        let c = Claimed { os: Some(os), ..claimed() };
+        let c = Claimed {
+            os: Some(os),
+            ..claimed()
+        };
         check(&only(&v, &c), "platform_mismatch", 40, None);
     }
 }
@@ -358,7 +419,10 @@ fn rule_8_uad_mismatch() {
             "features": { "f_a": false, "f_b": true }, "math": ""
         });
     }
-    let c = Claimed { engine: Some(Engine::Gecko), ..claimed() };
+    let c = Claimed {
+        engine: Some(Engine::Gecko),
+        ..claimed()
+    };
     check(&only(&v, &c), "uad_mismatch", 40, None);
 
     // Expected names per platform.
@@ -375,7 +439,10 @@ fn rule_8_uad_mismatch() {
             v[realm]["platform"] = json!(platform);
         }
         v["page"]["webgl_renderer"] = Value::Null;
-        let c = Claimed { os: Some(os), ..claimed() };
+        let c = Claimed {
+            os: Some(os),
+            ..claimed()
+        };
         assert!(run_with(&v, &c).is_empty(), "{os:?} {name}");
     }
 }
@@ -389,7 +456,11 @@ fn rule_9_touch_mismatch() {
         v[realm]["platform"] = json!("Linux armv81");
     }
     v["page"]["webgl_renderer"] = json!("Adreno (TM) 740");
-    let c = Claimed { os: Some(Os::Android), mobile: true, ..claimed() };
+    let c = Claimed {
+        os: Some(Os::Android),
+        mobile: true,
+        ..claimed()
+    };
     check(&only(&v, &c), "touch_mismatch", 25, None);
     v["page"]["touch_points"] = json!(5);
     assert!(run_with(&v, &c).is_empty());
@@ -403,9 +474,19 @@ fn rule_10_gpu_platform_mismatch() {
     check(&only(&v, &claimed()), "gpu_platform_mismatch", 40, None);
 
     for (os, platform, uad, renderer) in [
-        (Os::Windows, "Win32", "Windows", "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)"),
+        (
+            Os::Windows,
+            "Win32",
+            "Windows",
+            "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)",
+        ),
         (Os::Linux, "Linux x86_64", "Linux", "Apple M1"),
-        (Os::Linux, "Linux x86_64", "Linux", "ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"),
+        (
+            Os::Linux,
+            "Linux x86_64",
+            "Linux",
+            "ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        ),
     ] {
         let mut v = clean();
         for realm in ["main", "iframe", "worker"] {
@@ -413,14 +494,20 @@ fn rule_10_gpu_platform_mismatch() {
             v[realm]["uad"]["platform"] = json!(uad);
         }
         v["page"]["webgl_renderer"] = json!(renderer);
-        let c = Claimed { os: Some(os), ..claimed() };
+        let c = Claimed {
+            os: Some(os),
+            ..claimed()
+        };
         check(&only(&v, &c), "gpu_platform_mismatch", 40, None);
     }
 
     // No claimed platform: not checked.
     let mut v = clean();
     v["page"]["webgl_renderer"] = json!("Direct3D11");
-    let c = Claimed { os: None, ..claimed() };
+    let c = Claimed {
+        os: None,
+        ..claimed()
+    };
     assert!(run_with(&v, &c).is_empty());
 }
 
@@ -464,7 +551,12 @@ fn rule_13_languages_empty() {
 fn rule_14_headless_permissions() {
     let mut v = clean();
     v["page"]["notif_permission"] = json!("denied");
-    check(&only(&v, &claimed()), "headless_permissions", 30, Some(Class::Automated));
+    check(
+        &only(&v, &claimed()),
+        "headless_permissions",
+        30,
+        Some(Class::Automated),
+    );
     v["page"]["perm_query_notif"] = json!("denied");
     assert!(run(&v).is_empty());
     v["page"]["notif_permission"] = Value::Null;
@@ -520,13 +612,22 @@ fn detections_come_in_rule_order_without_duplicates() {
 #[test]
 fn client_text_in_detail_is_sanitized_and_bounded() {
     let mut v = clean();
-    v["page"]["globals"] = json!(["<script>alert(1)</script>", "a\nb\u{202e}c\"'&", "é".repeat(200)]);
+    v["page"]["globals"] = json!([
+        "<script>alert(1)</script>",
+        "a\nb\u{202e}c\"'&",
+        "é".repeat(200)
+    ]);
     let tamper: Vec<Value> = (0..60)
         .map(|i| json!({ "target": format!("<img src=x onerror={i}>{}", "T".repeat(300)), "kinds": ["\u{0}\r\n"] }))
         .collect();
     v["main"]["tamper"] = json!(tamper);
     for d in run(&v) {
-        assert!(d.detail.chars().count() <= 256, "{} is {} chars", d.id, d.detail.len());
+        assert!(
+            d.detail.chars().count() <= 256,
+            "{} is {} chars",
+            d.id,
+            d.detail.len()
+        );
         assert!(
             d.detail
                 .chars()
@@ -545,7 +646,10 @@ fn reports_over_a_limit_are_rejected() {
 
     let mut v = clean();
     v["main"]["ua"] = json!("a".repeat(MAX_STRING_BYTES + 1));
-    assert_eq!(parse_report(v.to_string().as_bytes()), Err(ReportError::Limit("main.ua")));
+    assert_eq!(
+        parse_report(v.to_string().as_bytes()),
+        Err(ReportError::Limit("main.ua"))
+    );
 
     let mut v = clean();
     v["main"]["ua"] = json!("a".repeat(MAX_STRING_BYTES));
@@ -580,7 +684,10 @@ fn reports_over_a_limit_are_rejected() {
 
     let mut v = clean();
     v["errors"] = json!(["e".repeat(MAX_STRING_BYTES + 1)]);
-    assert_eq!(parse_report(v.to_string().as_bytes()), Err(ReportError::Limit("errors")));
+    assert_eq!(
+        parse_report(v.to_string().as_bytes()),
+        Err(ReportError::Limit("errors"))
+    );
 
     let mut v = clean();
     v["page"]["webgl_renderer"] = json!("r".repeat(MAX_STRING_BYTES + 1));
@@ -594,28 +701,46 @@ fn reports_over_a_limit_are_rejected() {
 fn wrong_shapes_are_rejected() {
     let mut v = clean();
     v["v"] = json!(2);
-    assert_eq!(parse_report(v.to_string().as_bytes()), Err(ReportError::Version(2)));
+    assert_eq!(
+        parse_report(v.to_string().as_bytes()),
+        Err(ReportError::Version(2))
+    );
 
     let mut v = clean();
     v.as_object_mut().unwrap().remove("main");
-    assert!(matches!(parse_report(v.to_string().as_bytes()), Err(ReportError::Json(_))));
+    assert!(matches!(
+        parse_report(v.to_string().as_bytes()),
+        Err(ReportError::Json(_))
+    ));
 
     let mut v = clean();
     v["main"]["hc"] = json!(-1);
-    assert!(matches!(parse_report(v.to_string().as_bytes()), Err(ReportError::Json(_))));
+    assert!(matches!(
+        parse_report(v.to_string().as_bytes()),
+        Err(ReportError::Json(_))
+    ));
 
     let mut v = clean();
     v["page"]["screen"] = json!([1, 2, 3]);
-    assert!(matches!(parse_report(v.to_string().as_bytes()), Err(ReportError::Json(_))));
+    assert!(matches!(
+        parse_report(v.to_string().as_bytes()),
+        Err(ReportError::Json(_))
+    ));
 
     for body in [&b""[..], b"null", b"[]", b"{", b"\xff\xfe", b"{\"v\":1}"] {
-        assert!(matches!(parse_report(body), Err(ReportError::Json(_))), "{body:?}");
+        assert!(
+            matches!(parse_report(body), Err(ReportError::Json(_))),
+            "{body:?}"
+        );
     }
 
     // Deep nesting must not overflow the stack.
     let deep = "[".repeat(20_000);
     assert!(parse_report(deep.as_bytes()).is_err());
-    let deep = format!("{{\"v\":1,\"nonce\":\"n\",\"main\":{}", "{\"a\":".repeat(5_000));
+    let deep = format!(
+        "{{\"v\":1,\"nonce\":\"n\",\"main\":{}",
+        "{\"a\":".repeat(5_000)
+    );
     assert!(parse_report(deep.as_bytes()).is_err());
 }
 
@@ -624,7 +749,10 @@ fn every_truncation_of_a_report_fails_cleanly() {
     let text = clean().to_string();
     let bytes = text.as_bytes();
     for cut in 0..bytes.len() {
-        assert!(parse_report(&bytes[..cut]).is_err(), "prefix of {cut} bytes parsed");
+        assert!(
+            parse_report(&bytes[..cut]).is_err(),
+            "prefix of {cut} bytes parsed"
+        );
     }
     assert!(parse_report(bytes).is_ok());
 }
@@ -658,11 +786,18 @@ fn key() -> ProbeKey {
 fn nonce_round_trip() {
     let n = issue_nonce(&key(), &BINDING, 1000, 120);
     assert!(n.len() <= 128, "{}", n.len());
-    assert!(n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'), "{n}");
+    assert!(
+        n.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
+        "{n}"
+    );
     let info = verify_nonce(&key(), &n, &BINDING, 1000).unwrap();
     assert_eq!(info.expires_at, 1120);
     assert_eq!(verify_nonce(&key(), &n, &BINDING, 1120).unwrap(), info);
-    assert_eq!(verify_nonce(&key(), &n, &BINDING, 1121), Err(NonceError::Expired));
+    assert_eq!(
+        verify_nonce(&key(), &n, &BINDING, 1121),
+        Err(NonceError::Expired)
+    );
 }
 
 #[test]
@@ -680,14 +815,20 @@ fn nonce_is_bound() {
     let n = issue_nonce(&key(), &BINDING, 1000, 120);
     let mut other = BINDING;
     other[15] ^= 1;
-    assert_eq!(verify_nonce(&key(), &n, &other, 1000), Err(NonceError::BindingMismatch));
+    assert_eq!(
+        verify_nonce(&key(), &n, &other, 1000),
+        Err(NonceError::BindingMismatch)
+    );
 }
 
 #[test]
 fn nonce_from_another_secret_fails() {
     let n = issue_nonce(&key(), &BINDING, 1000, 120);
     let other = ProbeKey::from_secret(b"ffffffffffffffffffffffffffffffff").unwrap();
-    assert_eq!(verify_nonce(&other, &n, &BINDING, 1000), Err(NonceError::BadMac));
+    assert_eq!(
+        verify_nonce(&other, &n, &BINDING, 1000),
+        Err(NonceError::BadMac)
+    );
 }
 
 #[test]
@@ -704,14 +845,24 @@ fn every_altered_nonce_fails() {
         let mut changed = chars.clone();
         changed[i] = if changed[i] == 'A' { 'B' } else { 'A' };
         let changed: String = changed.into_iter().collect();
-        assert!(verify_nonce(&key(), &changed, &BINDING, 1000).is_err(), "change at {i} accepted");
+        assert!(
+            verify_nonce(&key(), &changed, &BINDING, 1000).is_err(),
+            "change at {i} accepted"
+        );
         let cut: String = chars[..i].iter().collect();
-        assert!(verify_nonce(&key(), &cut, &BINDING, 1000).is_err(), "prefix {i} accepted");
+        assert!(
+            verify_nonce(&key(), &cut, &BINDING, 1000).is_err(),
+            "prefix {i} accepted"
+        );
     }
     let longer = format!("{n}A");
     assert!(verify_nonce(&key(), &longer, &BINDING, 1000).is_err());
     for g in ["", "!", "é", "====", &"A".repeat(4096)] {
-        assert_eq!(verify_nonce(&key(), g, &BINDING, 1000), Err(NonceError::Malformed), "{g:?}");
+        assert_eq!(
+            verify_nonce(&key(), g, &BINDING, 1000),
+            Err(NonceError::Malformed),
+            "{g:?}"
+        );
     }
 }
 

@@ -5,9 +5,18 @@ use veritell_probe::*;
 #[test]
 fn report_errors_say_what_was_wrong() {
     assert_eq!(ReportError::TooLarge.to_string(), "report too large");
-    assert_eq!(ReportError::Json("eof".into()).to_string(), "invalid report: eof");
-    assert_eq!(ReportError::Version(9).to_string(), "unsupported report version 9");
-    assert_eq!(ReportError::Limit("fonts").to_string(), "report field over limit: fonts");
+    assert_eq!(
+        ReportError::Json("eof".into()).to_string(),
+        "invalid report: eof"
+    );
+    assert_eq!(
+        ReportError::Version(9).to_string(),
+        "unsupported report version 9"
+    );
+    assert_eq!(
+        ReportError::Limit("fonts").to_string(),
+        "report field over limit: fonts"
+    );
 }
 
 #[test]
@@ -20,9 +29,19 @@ fn a_refused_report_carries_its_reason() {
 
 #[test]
 fn truth_errors_say_what_was_wrong() {
-    assert_eq!(TruthError::Json("eof".into()).to_string(), "invalid engine truth: eof");
-    for (engine, name) in [(Engine::Blink, "blink"), (Engine::Gecko, "gecko"), (Engine::Webkit, "webkit")] {
-        assert_eq!(TruthError::Duplicate(engine).to_string(), format!("duplicate profile for {name}"));
+    assert_eq!(
+        TruthError::Json("eof".into()).to_string(),
+        "invalid engine truth: eof"
+    );
+    for (engine, name) in [
+        (Engine::Blink, "blink"),
+        (Engine::Gecko, "gecko"),
+        (Engine::Webkit, "webkit"),
+    ] {
+        assert_eq!(
+            TruthError::Duplicate(engine).to_string(),
+            format!("duplicate profile for {name}")
+        );
     }
 }
 

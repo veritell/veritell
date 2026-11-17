@@ -7,7 +7,12 @@ const T0: u64 = 1_700_006_400;
 const DAY: u64 = 86_400;
 
 fn seeded(seed: u8, max: usize) -> Quotas {
-    Quotas::new(Config { hash_seed: Some([seed; 16]), max_identities: max, ..Config::default() }).unwrap()
+    Quotas::new(Config {
+        hash_seed: Some([seed; 16]),
+        max_identities: max,
+        ..Config::default()
+    })
+    .unwrap()
 }
 
 fn random() -> Quotas {
@@ -89,7 +94,11 @@ fn the_most_recently_used_are_kept_when_there_is_less_room() {
     assert_eq!(b.import(&a.export(T0 + 2), T0 + 3), Ok(2));
     assert_eq!(b.left("first", 10, T0 + 3), 8);
     assert_eq!(b.left("third", 10, T0 + 3), 9);
-    assert_eq!(b.left("second", 10, T0 + 3), 10, "the least recently used was kept");
+    assert_eq!(
+        b.left("second", 10, T0 + 3),
+        10,
+        "the least recently used was kept"
+    );
 }
 
 #[test]
@@ -107,7 +116,12 @@ fn load_only_into_an_unused_value() {
 fn another_day_length_is_refused() {
     let a = seeded(1, 100);
     a.take("x", 10, T0);
-    let b = Quotas::new(Config { day_secs: 3600, hash_seed: Some([2; 16]), ..Config::default() }).unwrap();
+    let b = Quotas::new(Config {
+        day_secs: 3600,
+        hash_seed: Some([2; 16]),
+        ..Config::default()
+    })
+    .unwrap();
     assert_eq!(b.import(&a.export(T0), T0), Err(SnapshotError::Mismatch));
     assert_eq!(b.tracked(), 0);
 }

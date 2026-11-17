@@ -8,7 +8,10 @@ use veritell_quota::*;
 const T0: u64 = 1_700_006_400;
 
 fn config() -> Config {
-    Config { hash_seed: Some([7; 16]), ..Config::default() }
+    Config {
+        hash_seed: Some([7; 16]),
+        ..Config::default()
+    }
 }
 
 fn quotas() -> Quotas {
@@ -26,26 +29,65 @@ fn t0_is_where_the_tests_think_it_is() {
 #[test]
 fn configuration_is_checked() {
     for bad in [
-        Config { slot_secs: 0, ..config() },
-        Config { window_slots: 0, ..config() },
-        Config { day_secs: 0, ..config() },
-        Config { max_identities: 0, ..config() },
+        Config {
+            slot_secs: 0,
+            ..config()
+        },
+        Config {
+            window_slots: 0,
+            ..config()
+        },
+        Config {
+            day_secs: 0,
+            ..config()
+        },
+        Config {
+            max_identities: 0,
+            ..config()
+        },
         // Zero is reported before TooLarge.
-        Config { slot_secs: 0, window_slots: 61, ..config() },
+        Config {
+            slot_secs: 0,
+            window_slots: 61,
+            ..config()
+        },
     ] {
         assert_eq!(Quotas::new(bad).err(), Some(ConfigError::Zero));
     }
     for bad in [
-        Config { slot_secs: 3601, ..config() },
-        Config { window_slots: 61, ..config() },
-        Config { max_identities: 1_000_001, ..config() },
+        Config {
+            slot_secs: 3601,
+            ..config()
+        },
+        Config {
+            window_slots: 61,
+            ..config()
+        },
+        Config {
+            max_identities: 1_000_001,
+            ..config()
+        },
     ] {
         assert_eq!(Quotas::new(bad).err(), Some(ConfigError::TooLarge));
     }
     for good in [
-        Config { slot_secs: 3600, window_slots: 60, max_identities: 1_000_000, ..config() },
-        Config { slot_secs: 1, window_slots: 1, day_secs: 1, max_identities: 1, ..config() },
-        Config { hash_seed: None, ..config() },
+        Config {
+            slot_secs: 3600,
+            window_slots: 60,
+            max_identities: 1_000_000,
+            ..config()
+        },
+        Config {
+            slot_secs: 1,
+            window_slots: 1,
+            day_secs: 1,
+            max_identities: 1,
+            ..config()
+        },
+        Config {
+            hash_seed: None,
+            ..config()
+        },
     ] {
         assert!(Quotas::new(good).is_ok());
     }
@@ -226,7 +268,11 @@ fn identities_do_not_share_a_day() {
 
 #[test]
 fn the_least_recently_used_identity_is_forgotten() {
-    let q = Quotas::new(Config { max_identities: 2, ..config() }).unwrap();
+    let q = Quotas::new(Config {
+        max_identities: 2,
+        ..config()
+    })
+    .unwrap();
     assert_eq!(q.take("a", 3, T0), 3);
     assert_eq!(q.take("b", 3, T0), 3);
     assert_eq!(q.tracked(), 2);
@@ -242,7 +288,11 @@ fn the_least_recently_used_identity_is_forgotten() {
 
 #[test]
 fn use_order_not_the_clock_decides_who_is_forgotten() {
-    let q = Quotas::new(Config { max_identities: 2, ..config() }).unwrap();
+    let q = Quotas::new(Config {
+        max_identities: 2,
+        ..config()
+    })
+    .unwrap();
     assert_eq!(q.take("a", 3, T0), 3);
     assert_eq!(q.take("b", 3, T0), 3);
     // A rate check is a use too: "a" is now the most recent.
@@ -253,7 +303,11 @@ fn use_order_not_the_clock_decides_who_is_forgotten() {
 
 #[test]
 fn left_tracks_nothing_and_is_not_a_use() {
-    let q = Quotas::new(Config { max_identities: 2, ..config() }).unwrap();
+    let q = Quotas::new(Config {
+        max_identities: 2,
+        ..config()
+    })
+    .unwrap();
     assert_eq!(q.left("ghost", 3, T0), 3);
     assert_eq!(q.tracked(), 0);
     assert_eq!(q.take("a", 3, T0), 3);
@@ -268,7 +322,11 @@ fn left_tracks_nothing_and_is_not_a_use() {
 
 #[test]
 fn memory_is_bounded_whatever_arrives() {
-    let q = Quotas::new(Config { max_identities: 100, ..config() }).unwrap();
+    let q = Quotas::new(Config {
+        max_identities: 100,
+        ..config()
+    })
+    .unwrap();
     for n in 0..10_000u32 {
         let id = format!("identity-{n}");
         assert!(q.allow_rate(&id, 1, T0 + u64::from(n)));
@@ -280,13 +338,25 @@ fn memory_is_bounded_whatever_arrives() {
 
 #[test]
 fn extreme_values_do_not_panic() {
-    let q = Quotas::new(Config { slot_secs: 3600, window_slots: 60, ..config() }).unwrap();
+    let q = Quotas::new(Config {
+        slot_secs: 3600,
+        window_slots: 60,
+        ..config()
+    })
+    .unwrap();
     for now in [0, 1, u64::MAX - 1, u64::MAX, 0] {
         let _ = q.allow_rate("a", u32::MAX, now);
         let _ = q.take("a", u32::MAX, now);
         let _ = q.left("a", u32::MAX, now);
     }
-    let q = Quotas::new(Config { slot_secs: 1, window_slots: 1, day_secs: 1, max_identities: 1, ..config() }).unwrap();
+    let q = Quotas::new(Config {
+        slot_secs: 1,
+        window_slots: 1,
+        day_secs: 1,
+        max_identities: 1,
+        ..config()
+    })
+    .unwrap();
     assert!(q.allow_rate("a", 1, 5));
     assert!(!q.allow_rate("a", 1, 5));
     assert!(q.allow_rate("a", 1, 6));
