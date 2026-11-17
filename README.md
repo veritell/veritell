@@ -67,6 +67,7 @@ both; a flag wins over the file. Every key, with its default, is in
 ```bash
 veritell --config veritell.toml                 # start
 veritell check-config --config veritell.toml    # show what it sets, then stop
+veritell --help                                 # every flag, its default and what it does
 ```
 
 Secrets are never in the file: each comes from its environment variable

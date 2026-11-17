@@ -39,76 +39,134 @@ pub enum Kind {
     Secret,
 }
 
-/// Every key: its path in the file, the flag it sets, and its kind.
-pub const KEYS: &[(&str, &str, Kind)] = &[
-    ("server.listen", "listen", Kind::Text),
-    ("server.admin", "admin", Kind::Text),
-    ("server.sidecar_listen", "sidecar-listen", Kind::Text),
-    ("server.header_timeout_secs", "header-timeout", Kind::Number),
-    ("server.body_timeout_secs", "body-timeout", Kind::Number),
-    ("server.write_timeout_secs", "write-timeout", Kind::Number),
-    ("server.max_conns_per_network", "max-conns-per-network", Kind::Number),
-    ("server.max_in_flight", "max-in-flight", Kind::Number),
-    ("server.shed", "shed", Kind::Text),
-    ("server.trusted_proxies", "trusted-proxy", Kind::List),
-    ("server.forwarded_for", "forwarded-for", Kind::Text),
-    ("server.log_requests", "log-requests", Kind::Bool),
-    ("tls.cert", "cert", Kind::Path),
-    ("tls.key", "key", Kind::Path),
-    ("tls.sni_dir", "sni-dir", Kind::Path),
-    ("upstream.address", "upstream", Kind::Text),
-    ("upstream.tls", "upstream-tls", Kind::Bool),
-    ("upstream.sni", "upstream-sni", Kind::Text),
-    ("upstream.ca", "upstream-ca", Kind::Path),
-    ("upstream.hosts", "upstream-host", Kind::Map),
-    ("detection.policy", "policy", Kind::Path),
-    ("detection.asn_db", "asn-db", Kind::Path),
-    ("detection.engine_truth", "engine-truth", Kind::Path),
-    ("detection.model", "model", Kind::Path),
-    ("detection.inject_probe", "inject-probe", Kind::Bool),
-    ("detection.source_url", "source-url", Kind::Text),
-    ("probe.build_rotate_secs", "probe-build-rotate", Kind::Number),
-    ("probe.build_ttl_secs", "probe-build-ttl", Kind::Number),
-    ("tokens.budget", "token-budget", Kind::Number),
-    ("tokens.single_use_capacity", "single-use-capacity", Kind::Number),
-    ("web_bot_auth.agents", "wba-agents", Kind::Path),
-    ("web_bot_auth.directory_allow", "wba-directory-allow", Kind::List),
-    ("web_bot_auth.directory_ca", "wba-directory-ca", Kind::Path),
-    ("privacy_pass.issuers", "privacy-pass-issuer", Kind::Map),
-    ("aggregation.slot_secs", "agg-slot", Kind::Number),
-    ("aggregation.warmup_secs", "agg-warmup", Kind::Number),
-    ("aggregation.reputation_ttl_secs", "agg-reputation-ttl", Kind::Number),
-    ("aggregation.spread_min_networks", "agg-spread-min", Kind::Number),
-    ("aggregation.fanout_min_fingerprints", "agg-fanout-min", Kind::Number),
-    ("aggregation.strikes", "agg-strikes", Kind::Number),
-    ("flood.mode", "flood-guard", Kind::Text),
-    ("flood.limit", "flood-limit", Kind::Number),
-    ("flood.rate_net_limit", "rate-net-limit", Kind::Number),
-    ("flood.rate_client_limit", "rate-client-limit", Kind::Number),
-    ("flood.no_probe_pages", "no-probe-pages", Kind::Number),
-    ("flood.fp_surge_min", "fp-surge-min", Kind::Number),
-    ("flood.fp_surge_growth", "fp-surge-growth", Kind::Number),
-    ("feed.path", "feed", Kind::Path),
-    ("feed.keys", "feed-key", Kind::List),
-    ("share.export", "share-export", Kind::Path),
-    ("share.import", "share-import", Kind::Path),
-    ("share.import_keys", "share-import-key", Kind::List),
-    ("share.min_networks", "share-min-networks", Kind::Number),
-    ("share.interval_secs", "share-interval", Kind::Number),
-    ("events.ip_mode", "ip-mode", Kind::Text),
-    ("events.clickhouse.url", "clickhouse-url", Kind::Text),
-    ("events.clickhouse.database", "clickhouse-database", Kind::Text),
-    ("events.clickhouse.table", "clickhouse-table", Kind::Text),
-    ("events.clickhouse.user", "clickhouse-user", Kind::Text),
-    ("state.dir", "state-dir", Kind::Path),
-    ("state.flush_secs", "state-flush", Kind::Number),
-    ("secrets.secret_file", "VERITELL_SECRET", Kind::Secret),
-    ("secrets.admin_token_file", "VERITELL_ADMIN_TOKEN", Kind::Secret),
-    ("secrets.clickhouse_password_file", "VERITELL_CLICKHOUSE_PASSWORD", Kind::Secret),
-    ("secrets.share_seed_file", "VERITELL_SHARE_SEED", Kind::Secret),
-    ("secrets.share_key_file", "VERITELL_SHARE_KEY", Kind::Secret),
-    ("secrets.known_key_file", "VERITELL_KNOWN_KEY", Kind::Secret),
+/// One setting: its path in the file, the flag it sets (for a secret, the
+/// environment variable), its kind, and what `--help` says of it.
+#[derive(Clone, Copy, Debug)]
+pub struct Key {
+    pub path: &'static str,
+    pub flag: &'static str,
+    pub kind: Kind,
+    /// The value's form in `--help`, as `addr:port`.
+    pub arg: &'static str,
+    /// The default in `--help`; empty when there is none.
+    pub default: &'static str,
+    pub help: &'static str,
+    /// The heading `--help` starts with this key, if any.
+    pub section: Option<&'static str>,
+}
+
+const fn key(path: &'static str, flag: &'static str, kind: Kind, arg: &'static str, default: &'static str, help: &'static str) -> Key {
+    Key { path, flag, kind, arg, default, help, section: None }
+}
+
+const fn first(section: &'static str, k: Key) -> Key {
+    Key { section: Some(section), ..k }
+}
+
+/// Every key, in the order `--help` lists them.
+pub const KEYS: &[Key] = &[
+    first("Server", key("server.listen", "listen", Kind::Text, "addr:port", "127.0.0.1:8443", "address to serve HTTPS on")),
+    key("server.admin", "admin", Kind::Text, "addr:port", "", "dashboard over plain HTTP; loopback unless VERITELL_ADMIN_TOKEN is set"),
+    key("server.sidecar_listen", "sidecar-listen", Kind::Text, "addr:port", "", "authorization endpoint for a proxy in front (plain HTTP)"),
+    key("server.header_timeout_secs", "header-timeout", Kind::Number, "secs", "15", "time for a request's headers to arrive"),
+    key("server.body_timeout_secs", "body-timeout", Kind::Number, "secs", "60", "time for a request body to arrive"),
+    key("server.write_timeout_secs", "write-timeout", Kind::Number, "secs", "30", "longest one write to a client may wait"),
+    key("server.max_conns_per_network", "max-conns-per-network", Kind::Number, "n", "256", "connections open at once per IPv4 address or IPv6 /64"),
+    key("server.max_in_flight", "max-in-flight", Kind::Number, "n", "256", "requests in flight to the origin before load shedding"),
+    key("server.shed", "shed", Kind::Text, "off|log|enforce", "log", "load shedding past --max-in-flight; enforce answers 503"),
+    key("server.trusted_proxies", "trusted-proxy", Kind::List, "ip[,ip]", "", "peers whose X-Forwarded-For is believed (a load balancer)"),
+    key("server.forwarded_for", "forwarded-for", Kind::Text, "append|replace", "append", "how the client address is passed to the origin"),
+    key("server.log_requests", "log-requests", Kind::Bool, "on|off", "on", "a log line per request"),
+    first("TLS", key("tls.cert", "cert", Kind::Path, "pem", "", "certificate the gateway presents (required)")),
+    key("tls.key", "key", Kind::Path, "pem", "", "its private key (required)"),
+    key("tls.sni_dir", "sni-dir", Kind::Path, "dir", "", "a certificate per server name"),
+    first("Upstream (the site)", key("upstream.address", "upstream", Kind::Text, "host:port", "", "the origin; without it the gateway answers alone")),
+    key("upstream.tls", "upstream-tls", Kind::Bool, "on|off", "off", "TLS to the origin"),
+    key("upstream.sni", "upstream-sni", Kind::Text, "name", "", "server name sent to the origin"),
+    key("upstream.ca", "upstream-ca", Kind::Path, "pem", "", "CA that signs the origin's certificate (else the system roots)"),
+    key("upstream.hosts", "upstream-host", Kind::Map, "name=host:port[,...]", "", "an origin per server name"),
+    first("Detection", key("detection.policy", "policy", Kind::Path, "file.yaml", "", "rules: mode, thresholds, actions (else the built-in shadow policy)")),
+    key("detection.asn_db", "asn-db", Kind::Path, "file.tsv", "", "IP-to-network table (ip2asn TSV)"),
+    key("detection.engine_truth", "engine-truth", Kind::Path, "file.json", "", "browser engine table for probe reports (else the built-in one)"),
+    key("detection.model", "model", Kind::Path, "file.json", "", "tree model, run in shadow: logged, never acted on"),
+    key("detection.inject_probe", "inject-probe", Kind::Bool, "on|off", "off", "add the probe scripts to the origin's HTML pages"),
+    key("detection.source_url", "source-url", Kind::Text, "url|off", "this repository", "source link on the gateway's own pages, as the AGPL asks"),
+    first("Probe", key("probe.build_rotate_secs", "probe-build-rotate", Kind::Number, "secs", "60", "seconds between new probe builds")),
+    key("probe.build_ttl_secs", "probe-build-ttl", Kind::Number, "secs", "300", "seconds a probe build is accepted"),
+    first("Tokens", key("tokens.budget", "token-budget", Kind::Number, "n", "500", "requests one session token is good for")),
+    key("tokens.single_use_capacity", "single-use-capacity", Kind::Number, "n", "200000", "entries per single-use store (used tokens, nonces)"),
+    first("Web Bot Auth", key("web_bot_auth.agents", "wba-agents", Kind::Path, "file.json", "", "signed agents to trust")),
+    key("web_bot_auth.directory_allow", "wba-directory-allow", Kind::List, "ip:port[,...]", "", "private addresses key directories may be fetched from"),
+    key("web_bot_auth.directory_ca", "wba-directory-ca", Kind::Path, "pem", "", "extra CA for key directory fetches"),
+    first("Privacy Pass", key("privacy_pass.issuers", "privacy-pass-issuer", Kind::Map, "name=key[,...]", "", "issuers whose tokens replace the proof of work")),
+    first("Aggregation (population rules)", key("aggregation.slot_secs", "agg-slot", Kind::Number, "secs", "10", "window slot; a window is six")),
+    key("aggregation.warmup_secs", "agg-warmup", Kind::Number, "secs", "120", "seconds after start before cluster rules fire"),
+    key("aggregation.reputation_ttl_secs", "agg-reputation-ttl", Kind::Number, "secs", "600", "how long a reputation entry lasts"),
+    key("aggregation.spread_min_networks", "agg-spread-min", Kind::Number, "n", "50", "networks one fingerprint must appear on"),
+    key("aggregation.fanout_min_fingerprints", "agg-fanout-min", Kind::Number, "n", "30", "fingerprints one network must produce"),
+    key("aggregation.strikes", "agg-strikes", Kind::Number, "n", "3", "rejected reports before a client is marked"),
+    first("Floods and scraping", key("flood.mode", "flood-guard", Kind::Text, "off|log|enforce", "log", "ceiling on requests per network; enforce answers 429")),
+    key("flood.limit", "flood-limit", Kind::Number, "n", "1000", "requests per network in 10 s"),
+    key("flood.rate_net_limit", "rate-net-limit", Kind::Number, "n", "120", "pages a minute per network before rate_net_high"),
+    key("flood.rate_client_limit", "rate-client-limit", Kind::Number, "n", "60", "pages a minute per client before rate_client_high"),
+    key("flood.no_probe_pages", "no-probe-pages", Kind::Number, "n", "20", "pages in 10 min without a probe report: pages_no_probe"),
+    key("flood.fp_surge_min", "fp-surge-min", Kind::Number, "n", "120", "pages a minute one fingerprint needs for fp_page_surge"),
+    key("flood.fp_surge_growth", "fp-surge-growth", Kind::Number, "n", "4", "times its usual minute for fp_page_surge"),
+    first("Data feed", key("feed.path", "feed", Kind::Path, "file", "", "signed data bundle, reloaded when it changes")),
+    key("feed.keys", "feed-key", Kind::List, "key[,key]", "", "Ed25519 keys the feed may be signed with"),
+    first("Sharing with other installs", key("share.export", "share-export", Kind::Path, "file", "", "write a share bundle (needs the share key and seed below)")),
+    key("share.import", "share-import", Kind::Path, "file", "", "read another install's share bundle"),
+    key("share.import_keys", "share-import-key", Kind::List, "key[,key]", "", "keys that bundle may be signed with"),
+    key("share.min_networks", "share-min-networks", Kind::Number, "n", "20", "networks a fingerprint is seen from before it is shared"),
+    key("share.interval_secs", "share-interval", Kind::Number, "secs", "300", "seconds between exports"),
+    first("Events", key("events.ip_mode", "ip-mode", Kind::Text, "full|truncated|keyed", "full", "client addresses in logs, events and the dashboard")),
+    key("events.clickhouse.url", "clickhouse-url", Kind::Text, "url", "", "ClickHouse to send events to"),
+    key("events.clickhouse.database", "clickhouse-database", Kind::Text, "name", "veritell", "its database"),
+    key("events.clickhouse.table", "clickhouse-table", Kind::Text, "name", "events", "its table"),
+    key("events.clickhouse.user", "clickhouse-user", Kind::Text, "name", "default", "its user"),
+    first("State", key("state.dir", "state-dir", Kind::Path, "dir", "", "keep quotas and single-use stores across restarts")),
+    key("state.flush_secs", "state-flush", Kind::Number, "secs", "10", "seconds between saves"),
+    first("Secrets: environment variables, or a file each named in", key("secrets.secret_file", "VERITELL_SECRET", Kind::Secret, "", "", "signing secret, at least 32 bytes; random per run if unset")),
+    key("secrets.admin_token_file", "VERITELL_ADMIN_TOKEN", Kind::Secret, "", "", "dashboard token, at least 16 bytes"),
+    key("secrets.clickhouse_password_file", "VERITELL_CLICKHOUSE_PASSWORD", Kind::Secret, "", "", "ClickHouse password"),
+    key("secrets.share_seed_file", "VERITELL_SHARE_SEED", Kind::Secret, "", "", "Ed25519 seed that signs the share export (base64url)"),
+    key("secrets.share_key_file", "VERITELL_SHARE_KEY", Kind::Secret, "", "", "secret agreed with the sharing installs, at least 32 bytes"),
+    key("secrets.known_key_file", "VERITELL_KNOWN_KEY", Kind::Secret, "", "", "key for known-person links, at least 32 bytes"),
 ];
+
+/// The text of `veritell --help`: every flag with its value, default and
+/// what it does, grouped as in the settings file, then the secrets.
+pub fn help() -> String {
+    let flag_col = |k: &Key| if k.kind == Kind::Secret { k.flag.to_string() } else { format!("--{} {}", k.flag, k.arg) };
+    let width = KEYS.iter().map(|k| flag_col(k).len()).max().unwrap_or(0) + 2;
+    let mut out = String::from(
+        "veritell: a gateway in front of an HTTPS site that scores each request for\n\
+         bots; in shadow mode (the default policy) it only logs what it would do.\n\
+         \n\
+         usage: veritell [check-config] [--config file.toml] --cert pem --key pem [--flag value ...]\n\
+         \x20      veritell -h | --help\n\
+         \n\
+         Every flag takes one value. A flag wins over the settings file, where each\n\
+         flag is a key in the [section] shown (deploy/veritell.example.toml).\n\
+         \n",
+    );
+    for (left, text) in [
+        ("--config file.toml", "settings file (TOML)"),
+        ("check-config", "print what the file and flags set, then stop"),
+        ("-h, --help", "this help"),
+    ] {
+        out.push_str(&format!("  {left:width$}{text}\n"));
+    }
+    for k in KEYS {
+        if let Some(title) = k.section {
+            let table = k.path.split('.').next().unwrap_or("");
+            out.push_str(&format!("\n{title}  [{table}]\n"));
+        }
+        let default = if k.default.is_empty() { String::new() } else { format!(" (default {})", k.default) };
+        out.push_str(&format!("  {:width$}{}{default}\n", flag_col(k), k.help));
+    }
+    out
+}
 
 /// Largest settings file read.
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -145,11 +203,11 @@ pub fn parse(text: &str, base: &Path) -> Result<Loaded, String> {
 }
 
 fn key_at(path: &str) -> Option<(&'static str, Kind)> {
-    KEYS.iter().find(|(p, _, _)| *p == path).map(|&(_, flag, kind)| (flag, kind))
+    KEYS.iter().find(|k| k.path == path).map(|k| (k.flag, k.kind))
 }
 
 fn is_section(path: &str) -> bool {
-    KEYS.iter().any(|(p, _, _)| p.strip_prefix(path).is_some_and(|rest| rest.starts_with('.')))
+    KEYS.iter().any(|k| k.path.strip_prefix(path).is_some_and(|rest| rest.starts_with('.')))
 }
 
 fn walk(prefix: &str, table: &toml::Table, base: &Path, out: &mut Loaded) -> Result<(), String> {
@@ -334,13 +392,13 @@ mod tests {
     fn every_flag_has_one_key_and_every_key_a_flag() {
         let usage = usage_flags();
         for flag in &usage {
-            if *flag == "config" {
+            if *flag == "config" || *flag == "help" {
                 continue;
             }
-            let n = KEYS.iter().filter(|(_, f, k)| f == flag && *k != Kind::Secret).count();
+            let n = KEYS.iter().filter(|k| k.flag == *flag && k.kind != Kind::Secret).count();
             assert_eq!(n, 1, "--{flag} has {n} keys");
         }
-        for (path, flag, kind) in KEYS {
+        for Key { path, flag, kind, .. } in KEYS {
             if *kind == Kind::Secret {
                 assert!(flag.starts_with("VERITELL_") && path.ends_with("_file"), "{path}");
             } else {
@@ -366,12 +424,31 @@ mod tests {
                 }
             }
         }
-        for (path, _, kind) in KEYS {
+        for Key { path, kind, .. } in KEYS {
             let section = *kind == Kind::Map && text.contains(&format!("[{path}]"));
             assert!(named.contains(*path) || section, "the example does not name {path}");
         }
         assert!(loaded.secret_files.is_empty(), "the example sets a secret file");
         assert!(!loaded.flags.contains_key("upstream"), "the example sets an upstream");
+    }
+
+    #[test]
+    fn help_lists_every_flag_and_secret_once() {
+        let text = help();
+        for flag in usage_flags() {
+            if flag == "help" {
+                continue;
+            }
+            let lines = text.lines().filter(|l| l.trim_start().starts_with(&format!("--{flag} "))).count();
+            assert_eq!(lines, 1, "--{flag} is on {lines} lines of the help");
+        }
+        for k in KEYS.iter().filter(|k| k.kind == Kind::Secret) {
+            assert!(text.lines().any(|l| l.trim_start().starts_with(k.flag)), "{} is not in the help", k.flag);
+        }
+        for k in KEYS {
+            assert!(!k.help.is_empty() && !k.arg.is_empty() || k.kind == Kind::Secret, "{} has no help", k.path);
+        }
+        assert!(KEYS.first().is_some_and(|k| k.section.is_some()), "the help starts without a heading");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Veritell gateway binary.
 //!
+//! veritell -h | --help             (every flag, its default and what it does)
 //! veritell [check-config] [--config veritell.toml] --cert cert.pem --key key.pem [--listen 127.0.0.1:8443]
 //!          [--upstream host:port] [--policy policy.yaml] [--asn-db ip2asn.tsv]
 //!          [--token-budget N] [--wba-agents agents.json]
@@ -210,7 +211,8 @@ const USAGE: &str = "usage: veritell [check-config] [--config file.toml] --cert 
 [--privacy-pass-issuer name=key[,name=key]] [--share-export file] [--share-import file --share-import-key key[,key]] \
 [--share-min-networks n] [--share-interval secs] [--ip-mode full|truncated|keyed] [--header-timeout secs] [--body-timeout secs] [--write-timeout secs] [--source-url url|off] [--max-conns-per-network n] [--flood-guard off|log|enforce] [--flood-limit n] [--rate-net-limit n] [--rate-client-limit n] [--no-probe-pages n] [--fp-surge-min n] [--fp-surge-growth n] [--shed off|log|enforce] [--max-in-flight n] [--state-dir dir] [--state-flush secs] [--inject-probe on|off] \
 [--upstream-tls on|off] [--upstream-sni name] [--upstream-ca file.pem] [--forwarded-for append|replace] [--log-requests on|off] [--single-use-capacity n] \
-[--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]";
+[--sni-dir dir] [--upstream-host name=host:port[,name=host:port]]\n\
+veritell --help says what each flag does.";
 
 /// Events kept in memory for the dashboard.
 const RING_CAPACITY: usize = 50_000;
@@ -271,6 +273,10 @@ fn parse_args() -> Args {
     let mut given = Vec::new();
     let mut config: Option<String> = None;
     while let Some(flag) = raw.next() {
+        if flag == "-h" || flag == "--help" {
+            print!("{}", settings::help());
+            std::process::exit(0);
+        }
         let Some(name) = flag.strip_prefix("--") else {
             fail(format!("unexpected argument {flag:?}\n{USAGE}"));
         };
@@ -310,7 +316,7 @@ fn read_secret(secrets: &settings::Secrets, env: &str) -> Option<String> {
 /// starts, not here.
 fn check_config(flags: &HashMap<String, String>, secrets: &settings::Secrets) -> ! {
     use settings::{Kind, Source, KEYS};
-    for (path, flag, kind) in KEYS {
+    for settings::Key { path, flag, kind, .. } in KEYS {
         if *kind == Kind::Secret {
             let from = match secrets.source(flag) {
                 Source::Environment => "environment".to_string(),

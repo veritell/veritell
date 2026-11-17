@@ -546,3 +546,16 @@ fn bad_settings_files_are_refused() {
     assert!(stderr.contains("VERITELL_SECRET from") && stderr.contains("make it 600"), "{stderr}");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn help_lists_the_flags_and_exits_cleanly() {
+    for args in [&["--help"][..], &["-h"], &["check-config", "--cert", "x", "-h"]] {
+        let out = run(args);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(0), "{args:?}");
+        assert!(stdout.starts_with("veritell: a gateway"), "{args:?}: {stdout}");
+        assert!(stdout.contains("--listen addr:port") && stdout.contains("VERITELL_SECRET"), "{stdout}");
+    }
+    // A wrong command line points to it.
+    refused(&[], "veritell --help says what each flag does");
+}
