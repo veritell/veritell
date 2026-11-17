@@ -4,7 +4,6 @@
 //!
 //! Each input line is a JSON array of numbers. Each output line is the raw
 //! result and the probability, with 9 decimals, separated by a space.
-//! FIXED BY THE PROJECT LEAD: DO NOT EDIT.
 
 use std::io::{BufRead, Write};
 

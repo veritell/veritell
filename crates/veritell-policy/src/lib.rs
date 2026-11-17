@@ -1,7 +1,5 @@
 //! Policy: a YAML file of routes and CEL rules that turns a verdict into an action.
 //!
-//! PUBLIC API IS FIXED. Implement the bodies; do not change signatures.
-//!
 //! ```yaml
 //! mode: shadow            # "shadow" (default) or "enforce"
 //! default_action: pass    # optional, defaults to pass

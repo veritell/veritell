@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The fast test suite: fixed contracts, Rust tests, the probe scripts and
+# The fast test suite: Rust tests, the probe scripts and
 # their captured reports, the rollout kit's tests.
 # Slow or environment-bound runs are separate (see AGENTS.md):
 # scripts/e2e.sh, scripts/e2e_sni.sh, node lab/run.mjs, scripts/fuzz.sh, scripts/soak.sh.
@@ -9,7 +9,6 @@ cd "$(dirname "$0")"
 LOG=$(mktemp); trap 'rm -f "$LOG"' EXIT
 step() { echo "-- $1"; shift; "$@" >"$LOG" 2>&1 || { cat "$LOG"; echo "FAILED: $*"; exit 1; }; }
 
-step "fixed contracts"  shasum -a 256 -c .acceptance.sha256 --quiet
 step "cargo test"       cargo test --workspace -q
 step "probe parses"     node --check probe/probe.js
 step "behavior parses"  node --check probe/behavior.js

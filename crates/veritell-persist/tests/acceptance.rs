@@ -1,4 +1,5 @@
-//! Acceptance tests for veritell-persist. FIXED BY THE PROJECT LEAD: DO NOT EDIT.
+//! Acceptance tests for veritell-persist: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 
 use std::fs;
 use std::path::PathBuf;

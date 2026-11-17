@@ -1,4 +1,5 @@
-//! Acceptance tests written by the project lead. DO NOT EDIT.
+//! Acceptance tests: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 //!
 //! These use a small synthetic template. The real probe is checked in a
 //! browser by `probe/test/run.mjs --sealed`.

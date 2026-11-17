@@ -1,6 +1,6 @@
 # Behaviour summary schema, version 1
 
-FIXED BY THE PROJECT LEAD. The Rust side of this contract is
+The Rust side of this contract is
 `crates/veritell-behavior/src/types.rs`. `probe/validate_behavior.mjs` checks
 a summary against it.
 

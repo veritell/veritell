@@ -1,8 +1,7 @@
 //! Saving and loading a [`MemoryBudgetStore`], so that a token, a solved
 //! challenge or a nonce already used stays used across a restart.
 //!
-//! FIXED BY THE PROJECT LEAD: the public items and their documentation are
-//! the contract. Implement the bodies; do not change a signature. Nothing may
+//! The public items and their documentation are the contract. Nothing may
 //! panic for any input.
 //!
 //! # Format (version 1)

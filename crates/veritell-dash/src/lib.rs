@@ -3,8 +3,6 @@
 //! This crate does no networking. The gateway's admin listener calls
 //! [`handle`] and writes the result to the socket.
 //!
-//! PUBLIC API IS FIXED. Implement the body; do not change signatures.
-//!
 //! Events contain text chosen by clients (paths, User-Agents). The JSON API
 //! returns it as JSON strings; the page must only ever put it into the
 //! document with `textContent`.

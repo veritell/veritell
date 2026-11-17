@@ -1,7 +1,6 @@
 //! What may be stored for a client address.
 //!
-//! FIXED BY THE PROJECT LEAD: the public items and their documentation are the
-//! contract. Implement the bodies; do not change a signature.
+//! The public items and their documentation are the contract.
 //!
 //! Scoring always sees the real address. This module only decides what text is
 //! written outside the process: log lines, events, the dashboard.

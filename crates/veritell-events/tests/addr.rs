@@ -1,4 +1,5 @@
-//! Acceptance tests for `addr`. FIXED BY THE PROJECT LEAD: DO NOT EDIT.
+//! Acceptance tests for `addr`: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 
 use std::net::IpAddr;
 use std::sync::Arc;

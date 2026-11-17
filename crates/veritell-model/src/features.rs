@@ -1,6 +1,6 @@
 //! The feature vector: what the model is told about a request.
 //!
-//! FIXED BY THE PROJECT LEAD: DO NOT EDIT. `tools/train/train.py` builds the
+//! `tools/train/train.py` builds the
 //! same vector from the same file, `data/features_v1.json`.
 //!
 //! For each layer in `layers`, in order: `n_<layer>` (how many detections)

@@ -74,7 +74,6 @@ pub fn authorized(header: Option<&str>, token: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    // Written by the project lead. DO NOT EDIT.
     use super::*;
     use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
     use base64::Engine as _;

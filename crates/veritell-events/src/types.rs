@@ -1,4 +1,4 @@
-//! Event schema and traits. FIXED BY THE PROJECT LEAD: DO NOT EDIT.
+//! Event schema and traits.
 
 use std::collections::BTreeMap;
 

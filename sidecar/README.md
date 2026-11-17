@@ -14,7 +14,7 @@ load them: in front, the gateway adds them to the pages itself
 `<script src="/__veritell/behavior.js" async></script>` to the pages, with
 `/__veritell/` routed to the gateway (below).
 
-## The endpoint (FIXED BY THE PROJECT LEAD)
+## The endpoint
 
 Start the gateway with a plain-HTTP listener for the proxy, on loopback or a
 private network, and name the proxy as a trusted peer:

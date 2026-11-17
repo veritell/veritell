@@ -1,9 +1,8 @@
 //! State files that survive a restart: written whole or not at all, and
 //! refused whole when anything about them is wrong.
 //!
-//! FIXED BY THE PROJECT LEAD: the public items and their documentation are
-//! the contract. Implement the bodies (and private helpers); do not change a
-//! signature. Nothing may panic for any file content.
+//! The public items and their documentation are the contract. Nothing may
+//! panic for any file content.
 //!
 //! # Format
 //!

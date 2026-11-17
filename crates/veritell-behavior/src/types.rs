@@ -1,6 +1,6 @@
 //! The behaviour summary and the rule parameters.
 //!
-//! FIXED BY THE PROJECT LEAD: DO NOT EDIT. Field meanings are in
+//! Field meanings are in
 //! `probe/BEHAVIOR.md`.
 
 use std::fmt;

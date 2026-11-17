@@ -1,4 +1,4 @@
-# The fast suite (./test.sh: fixed contracts, cargo test, the probe checks
+# The fast suite (./test.sh: cargo test, the probe checks
 # that need no browser, rollout-kit tests). Browser-driven runs are in lab.yml.
 name: test
 on:

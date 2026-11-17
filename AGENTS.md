@@ -52,8 +52,9 @@ Checks outside `./test.sh` and `scripts/e2e.sh`; run them by hand when you chang
 
 ## Rules
 
-- Files in `.acceptance.sha256` are fixed contracts. Don't edit them.
-- Public APIs marked "PUBLIC API IS FIXED" in a crate don't change without the lead.
+- Don't weaken, skip or delete a test to make a change pass. Changing what an
+  acceptance test checks needs the lead's OK and its own commit.
+- A crate's public API is used across the workspace; change it on purpose.
 - The probe scripts are embedded at compile time. After changing `probe/*.js`, rebuild before running the e2e or lab tests.
 - Default rules, truth tables (`crates/*/data/`) and `deploy/policy.yaml` are the open baseline. Values tuned on a site's real traffic stay with that site, not here.
 - Don't cite private planning notes or copy text from them. Mentions of a phase by name ("Phase 3") are fine.

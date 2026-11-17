@@ -1,4 +1,5 @@
-//! Acceptance tests written by the project lead. DO NOT EDIT.
+//! Acceptance tests: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 //!
 //! Vectors are copied from RFC 9421 (appendix B.1.4 and B.2.6) and from
 //! draft-meunier-web-bot-auth-architecture-02 (appendix A.2). Other cases are

@@ -1,4 +1,4 @@
-//! Report schema and analysis inputs. FIXED BY THE PROJECT LEAD: DO NOT EDIT.
+//! Report schema and analysis inputs.
 //!
 //! The JavaScript probe (`probe/probe.js`) produces a [`ProbeReport`] as JSON.
 //! `probe/SCHEMA.md` describes the same structure for the script's author.

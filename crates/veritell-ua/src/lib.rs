@@ -3,7 +3,6 @@
 //! The question this crate answers: does the network stack we observed match
 //! what the User-Agent header claims to be?
 //!
-//! PUBLIC API IS FIXED. Implement the bodies; do not change signatures.
 
 use std::sync::OnceLock;
 

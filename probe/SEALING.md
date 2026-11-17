@@ -1,6 +1,6 @@
 # Probe builds and sealed reports
 
-FIXED BY THE PROJECT LEAD. The Rust side is `crates/veritell-probe-build`.
+The Rust side is `crates/veritell-probe-build`.
 
 `probe.js` is both a working script and the template that the gateway turns
 into per-build scripts. It must keep working unbuilt (the Phase 1 harness and

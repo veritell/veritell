@@ -1,4 +1,5 @@
-//! Acceptance tests for MemoryBudgetStore snapshots. FIXED BY THE PROJECT LEAD: DO NOT EDIT.
+//! Acceptance tests for MemoryBudgetStore snapshots: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 
 use veritell_token::{BudgetStore, MemoryBudgetStore, SnapshotError};
 

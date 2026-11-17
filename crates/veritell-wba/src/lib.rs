@@ -25,7 +25,6 @@
 //! verified request through a [`ReplayCache`], and one that wants the method
 //! and path bound checks [`SignatureInfo::covers`].
 //!
-//! PUBLIC API IS FIXED. Implement the bodies; do not change signatures.
 //! All times are Unix seconds supplied by the caller (no clock access here).
 //! Every input is attacker-controlled: nothing here may panic.
 

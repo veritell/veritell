@@ -1,6 +1,6 @@
 # Probe report schema, version 1
 
-FIXED BY THE PROJECT LEAD. The Rust side of this contract is
+The Rust side of this contract is
 `crates/veritell-probe/src/types.rs`. `probe/validate.mjs` checks a report
 against it.
 

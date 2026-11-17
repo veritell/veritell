@@ -1,4 +1,5 @@
-//! Acceptance tests written by the project lead. DO NOT EDIT.
+//! Acceptance tests: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 //!
 //! `Signature-Agent` as a dictionary, covered with the `key` parameter:
 //! draft-ietf-webbotauth-httpsig-protocol-01, section 5.2.1. The vector is

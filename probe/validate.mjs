@@ -1,4 +1,4 @@
-// Validates a probe report against SCHEMA.md. FIXED BY THE PROJECT LEAD.
+// Validates a probe report against SCHEMA.md.
 //
 //   node probe/validate.mjs report.json      (or pipe the JSON on stdin)
 //

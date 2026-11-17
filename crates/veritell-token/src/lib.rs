@@ -5,7 +5,6 @@
 //! - bound to the client's fingerprint, so it fails when copied elsewhere;
 //! - budgeted, so one solved challenge buys a limited number of requests.
 //!
-//! PUBLIC API IS FIXED. Implement the bodies; do not change signatures.
 //! All times are Unix seconds supplied by the caller (no clock access here).
 
 use std::collections::HashMap;

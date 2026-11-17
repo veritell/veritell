@@ -1,4 +1,5 @@
-//! Acceptance tests written by the project lead. DO NOT EDIT.
+//! Acceptance tests: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 //!
 //! The directory bodies are the examples of
 //! draft-ietf-webbotauth-httpsig-protocol-01 (section 5.5.1 and appendix

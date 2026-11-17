@@ -1,4 +1,5 @@
-//! Acceptance tests for quota snapshots. FIXED BY THE PROJECT LEAD: DO NOT EDIT.
+//! Acceptance tests for quota snapshots: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 
 use veritell_quota::*;
 

@@ -1,7 +1,6 @@
 //! Identity layer: is a self-declared crawler really who it says it is, and
 //! what kind of network does the request come from?
 //!
-//! PUBLIC API IS FIXED. Implement the bodies; do not change signatures.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;

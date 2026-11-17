@@ -17,7 +17,6 @@
 //! `signature` is an Ed25519 signature over those manifest bytes. All base64
 //! is the standard alphabet with padding.
 //!
-//! PUBLIC API IS FIXED. Implement the bodies; do not change signatures.
 //! A bundle is untrusted until its signature verifies: nothing inside the
 //! manifest may be interpreted before that, and nothing here may panic.
 //! All times are Unix seconds supplied by the caller.

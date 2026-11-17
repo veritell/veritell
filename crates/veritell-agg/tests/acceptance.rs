@@ -1,4 +1,5 @@
-//! Acceptance tests written by the project lead. DO NOT EDIT.
+//! Acceptance tests: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;

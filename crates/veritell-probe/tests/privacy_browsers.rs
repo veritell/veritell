@@ -1,5 +1,5 @@
-//! Acceptance tests written by the project lead for rule 3 and privacy
-//! browsers. DO NOT EDIT.
+//! Acceptance tests for rule 3 and privacy browsers: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 //!
 //! The DuckDuckGo User-Agent and the two patched targets are what a real
 //! DuckDuckGo 27.2 on an iPhone sent (Phase 3, 2026-11-10).

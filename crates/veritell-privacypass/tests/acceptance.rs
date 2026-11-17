@@ -1,4 +1,5 @@
-//! Acceptance tests written by the project lead. DO NOT EDIT.
+//! Acceptance tests: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 //!
 //! Vectors are copied from RFC 9578, appendix A.2 (Issuance Protocol 2,
 //! Blind RSA 2048-bit): the issuer public key `pkI`, shared by all five

@@ -1,4 +1,5 @@
-//! Acceptance tests written by the project lead. DO NOT EDIT.
+//! Acceptance tests: the crate's contract. Change one on purpose,
+//! never to make a change pass.
 //!
 //! Engine values in this file are synthetic test data ("TEST-BLINK" and so
 //! on), not browser facts. Real values live in `data/engine_v1.json` and are

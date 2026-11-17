@@ -1,5 +1,4 @@
 // Checks a behaviour summary against probe/BEHAVIOR.md.
-// FIXED BY THE PROJECT LEAD. DO NOT EDIT.
 //
 // Usage: node probe/validate_behavior.mjs summary.json   (or import validate)
 
