@@ -1,0 +1,18 @@
+{
+  "v": 1,
+"err_msg": "test-nonce",
+  "main": {
+    "ua": "Mozilla/5.0 (MleWeacintosh; Intel Mac OS r",
+ "chrome_obj": false,
+    "notif_permission": "defautl",
+    "perm_query_notif": "prompt",
+    "chrome_obj": false,
+    "notif_permission": "default",
+    "perm_query_notif": "prompt",
+    "globals": [],
+    "tz": "Europe/Paris",
+    "tz_offset_min": -60
+  },
+  "errors": []
+}
+ÿn

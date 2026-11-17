@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "nonce": "test-nonce",
+  "main": {
+"window": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+    "platform": "MacIntel",
+    "languages": [
+      ],
+    "window": [
+      1467,
+      742,
+      1467,
+      832
+    ],
+    "dpr_x100": 200,
+    "touch_points": 0,
+    "chrome_obj": false,
+    "notif_permission": "default",
+    "perm_query_notif": "prompt",
+    "tz": "Europe/Paris",
+    "tz_offset_min": -60,
+    "webgl_vendor": "Apple Inc.",
+    "webgl_renderer": "Apple GPU",
+    "globals" : []
+  },
+  "errors": []
+}
+ÿnonce-safari

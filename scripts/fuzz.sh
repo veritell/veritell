@@ -14,7 +14,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 targets=(
   crates/veritell-fp:tls_clienthello crates/veritell-fp:h2_parse crates/veritell-fp:hpack_decode
   .:syn_parse .:wba_request .:reports .:ua_check .:tokens .:directory_keys
-  .:sealed_reports .:bundles
+  .:sealed_reports .:bundles .:replay_cache .:budget_store
 )
 
 if [ "$toolchain" = "stable" ]; then

@@ -25,12 +25,23 @@
 // - A Privacy Pass token accepted stops verifying after any one-byte edit.
 // - An issuer name that passes is a plain host and port, so it cannot break
 //   out of the challenge or the WWW-Authenticate header; an accepted key's
-//   id is the SHA-256 of its SPKI and survives its base64url form.
+//   id is the SHA-256 of its SPKI and survives its base64url form; a name
+//   that fails is refused before any key is read.
+// - The challenge page never carries a challenge string with `<`, `>` or
+//   `"` unescaped, and a minted challenge appears in its page as is.
+// - `Binding::derive` length-prefixes its fields: moving bytes from one
+//   field to the next, or `None` against `Some("")`, gives another binding;
+//   an IPv4-mapped IPv6 address binds as its IPv4 address.
+// - `difficulty_for_score` stays within the issued range and does not
+//   rise as the score improves; `redemption_context` is HMAC-SHA-256 as
+//   documented (checked against a separate HMAC); `challenge_digest` is
+//   SHA-256 of the challenge; every error has a message.
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use veritell_privacypass::{
-    token_challenge, token_from_authorization, valid_server_name, verify as pass_verify, www_authenticate, Accepted,
-    IssuerKey,
+    challenge_digest, redemption_context, token_challenge, token_from_authorization, valid_server_name,
+    verify as pass_verify, www_authenticate, Accepted, IssuerKey, PassError,
 };
 use veritell_token::{issue, pow, verify, Binding, Keys, TokenError};
 
@@ -75,6 +86,65 @@ fn zero_bits(challenge: &str, counter: u64) -> u32 {
         }
     }
     n
+}
+
+/// HMAC-SHA-256 (RFC 2104), written apart from the crates' `hmac` use.
+fn hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
+    let mut k = [0u8; 64];
+    if key.len() > 64 {
+        k[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let pad = |b: u8| k.map(|x| x ^ b);
+    let inner = Sha256::new().chain_update(pad(0x36)).chain_update(data).finalize();
+    Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().into()
+}
+
+/// Mode 2, beyond the return path: the text as a challenge on the page, as
+/// three binding fields, and its first byte as a score.
+fn page_and_binding(text: &str, rest: &[u8]) {
+    // Escaped, the text adds none of the characters that end an attribute
+    // or open a tag: the page has exactly as many as one for "x". (Counting
+    // the text itself is unsound: its first byte can join the template's.)
+    let page = pow::challenge_page(text, "/");
+    let without = pow::challenge_page("x", "/");
+    for c in ['<', '>', '"', '\''] {
+        assert_eq!(page.matches(c).count(), without.matches(c).count(), "challenge page carries a raw {c:?}");
+    }
+    let last = rest.first().copied().unwrap_or(0);
+    let v4 = Ipv4Addr::new(192, 0, 2, last);
+    let mapped = Binding::derive(Some(text), IpAddr::V6(v4.to_ipv6_mapped()), None);
+    assert_eq!(mapped, Binding::derive(Some(text), IpAddr::V4(v4), None), "IPv4-mapped address binds apart");
+    let ip = if last & 1 == 1 {
+        IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, u16::from(last), 0, 0, 0, 0, 1))
+    } else {
+        IpAddr::V4(v4)
+    };
+    let cut = |at: usize| {
+        let mut at = at.min(text.len());
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        text.split_at(at)
+    };
+    let (a, b) = cut(usize::from(rest.get(1).copied().unwrap_or(0)) % (text.len() + 1));
+    if !b.is_empty() {
+        // The same text split later: `a` plus the first half of `b`, then the rest.
+        let (longer, rest_of_b) = cut(a.len() + b.len() / 2);
+        let one = Binding::derive(Some(a), ip, Some(b));
+        if longer.len() > a.len() {
+            assert_ne!(one, Binding::derive(Some(longer), ip, Some(rest_of_b)), "fields collide: {a:?} {b:?}");
+        }
+        assert_ne!(one, Binding::derive(Some(text), ip, None), "fields collide: {a:?} {b:?}");
+    }
+    assert_ne!(Binding::derive(None, ip, Some(a)), Binding::derive(Some(""), ip, Some(a)), "None and empty collide");
+    let score = rest.first().copied().unwrap_or(0);
+    let d = pow::difficulty_for_score(score);
+    assert!((pow::MIN_DIFFICULTY..=pow::MAX_DIFFICULTY).contains(&d), "difficulty {d} for score {score}");
+    if let Some(next) = score.checked_add(1) {
+        assert!(pow::difficulty_for_score(next) <= d, "a better score got a harder challenge");
+    }
 }
 
 /// Every one-byte change to `s` at up to 64 positions: another character,
@@ -158,6 +228,7 @@ fn minted(d: &[u8]) {
 
     // Challenge.
     let ch = pow::issue_challenge(keys(), &binding, now, ttl, difficulty);
+    assert!(pow::challenge_page(&ch, "/").contains(&ch), "challenge page lacks its challenge");
     let level = difficulty.clamp(pow::MIN_DIFFICULTY, pow::MAX_DIFFICULTY);
     assert_eq!(pow::issued_difficulty(keys(), &ch), Some(level));
     assert!(pow::issued_difficulty(keys(), &token).is_none(), "a session token reads as a challenge");
@@ -204,14 +275,30 @@ fn issuer(rest: &[u8]) {
         // With origin info, also a redemption context.
         let context = (!origin.is_empty()).then_some(&[7u8; 32]);
         let c = token_challenge(name, context, origin);
-        if let Ok(c) = &c {
-            let context_len = if context.is_some() { 33 } else { 1 };
-            assert_eq!(c.len(), 2 + 2 + name.len() + context_len + 2 + origin.len(), "challenge length");
-            assert_eq!(&c[..2], &[0, 2]);
+        match &c {
+            Ok(c) => {
+                let context_len = if context.is_some() { 33 } else { 1 };
+                assert_eq!(c.len(), 2 + 2 + name.len() + context_len + 2 + origin.len(), "challenge length");
+                assert_eq!(&c[..2], &[0, 2]);
+                assert_eq!(challenge_digest(c), <[u8; 32]>::from(Sha256::digest(c)));
+            }
+            Err(e) => assert!(*e == PassError::Name && !e.to_string().is_empty(), "token_challenge: {e:?}"),
         }
+    } else {
+        assert_eq!(IssuerKey::from_base64url(name, "AAAA").err(), Some(PassError::Name), "bad name {name:?}");
+        assert_eq!(token_challenge(name, None, origin).err(), Some(PassError::Name), "bad name {name:?}");
     }
-    if let Ok(key) = IssuerKey::new(name, spki) {
+    let window = u64::from(spki.len() as u32);
+    let mut msg = b"veritell privacy pass context v1".to_vec();
+    msg.extend_from_slice(&window.to_be_bytes());
+    assert_eq!(redemption_context(spki, window), hmac(spki, &msg), "redemption context is not the documented HMAC");
+    let key = IssuerKey::new(name, spki);
+    if let Err(e) = &key {
+        assert!(!e.to_string().is_empty(), "empty error message");
+    }
+    if let Ok(key) = key {
         assert!(valid_server_name(name));
+        assert_eq!(key.name(), name);
         assert_eq!(key.key_id(), &<[u8; 32]>::from(Sha256::digest(spki)), "key id is not SHA-256 of the SPKI");
         let again = IssuerKey::from_base64url(name, &key.token_key()).expect("token-key does not read back");
         assert_eq!((again.key_id(), again.spki()), (key.key_id(), key.spki()));
@@ -242,7 +329,14 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
     let binding = Binding([pick; 16]);
     match pick % 7 {
         0 => {
-            if verify(keys(), text, &binding, NOW).is_ok() {
+            if rest.len() < 32 {
+                assert_eq!(Keys::from_secret(rest).err(), Some(TokenError::WeakSecret), "short secret accepted");
+            }
+            let checked = verify(keys(), text, &binding, NOW);
+            if let Err(e) = &checked {
+                assert!(!e.to_string().is_empty(), "empty error message");
+            }
+            if checked.is_ok() {
                 for e in one_byte_edits(text) {
                     if e != text {
                         assert!(verify(keys(), &e, &binding, NOW).is_err(), "edited token verifies: {e}");
@@ -266,19 +360,22 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
         2 => {
             let _ = pow::issued_difficulty(keys(), text);
             return_path(text);
+            page_and_binding(text, rest);
         }
         3 => {
             if let Ok(Some(token)) = token_from_authorization(text) {
                 let (key, accepted) = pass();
-                if pass_verify(&token, std::slice::from_ref(key), std::slice::from_ref(accepted)).is_ok() {
-                    pass_edits(&token);
+                match pass_verify(&token, std::slice::from_ref(key), std::slice::from_ref(accepted)) {
+                    Ok(_) => pass_edits(&token),
+                    Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
                 }
             }
         }
         4 => {
             let (key, accepted) = pass();
-            if pass_verify(rest, std::slice::from_ref(key), std::slice::from_ref(accepted)).is_ok() {
-                pass_edits(rest);
+            match pass_verify(rest, std::slice::from_ref(key), std::slice::from_ref(accepted)) {
+                Ok(_) => pass_edits(rest),
+                Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
             }
         }
         5 => minted(rest),

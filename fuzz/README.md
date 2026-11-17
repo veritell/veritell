@@ -13,6 +13,8 @@ only on public crate APIs.
 | `tokens` | `veritell_token::issue`, `verify`, `pow::issue_challenge`, `verify_solution`, `issued_difficulty`, `sanitize_return_to`, `challenge_page`, `veritell_privacypass::token_from_authorization` and `verify` | the session cookie, a challenge answer, `Authorization: PrivateToken` |
 | `directory_keys` | `veritell_directory::parse_keys`, `parse_url`, `ttl_from_cache_control`, `address_allowed` | a key directory's response, its URL, `Cache-Control`, the address it resolves to |
 | `sealed_reports` | `veritell_probe_build::Builder::open` with the gateway's probe template | the sealed report body, and its plaintext: the build key is in the script every client gets |
+| `replay_cache` | `veritell_wba::ReplayCache`: `first_use`, `restore`, `entries` across time steps and restarts, against a reference model | the order, timing and expiry of the signatures a gateway sees, and its capacity |
+| `budget_store` | `veritell_token::MemoryBudgetStore`: `try_consume` across time steps, `export` and `import` across restarts, against a reference model | the ids, budgets and expiry times a client presents, and the saved state file read back at start |
 | `bundles` | `veritell_feed::open`, `veritell_share::open_bundle`, `decode` | a data feed or share bundle on disk; past the signature, the manifest and files |
 
 ## What a crash means here
@@ -83,3 +85,8 @@ captured reports, the lab's synthetic behaviour sessions, real User-Agent
 strings, and SYNs built in `make_seeds.py`. The session token and solved
 challenge in the `tokens` seeds are made under the target's fixed test key;
 `make_seeds.py` says how to make them again.
+
+The `regress_dupes_*` seeds in `seeds/sealed_reports` are not generated: they
+are the 19 inputs that crashed the sealed_reports harness before its
+duplicate-key fix (weekend run of 2026-11-16), kept as regression inputs.
+`make_seeds.py` does not delete files, so they survive a regeneration.

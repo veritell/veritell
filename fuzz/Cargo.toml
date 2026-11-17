@@ -85,6 +85,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "budget_store"
+path = "fuzz_targets/budget_store.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "replay_cache"
+path = "fuzz_targets/replay_cache.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "bundles"
 path = "fuzz_targets/bundles.rs"
 test = false

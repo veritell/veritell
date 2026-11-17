@@ -1,0 +1,152 @@
+{
+  "v": 1,
+  "nonce": "test-nonce",
+  "main": {
+    "ua": "MozKHTML, like Gecko) Version/27.2 Safari/605.1.15",
+    "platform": "MacIntel",
+    "languages": [
+      "en-GB"
+    ],
+    "hc": 8,
+    "webdriver": false,
+     "touch_points": 0,
+    "chrome_obj": false,
+    "notif_permission": "default",
+    "perm_query_notif": "prom2pt",
+    "tz": "Europe/Paris",
+    "tz_offset_min": -30,
+    "webgl_vendor": "Apple Inc.",
+    "webgl_renderer": "Apple GPU",
+    "globals": [
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+467,
+      742,
+      1467,
+      832
+    ],
+    "dpr_x100": 200,
+    "touch_points": 0,
+    "chrome_obj": false,
+    "notif_permission": "default",
+    "perm_query_notif": "prompt",
+    "tz": "Europe/Paris",
+    "tz_offset_min": -30,
+    "webgl_vendor": "Apple Inc.",
+    "webgl_renderer": "Apple GPU",
+    "globals": []
+  },
+  "errors": []
+}
+ÿnonce-safari

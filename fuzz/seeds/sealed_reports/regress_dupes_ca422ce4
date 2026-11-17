@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "nonce": "test-nonce",
+  "main": {
+    "ua": "Mozillt",
+    "perm_query_notif": "prompt",
+    "globals": [],
+    "tz": "Europe/Palt",
+    "perm_query_notif": 0
+  },
+  "errors": []
+}
+ÿn

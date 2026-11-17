@@ -15,14 +15,18 @@
 // `@authority` is covered; the signature is not expired; a Signature-Agent
 // header is covered; an agent pinned to a Signature-Agent value got it; a
 // key with validity dates is used only within them; the
-// replay facts exist and are stable; and changing any covered request part
-// that changes the signature base makes verification fail.
+// replay facts exist and are stable; a fresh `ReplayCache` takes the
+// signature once, refuses it again, and still refuses it after a restart
+// (`entries` then `restore`); and changing any covered request part that
+// changes the signature base makes verification fail. Every verdict's
+// `detection()` is `None` exactly for `Absent` and `Verified`, and every
+// parse error has a message.
 use base64::Engine as _;
 use ed25519_dalek::{Signer, SigningKey};
 use std::sync::OnceLock;
 use veritell_wba::{
     jwk_thumbprint_ed25519, parse_directory, signature_base, signature_info, verify, Ed25519Key, RequestParts,
-    TrustedAgents, WbaVerdict, CLOCK_SKEW_SECS,
+    ReplayCache, TrustedAgents, WbaVerdict, CLOCK_SKEW_SECS,
 };
 
 /// RFC 9421 B.1.4's public key, trusted directly.
@@ -138,6 +142,8 @@ fn properties(req: &Req, now: u64) {
     if debug() {
         eprintln!("verdict: {verdict:?}");
     }
+    let quiet = matches!(verdict, WbaVerdict::Absent | WbaVerdict::Verified { .. });
+    assert_eq!(verdict.detection().is_none(), quiet, "detection() for {verdict:?}");
     let WbaVerdict::Verified { agent, .. } = &verdict else { return };
     let info = info.expect("Verified but signature_info found no signature");
     assert!(info.covers("@authority"), "Verified without @authority covered: {:?}", info.components);
@@ -156,6 +162,14 @@ fn properties(req: &Req, now: u64) {
         assert!((CREATED + DATED_FROM..=CREATED + DATED_UNTIL).contains(&now), "key used outside its validity");
     }
     assert_eq!(req.check(now).1.map(|i| i.replay_id), Some(info.replay_id), "replay id not stable");
+    let mut cache = ReplayCache::new(4);
+    assert!(cache.first_use(&info, now), "a fresh cache refused a first use");
+    assert!(!cache.first_use(&info, now), "a replay was accepted");
+    let mut restarted = ReplayCache::new(4);
+    for (id, until) in cache.entries(now) {
+        restarted.restore(id, until, now);
+    }
+    assert!(!restarted.first_use(&info, now), "a replay was accepted after a restart");
 
     // Change each covered part. Where the signature base changes, the
     // signature must no longer verify.
@@ -200,15 +214,19 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
     let Some((&pick, rest)) = data.split_first() else { return };
     match pick % 8 {
         0 => {
-            if let Ok(keys) = parse_directory(text(rest)) {
-                for k in &keys {
-                    assert_eq!(k.keyid, jwk_thumbprint_ed25519(&k.public), "key id is not the thumbprint");
+            match parse_directory(text(rest)) {
+                Ok(keys) => {
+                    for k in &keys {
+                        assert_eq!(k.keyid, jwk_thumbprint_ed25519(&k.public), "key id is not the thumbprint");
+                    }
                 }
+                Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
             }
         }
-        1 => {
-            let _ = TrustedAgents::from_json(text(rest));
-        }
+        1 => match TrustedAgents::from_json(text(rest)) {
+            Ok(t) => assert_eq!(t.is_empty(), t.len() == 0),
+            Err(e) => assert!(!e.to_string().is_empty(), "empty error message"),
+        },
         mode => {
             let f: Vec<&str> = rest.split(|&b| b == 0xFF).map(text).collect();
             let get = |i: usize| f.get(i).copied().unwrap_or("");

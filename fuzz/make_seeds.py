@@ -116,9 +116,13 @@ signed.update({
 for name, (pick, fields) in signed.items():
     write("wba_request", name, bytes([pick]) + req(*fields))
 # Signatures that cannot verify under any key: S at or above the group
-# order, and R a small-order point.
+# order, and R a small-order point. S equal to the order is the edge the
+# byte comparison ends on; one below it is still plausible.
 a21_sig = base64.b64decode(a21s.split(":")[1])
-for name, sig in {"sig_s_too_big": a21_sig[:32] + b"\xff" * 32, "sig_r_small_order": b"\x01" + bytes(31) + a21_sig[32:]}.items():
+ED25519_L = (2**252 + 27742317777372353535851937790883648493).to_bytes(32, "little")
+ED25519_L1 = (2**252 + 27742317777372353535851937790883648492).to_bytes(32, "little")
+for name, sig in {"sig_s_too_big": a21_sig[:32] + b"\xff" * 32, "sig_r_small_order": b"\x01" + bytes(31) + a21_sig[32:],
+                  "sig_s_order": a21_sig[:32] + ED25519_L, "sig_s_order_minus_1": a21_sig[:32] + ED25519_L1}.items():
     write("wba_request", name, b"\x02" + req("GET", "example.com", "/", "", a21i, "sig1=:" + base64.b64encode(sig).decode() + ":"))
 jwks = json.dumps({"keys": [{"kty": "OKP", "crv": "Ed25519", "x": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs", "use": "sig"}]})
 write("wba_request", "directory", b"\x00" + jwks.encode())
@@ -247,8 +251,44 @@ for name, (issuer, spki, origin) in {
     "issuer_port": ("issuer.example:8443", PKI, ""),
     "issuer_short_key": ("issuer.example", PKI[:-20], ""),
     "issuer_bad_port": ("issuer.example:0", PKI, "a,,b"),
+    "issuer_bad_origin": ("issuer.example", PKI, "origin.example,,shop.example"),
 }.items():
     write("tokens", name, b"\x06" + issuer.encode() + SEP + spki + SEP + origin.encode())
+
+
+def der_read(b):
+    # One DER TLV: (tag, body, rest).
+    tag, n, i = b[0], b[1], 2
+    if n & 0x80:
+        i, n = 2 + (n & 0x7F), int.from_bytes(b[2:2 + (n & 0x7F)], "big")
+    return tag, b[i:i + n], b[i + n:]
+
+
+def der(tag, body):
+    n = len(body)
+    if n < 0x80:
+        return bytes([tag, n]) + body
+    ln = n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return bytes([tag, 0x80 | len(ln)]) + ln + body
+
+
+def spki_with_exponent(exponent):
+    # The test key's SPKI with its RSA public exponent replaced.
+    _, spki, _ = der_read(PKI)
+    _, alg, rest = der_read(spki)
+    _, bits, _ = der_read(rest)
+    _, rsa, _ = der_read(bits[1:])
+    _, modulus, _ = der_read(rsa)
+    rsa = der(0x30, der(0x02, modulus) + der(0x02, exponent))
+    return der(0x30, der(0x30, alg) + der(0x03, b"\x00" + rsa))
+
+
+assert spki_with_exponent(b"\x01\x00\x01") == PKI
+for name, exponent in {"issuer_exponent_1": b"\x01", "issuer_exponent_6_bytes": b"\x01\x00\x00\x00\x00\x01",
+                       "issuer_exponent_5_bytes": b"\x01\x00\x00\x00\x01", "issuer_exponent_even": b"\x01\x00\x02"}.items():
+    write("tokens", name, b"\x06" + b"issuer.example" + SEP + spki_with_exponent(exponent) + SEP)
+# Mode 2 also reads the text as a challenge on the page and as binding fields.
+write("tokens", "page_markup", b"\x02" + b'02aa<script>"x".00')
 write_dict("tokens", ["PrivateToken", "token=", ",", '"', ".", ":", "0002", "/", "//", "?", "#", "%2F", "\\"])
 
 # ---- directory_keys --------------------------------------------------------
@@ -268,6 +308,42 @@ write_dict("directory_keys", ['"keys"', '"kty"', '"OKP"', '"crv"', '"Ed25519"', 
 
 # The URL that printed one byte over MAX_URL_BYTES (a found crash).
 write("directory_keys", "url_limit_no_path", b"\x01" + (lambda h: h + b"x" * (2048 - len(h)))(b"https://[2::1]:63049?"))
+
+# ---- budget_store ----------------------------------------------------------
+# Operation sequences (see the target): 0 id budget d = try_consume, 1 d =
+# time forward d*3 s, 2 = restart, 3 n (id used d)* = valid snapshot,
+# 4 n bytes = raw snapshot. The first byte is the capacity.
+consume, later = (lambda i, b, d: bytes([0, i, b, d])), (lambda d: bytes([1, d]))
+snap = lambda *e: bytes([3, len(e)]) + b"".join(bytes(x) for x in e)
+raw = lambda b: bytes([4, len(b)]) + b
+entry = lambda i, used, exp: bytes([i]) * 16 + struct.pack(">IQ", used, exp)
+for name, ops in {
+    "spend": bytes([4]) + consume(0, 3, 20) * 4 + consume(1, 1, 20) * 2 + consume(2, 0, 20),
+    "full": bytes([2]) + consume(0, 3, 2) + consume(1, 3, 2) + consume(2, 3, 2) + later(4) + consume(2, 3, 2),
+    "restart": bytes([5]) + consume(0, 2, 10) + consume(1, 3, 0x85) + later(1) + b"\x02" + consume(0, 2, 10) * 2,
+    "merge": bytes([3]) + consume(0, 3, 10) + snap((0, 3, 4), (1, 1, 30), (5, 9, 0x81)) + consume(0, 3, 10) + consume(1, 1, 30),
+    "merge_full": bytes([1]) + consume(0, 1, 10) + snap((1, 1, 30), (2, 1, 30)) + consume(1, 1, 30),
+    "raw_valid": bytes([4]) + raw(b"\x01\x00\x00\x00\x02" + entry(1, 2, 1_900_000_000) + entry(2, 1, 1_900_000_000)) + consume(1, 2, 0),
+    "raw_unsorted": bytes([4]) + consume(3, 1, 9) + raw(b"\x01\x00\x00\x00\x02" + entry(2, 1, 1_900_000_000) + entry(1, 1, 1_900_000_000)),
+    "raw_used_0": bytes([4]) + raw(b"\x01\x00\x00\x00\x01" + entry(1, 0, 1_900_000_000)),
+    "raw_count_wrap": bytes([4]) + raw(b"\x01\xff\xff\xff\xff" + entry(1, 1, 1)),
+}.items():
+    write("budget_store", name, ops)
+
+# ---- replay_cache ----------------------------------------------------------
+# Operation sequences (see the target): 0 id d = first_use, 1 d = time
+# forward d*7 s, 2 id d = restore, 3 = restart. The first byte is the
+# capacity minus one.
+use, wait, restore, restart = (lambda i, d: bytes([0, i, d])), (lambda d: bytes([1, d])), (lambda i, d: bytes([2, i, d])), b"\x03"
+for name, ops in {
+    "evict": bytes([1]) + use(0, 10) + use(1, 20) + use(2, 30) + use(1, 20) + use(0, 10),
+    "skew_edge": bytes([3]) + use(0, 0) + wait(8) + use(0, 0) + wait(1) + use(0, 0),
+    "restart": bytes([2]) + use(0, 5) + use(1, 6) + use(2, 7) + restore(3, 0x85) + restart + use(1, 6) + use(3, 1),
+    "never_expires": bytes([0]) + use(0, 0xFF) + wait(255) + wait(255) + use(0, 0) + restart + use(0, 0),
+    "restore_full": bytes([0]) + use(0, 5) + restore(1, 1) + restore(1, 20) + use(0, 5) + use(1, 0),
+    "past_expiry": bytes([7]) + use(0, 0x90) + use(0, 0x90) + use(1, 0xFE) + restore(2, 0x81),
+}.items():
+    write("replay_cache", name, ops)
 
 # ---- sealed_reports --------------------------------------------------------
 # Mode 1 seals the report as given; mode 2 renames its keys and encrypts it
