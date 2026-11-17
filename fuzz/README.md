@@ -17,7 +17,8 @@ only on public crate APIs.
 | `budget_store` | `veritell_token::MemoryBudgetStore`: `try_consume` across time steps, `export` and `import` across restarts, against a reference model | the ids, budgets and expiry times a client presents, and the saved state file read back at start |
 | `probe_nonce` | `veritell_probe::verify_nonce` on nonces as sent, and on nonces issued by `issue_nonce` then edited | the nonce a client sends back with its report |
 | `probe_template` | `veritell_probe_build::Builder::new`, `build_with_seed`, then `seal` and `open` with the build | the probe template (shuffle markers, renamed identifiers, comments, the two tokens) and the server secret's length |
-| `bundles` | `veritell_feed::open`, `veritell_share::open_bundle`, `decode` | a data feed or share bundle on disk; past the signature, the manifest and files |
+| `bundles` | `veritell_feed::open`, `seal`, `FeedKey::from_base64url`, `veritell_share::open_bundle`, `decode`, `encode`, `seal_bundle` | a data feed or share bundle on disk, past the signature, the manifest and files; a configured feed key |
+| `share_ledger` | `veritell_share::Ledger`: `record`, `export`, `tracked` across clock steps, against a reference model and the `min_networks` rule; the export through `seal_bundle`, `open_bundle` and `Imported::detection` | the fingerprints, networks and classes a gateway records before it shares, and its configuration |
 
 ## What a crash means here
 

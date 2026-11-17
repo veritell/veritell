@@ -118,3 +118,10 @@ path = "fuzz_targets/bundles.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "share_ledger"
+path = "fuzz_targets/share_ledger.rs"
+test = false
+doc = false
+bench = false

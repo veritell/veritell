@@ -398,6 +398,29 @@ for name, ops in {
 }.items():
     write("replay_cache", name, ops)
 
+# ---- share_ledger ----------------------------------------------------------
+# Operation sequences (see the target): 0 f n c d = record (class 4
+# automated, 5 malicious, 0 human), 1 d = export, 2 = tracked, 3 d = clock.
+# The first two bytes are the configuration: min_networks 5 + (c & 3),
+# max_fingerprints 1 + (c >> 2 & 7), ttl_secs t + 1.
+rec, export, clock = (lambda f, n, c=4, d=1: bytes([0, f, n, c, d])), (lambda d=0: bytes([1, d])), (lambda d: bytes([3, d]))
+five = lambda f, c=4: b"".join(rec(f, n, c) for n in range(5))
+for name, ops in {
+    "shared": bytes([0x08, 99]) + five(0) + export() + five(1, 5) + export(),
+    "four_networks": bytes([0x08, 99]) + b"".join(rec(0, n) for n in range(4)) + rec(0, 3) + export(),
+    "malicious_kept": bytes([0x08, 99]) + rec(0, 0, 5) + five(0) + export(),
+    "forgotten": bytes([0x08, 20]) + five(0) + clock(30) + export() + rec(0, 9) + export(),
+    "window_edge": bytes([0x08, 9]) + five(0) + clock(5) + export() + clock(1) + export(),
+    "full_purge": bytes([0x00, 9]) + rec(0, 0) + clock(11) + rec(1, 0) + rec(2, 0) + bytes([2]),
+    "full_refused": bytes([0x04, 99]) + rec(0, 0) + rec(1, 0) + rec(2, 0) + five(2) + export(),
+    "networks_rotate": bytes([0x0b, 99]) + b"".join(rec(0, n) for n in range(12)) + export() + rec(0, 2) + export(),
+    "clock_back": bytes([0x08, 50]) + five(0) + clock(0xB0) + rec(0, 6) + export(0x90),
+    "human": bytes([0x08, 99]) + five(0, 0) + rec(0, 1, 2) + export() + bytes([2]),
+    "config_raw": bytes([0xE0, 0]) + struct.pack(">HIB", 5, 100_000, 1),
+    "config_large": bytes([0xFF, 0]) + struct.pack(">HIB", 1001, 1, 1),
+}.items():
+    write("share_ledger", name, ops)
+
 # ---- sealed_reports --------------------------------------------------------
 # Mode 1 seals the report as given; mode 2 renames its keys and encrypts it
 # with the build key, as a client can. The build is picked by bits 2 to 4.
@@ -440,6 +463,17 @@ write("bundles", "signed_raw_base64", b"\x91" + SEP.join([manifest({"a": b"x"}),
 write("bundles", "share_file", b"\x03" + share_file)
 write("bundles", "share_dupe", b"\x03" + b'{"v":1,"entries":[{"h":"00112233445566778899aabbccddeeff","c":"malicious"},{"h":"00112233445566778899aabbccddeeff","c":"automated"}]}')
 write("bundles", "raw_shape", b"\x00" + b'{"manifest":"e30=","signature":"' + base64.b64encode(bytes(64)) + b'","files":{}}')
+many = manifest({"f%02d" % i: b"" for i in range(33)})
+write("bundles", "signed_too_many", b"\x11" + SEP.join([many, b"f00", b""]))
+short = json.loads(manifest({"a": b"x"}))
+short["files"]["a"]["sha256"] = "2d71"
+write("bundles", "signed_short_hash", b"\x11" + SEP.join([json.dumps(short, separators=(",", ":")).encode(), b"a", b"x"]))
+write("bundles", "signed_number_value", b"\x91" + SEP.join([manifest({"a": b"x"}), b"a", b"1"]))
+write("bundles", "raw_feed_key", b"\x00" + base64.urlsafe_b64encode(bytes(range(32))).rstrip(b"="))
+# 63 bytes after the first: the limit checks (padding, seal sizes, TooMany).
+write("bundles", "raw_padded", b"\x00" + b'{"manifest":"","signature":"","files":{}}'.ljust(63))
+write("bundles", "sealed_limits", b"\x02" + (b"a" + SEP + b"x").ljust(63, b"y"))
+write("bundles", "share_limits", b"\x03" + b'{"v":1,"entries":[]}'.ljust(63))
 write_dict("bundles", ['"format":', '"version":', '"created":', '"expires":', '"files":', '"sha256":', '"len":', '"manifest":',
                        '"signature":', '"v":1', '"entries":', '"h":', '"c":', '"automated"', '"malicious"', "share_v1.json",
                        "1800000000", "18446744073709551615", "\xff"])
