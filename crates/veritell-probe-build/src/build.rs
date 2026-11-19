@@ -368,13 +368,16 @@ impl Builder {
         if template.matches(CONFIG_TOKEN).count() != 1 {
             return Err(BuildError::Token(CONFIG_TOKEN));
         }
-        // The configuration is a JSON object: `{}` stands in for it.
-        if template
-            .replacen(BUILD_TOKEN, "{}", 1)
-            .matches(CONFIG_TOKEN)
-            .count()
-            != 1
-        {
+        // The two must not share bytes: replacing BUILD_TOKEN would break
+        // CONFIG_TOKEN. Checked by position, not by counting CONFIG_TOKEN
+        // after a replacement: `matches` skips an occurrence that overlaps
+        // the one before it, so a replacement can break one CONFIG_TOKEN
+        // and uncover another, leaving the count at one.
+        let (b, c) = (
+            template.find(BUILD_TOKEN).unwrap_or_default(),
+            template.find(CONFIG_TOKEN).unwrap_or_default(),
+        );
+        if b < c + CONFIG_TOKEN.len() && c < b + BUILD_TOKEN.len() {
             return Err(BuildError::Token(CONFIG_TOKEN));
         }
         let segments = parse_segments(template)?;
@@ -756,6 +759,14 @@ mod tests {
         let overlap = "x = \"__\"__VERITELL_BUILD__\"__VERITELL_CONFIG__\";\n";
         assert_eq!(
             Builder::new(overlap, SECRET).err(),
+            Some(BuildError::Token(CONFIG_TOKEN))
+        );
+        // The same overlap with a second CONFIG_TOKEN sharing the next
+        // quote: replacing BUILD_TOKEN breaks the first and uncovers the
+        // second, so counting after the replacement saw one and accepted.
+        let hidden = "x = \"__VERITELL_BUILD__\"__VERITELL_CONFIG__\"__VERITELL_CONFIG__\";\n";
+        assert_eq!(
+            Builder::new(hidden, SECRET).err(),
             Some(BuildError::Token(CONFIG_TOKEN))
         );
         let accepted = [
