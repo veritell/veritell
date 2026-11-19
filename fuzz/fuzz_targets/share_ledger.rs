@@ -267,9 +267,13 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
         slots: HashMap::new(),
     };
     let hashes: Vec<[u8; HASH_BYTES]> = (0..8).map(|i| key().hash(&fingerprint(i))).collect();
-    // (fingerprint, network, time used, class) of every automated or
-    // malicious record.
-    let mut log: Vec<(usize, [u8; 8], u64, Class)> = Vec::new();
+    // The log of automated and malicious records, reduced to what the
+    // privacy check reads: the latest time used for each (fingerprint,
+    // network), and whether a fingerprint was ever recorded as malicious.
+    // A pair was seen within `ttl_secs` of an export exactly when its latest
+    // time was. Keeping every record made long inputs quadratic.
+    let mut seen: HashMap<(usize, [u8; 8]), u64> = HashMap::new();
+    let mut malicious = [false; 8];
     let mut now = START;
     let step = |now: u64, d: u8| {
         if d < 0x80 {
@@ -303,7 +307,8 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                         "a {class:?} record changed the ledger"
                     );
                 } else {
-                    log.push((f, network, model.latest, class));
+                    seen.insert((f, network), model.latest);
+                    malicious[f] |= class == Class::Malicious;
                 }
             }
             1 => {
@@ -323,23 +328,16 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
                         .iter()
                         .position(|h| *h == e.hash)
                         .expect("exported an unknown hash");
-                    let mut networks: Vec<[u8; 8]> = log
+                    let networks = seen
                         .iter()
-                        .filter(|r| r.0 == f && at - r.2 <= config.ttl_secs)
-                        .map(|r| r.1)
-                        .collect();
-                    networks.sort();
-                    networks.dedup();
+                        .filter(|((g, _), &t)| *g == f && at - t <= config.ttl_secs)
+                        .count();
                     assert!(
-                        networks.len() >= config.min_networks as usize,
-                        "fingerprint {f} exported after {} networks",
-                        networks.len()
+                        networks >= config.min_networks as usize,
+                        "fingerprint {f} exported after {networks} networks"
                     );
                     if e.class == Class::Malicious {
-                        assert!(
-                            log.iter().any(|r| r.0 == f && r.3 == Class::Malicious),
-                            "{f} exported as malicious"
-                        );
+                        assert!(malicious[f], "{f} exported as malicious");
                     }
                 }
                 last = Some((got, at));
